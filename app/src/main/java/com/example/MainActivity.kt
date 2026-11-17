@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -139,6 +140,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
         enableEdgeToEdge()
         PixoraNotificationManager.ensureChannel(this)
         lifecycleScope.launch {
@@ -437,6 +442,7 @@ fun PixoraUserPanelApp(
                                     initialImageId = imageId,
                                     bookmarkedIds = bookmarkedIds,
                                     onToggleBookmark = viewModel::toggleBookmark,
+                                    onRevealHiddenImage = { img -> viewModel.revealHiddenImage(img.id) },
                                     onShowMessage = { msg ->
                                         scope.launch { snackbarHostState.showSnackbar(msg) }
                                     },
@@ -479,7 +485,7 @@ fun PixoraUserPanelApp(
                                 AdminStudioScreen(
                                     publishState = publishState,
                                     uploadedImages = uploadedImages,
-                                    onUploadPicture = { uri, manualUrl, title, desc, cat, tags, featured ->
+                                    onUploadPicture = { uri, manualUrl, title, desc, cat, tags, featured, isHidden ->
                                         adminViewModel.uploadPicture(
                                             context = context,
                                             selectedUri = uri,
@@ -489,6 +495,7 @@ fun PixoraUserPanelApp(
                                             category = cat,
                                             tagsRaw = tags,
                                             featured = featured,
+                                            isHidden = isHidden,
                                         )
                                     },
                                     onResetPublishState = adminViewModel::resetPublishState,

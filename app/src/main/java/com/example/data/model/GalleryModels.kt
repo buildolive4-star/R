@@ -22,6 +22,8 @@ data class GalleryImage(
     val uploadedBy: String = "",
     val uploaderName: String = "Pixora Studio",
     val tags: List<String> = emptyList(),
+    val isHidden: Boolean = false,
+    val revealExpiresAtEpochMs: Long = 0L,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 ) {
@@ -30,6 +32,15 @@ data class GalleryImage(
 
     val safeAspectRatio: Float
         get() = aspectRatio.toFloat().coerceIn(0.55f, 2.2f)
+
+    val isRevealStarted: Boolean
+        get() = isHidden && revealExpiresAtEpochMs > 0L
+
+    fun remainingSeconds(nowMs: Long = System.currentTimeMillis()): Int {
+        if (!isRevealStarted) return 20
+        val diffMs = (revealExpiresAtEpochMs - nowMs).coerceAtLeast(0L)
+        return ((diffMs + 999L) / 1000L).toInt()
+    }
 }
 
 @JsonClass(generateAdapter = true)

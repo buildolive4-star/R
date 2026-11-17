@@ -135,5 +135,47 @@ class ExampleRobolectricTest {
         repo.clearAll()
         assertEquals(0, repo.testUploads.first().size)
     }
+
+    @Test
+    fun `hidden photo starts 20s countdown on reveal and purges permanently on expiry`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo = LocalTestUploadsRepository(context)
+        repo.clearAll()
+
+        val hiddenUpload = StoredTestUpload(
+            id = "hidden_1",
+            title = "Secret Shot",
+            category = "Photography",
+            imageUrl = "https://i.ibb.co/sec/secret.jpg",
+            thumbUrl = "https://i.ibb.co/sec/secret_t.jpg",
+            aspectRatio = 1.0,
+            createdAtEpochMs = 1000L,
+            isHidden = true,
+            revealExpiresAtEpochMs = 0L,
+        )
+        repo.addUpload(hiddenUpload)
+
+        val beforeReveal = repo.testUploads.first().first()
+        assertTrue(beforeReveal.isHidden)
+        assertFalse(beforeReveal.isRevealStarted)
+        assertFalse(beforeReveal.featured)
+
+        val expiry1 = repo.startHiddenRevealCountdown("hidden_1", ttlMs = 20_000L)
+        assertTrue(expiry1 > System.currentTimeMillis())
+
+        val expiry2 = repo.startHiddenRevealCountdown("hidden_1", ttlMs = 20_000L)
+        assertEquals(expiry1, expiry2)
+
+        val afterReveal = repo.testUploads.first().first()
+        assertTrue(afterReveal.isRevealStarted)
+        assertTrue(afterReveal.remainingSeconds() in 1..20)
+
+        val purgedEarly = repo.purgeExpiredUploads(nowMs = expiry1 - 1000L)
+        assertTrue(purgedEarly.isEmpty())
+
+        val purgedAfter = repo.purgeExpiredUploads(nowMs = expiry1 + 100L)
+        assertEquals(listOf("hidden_1"), purgedAfter)
+        assertEquals(0, repo.testUploads.first().size)
+    }
 }
 

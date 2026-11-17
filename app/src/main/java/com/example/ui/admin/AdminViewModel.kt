@@ -60,6 +60,7 @@ class AdminViewModel(
         category: String,
         tagsRaw: String,
         featured: Boolean,
+        isHidden: Boolean,
     ) {
         val rawManual = manualImageUrl.trim()
         if (selectedUri == null && rawManual.isEmpty()) {
@@ -69,7 +70,7 @@ class AdminViewModel(
 
         val cleanTitle = title.trim().ifBlank {
             val stamp = SimpleDateFormat("MMM d, HH:mm", Locale.US).format(Date())
-            "Pixora · $stamp"
+            if (isHidden) "Hidden · $stamp" else "Pixora · $stamp"
         }
         val cleanCategory = category.trim().ifBlank { "Photography" }
         val cleanDescription = description.trim()
@@ -99,6 +100,8 @@ class AdminViewModel(
                     description = cleanDescription,
                     featured = featured,
                     tags = parsedTags,
+                    isHidden = isHidden,
+                    revealExpiresAtEpochMs = 0L,
                 )
             } else {
                 val normalized = if (rawManual.startsWith("http://")) {
@@ -121,13 +124,19 @@ class AdminViewModel(
                     description = cleanDescription,
                     featured = featured,
                     tags = parsedTags,
+                    isHidden = isHidden,
+                    revealExpiresAtEpochMs = 0L,
                 )
             }
 
             uploadsRepository.addUpload(storedUpload)
             _uploadedPreviewAlert.tryEmit(storedUpload.toGalleryImage())
             _publishState.value = AdminPublishState.Success(
-                message = "Photo uploaded! Live in gallery.",
+                message = if (isHidden) {
+                    "Hidden photo uploaded! Deletes 20s after reveal."
+                } else {
+                    "Photo uploaded! Live in gallery."
+                },
                 imageUrl = storedUpload.imageUrl,
             )
         }
@@ -151,6 +160,7 @@ class AdminViewModel(
         category: String,
         tagsRaw: String,
         featured: Boolean,
+        isHidden: Boolean,
     ) {
         val parsedTags = tagsRaw.split(",")
             .map { it.trim() }
@@ -166,6 +176,7 @@ class AdminViewModel(
                 category = category,
                 featured = featured,
                 tags = parsedTags,
+                isHidden = isHidden,
             )
             _events.tryEmit("Artwork updated")
         }

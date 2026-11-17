@@ -98,6 +98,8 @@
     <string name="admin_custom_category">Custom Category</string>
     <string name="admin_tags_label">Tags (comma separated)</string>
     <string name="admin_featured_switch">Highlight in Spotlight</string>
+    <string name="admin_hide_on_switch">Hide On (20s Auto-Delete)</string>
+    <string name="admin_hide_on_subtitle">Stays hidden until opened, then permanently deletes in 20s</string>
     <string name="admin_upload_cta">Upload Picture</string>
     <string name="admin_device_previews_title">Uploaded Pictures (%1$d)</string>
     <string name="admin_device_previews_subtitle">Hosted on ImgBB &amp; shown live in your gallery</string>
@@ -106,4 +108,13 @@
     <string name="admin_delete_button">Delete</string>
     <string name="admin_edit_title">Edit Artwork Details</string>
     <string name="admin_save_changes">Save Changes</string>
+    <string name="hidden_card_badge">HIDDEN · 20s</string>
+    <string name="hidden_photo_banner_title">Hidden Photo · Tap to reveal (20s)</string>
+    <string name="hidden_detail_title">Hidden Photo</string>
+    <string name="hidden_detail_subtitle">Protected against screenshots &amp; screen recording. Once revealed, this photo permanently deletes itself after 20 seconds.</string>
+    <string name="reveal_photo_button">Reveal Photo (20s)</string>
+    <string name="hidden_countdown_badge">Deleting in %1$ds</string>
+    <string name="hidden_protected_notice">Screenshots &amp; screen recording are blocked. Auto-deletes 20s after reveal.</string>
+    <string name="hidden_protected_countdown_notice">Screen capture blocked · Deleting permanently in %1$ds</string>
+    <string name="screen_protection_active">Screenshot &amp; screen recording protection active</string>
 </resources>

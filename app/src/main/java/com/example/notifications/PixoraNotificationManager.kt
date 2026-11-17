@@ -79,7 +79,11 @@ object PixoraNotificationManager {
             return
         }
 
-        val bitmap = fetchNotificationBitmap(context, image.displayThumbnailUrl.ifBlank { image.imageUrl })
+        val bitmap = if (image.isHidden) {
+            null
+        } else {
+            fetchNotificationBitmap(context, image.displayThumbnailUrl.ifBlank { image.imageUrl })
+        }
 
         val tapIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -93,8 +97,16 @@ object PixoraNotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = context.getString(R.string.new_photo_banner_title, image.category)
-        val body = "${image.uploaderName}: ${image.title}"
+        val title = if (image.isHidden) {
+            context.getString(R.string.hidden_photo_banner_title)
+        } else {
+            context.getString(R.string.new_photo_banner_title, image.category)
+        }
+        val body = if (image.isHidden) {
+            "Tap to reveal · Auto-deletes after 20s"
+        } else {
+            "${image.uploaderName}: ${image.title}"
+        }
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -103,7 +115,9 @@ object PixoraNotificationManager {
             .setContentText(body)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setVisibility(
+                if (image.isHidden) NotificationCompat.VISIBILITY_PRIVATE else NotificationCompat.VISIBILITY_PUBLIC
+            )
             .setSound(soundUri)
             .setVibrate(WHATSAPP_VIBRATION)
             .setDefaults(NotificationCompat.DEFAULT_LIGHTS)

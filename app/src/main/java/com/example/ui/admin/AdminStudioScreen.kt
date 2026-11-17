@@ -44,6 +44,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -123,6 +124,7 @@ fun AdminStudioScreen(
         category: String,
         tagsRaw: String,
         featured: Boolean,
+        isHidden: Boolean,
     ) -> Unit,
     onResetPublishState: () -> Unit,
     onToggleFeatured: (GalleryImage) -> Unit,
@@ -133,6 +135,7 @@ fun AdminStudioScreen(
         category: String,
         tagsRaw: String,
         featured: Boolean,
+        isHidden: Boolean,
     ) -> Unit,
     onRemoveUpload: (String) -> Unit,
     onClearAllUploads: () -> Unit,
@@ -152,6 +155,7 @@ fun AdminStudioScreen(
     var customCategory by remember { mutableStateOf("") }
     var tagsRaw by remember { mutableStateOf("") }
     var featured by remember { mutableStateOf(true) }
+    var isHidden by remember { mutableStateOf(false) }
     var showMoreOptions by remember { mutableStateOf(false) }
 
     var selectedFilter by remember { mutableStateOf(StudioFilter.ALL) }
@@ -177,6 +181,7 @@ fun AdminStudioScreen(
             description = ""
             tagsRaw = ""
             featured = true
+            isHidden = false
         }
     }
 
@@ -439,7 +444,66 @@ fun AdminStudioScreen(
                                 .testTag("admin_title_input")
                         )
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isHidden) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            },
+                            border = BorderStroke(
+                                1.dp,
+                                if (isHidden) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                } else {
+                                    MaterialTheme.colorScheme.outlineVariant
+                                }
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.VisibilityOff,
+                                        contentDescription = null,
+                                        tint = if (isHidden) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = stringResource(R.string.admin_hide_on_switch),
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.admin_hide_on_subtitle),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Switch(
+                                    checked = isHidden,
+                                    onCheckedChange = { isHidden = it },
+                                    modifier = Modifier.testTag("admin_hide_on_switch")
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
 
                         TextButton(
                             onClick = { showMoreOptions = !showMoreOptions },
@@ -637,6 +701,7 @@ fun AdminStudioScreen(
                                     effectiveCategory,
                                     tagsRaw,
                                     featured,
+                                    isHidden,
                                 )
                             },
                             enabled = !isBusy,
@@ -749,7 +814,7 @@ fun AdminStudioScreen(
         AdminEditArtworkSheet(
             image = current,
             onDismiss = { editingImage = null },
-            onSave = { newTitle, newDesc, newCat, newTags, newFeat ->
+            onSave = { newTitle, newDesc, newCat, newTags, newFeat, newHidden ->
                 onUpdateMetadata(
                     current.id,
                     newTitle,
@@ -757,6 +822,7 @@ fun AdminStudioScreen(
                     newCat,
                     newTags,
                     newFeat,
+                    newHidden,
                 )
                 editingImage = null
             }
@@ -834,12 +900,16 @@ private fun StudioUploadCard(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
+                        color = if (image.isHidden) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                        } else {
+                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
+                        }
                     ) {
                         Text(
-                            text = "LIVE",
+                            text = if (image.isHidden) "HIDDEN · 20s" else "LIVE",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.tertiary,
+                            color = if (image.isHidden) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                         )
                     }
@@ -905,6 +975,7 @@ private fun AdminEditArtworkSheet(
         category: String,
         tagsRaw: String,
         featured: Boolean,
+        isHidden: Boolean,
     ) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -913,6 +984,7 @@ private fun AdminEditArtworkSheet(
     var category by remember { mutableStateOf(image.category) }
     var tagsRaw by remember { mutableStateOf(image.tags.joinToString(", ")) }
     var featured by remember { mutableStateOf(image.featured) }
+    var isHidden by remember { mutableStateOf(image.isHidden) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -969,6 +1041,14 @@ private fun AdminEditArtworkSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Text(text = stringResource(R.string.admin_hide_on_switch))
+                Switch(checked = isHidden, onCheckedChange = { isHidden = it })
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(text = stringResource(R.string.admin_featured_switch))
                 Switch(checked = featured, onCheckedChange = { featured = it })
             }
@@ -980,6 +1060,7 @@ private fun AdminEditArtworkSheet(
                         category,
                         tagsRaw,
                         featured,
+                        isHidden,
                     )
                 },
                 enabled = title.isNotBlank(),

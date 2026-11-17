@@ -33,6 +33,8 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -299,11 +301,73 @@ fun GalleryGridCard(
                     }
                 )
         ) {
-            PixoraNetworkImage(
-                imageUrl = image.displayThumbnailUrl,
-                contentDescription = image.title,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (image.isHidden) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF171620), Color(0xFF211C24), Color(0xFF121218))
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                            modifier = Modifier.size(52.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.VisibilityOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color(0xCC1E1B24),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Timer,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = if (image.isRevealStarted) {
+                                        "${image.remainingSeconds()}s LEFT"
+                                    } else {
+                                        stringResource(R.string.hidden_card_badge)
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                PixoraNetworkImage(
+                    imageUrl = image.displayThumbnailUrl,
+                    contentDescription = image.title,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
 
             Box(
                 modifier = Modifier
@@ -319,25 +383,27 @@ fun GalleryGridCard(
                     )
             )
 
-            IconButton(
-                onClick = onToggleBookmark,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .minimumInteractiveComponentSize()
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0x88141318))
-                    .testTag("card_bookmark_${image.id}")
-            ) {
-                Icon(
-                    imageVector = if (isBookmarked) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
-                    contentDescription = stringResource(
-                        if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
-                    ),
-                    tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
+            if (!image.isHidden) {
+                IconButton(
+                    onClick = onToggleBookmark,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .minimumInteractiveComponentSize()
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x88141318))
+                        .testTag("card_bookmark_${image.id}")
+                ) {
+                    Icon(
+                        imageVector = if (isBookmarked) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
+                        contentDescription = stringResource(
+                            if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
+                        ),
+                        tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
 
             Column(
@@ -386,11 +452,31 @@ fun CollectionCard(
                 .fillMaxWidth()
                 .aspectRatio(1.08f)
         ) {
-            PixoraNetworkImage(
-                imageUrl = collection.coverUrl,
-                contentDescription = collection.name,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (collection.coverUrl.isNotBlank()) {
+                PixoraNetworkImage(
+                    imageUrl = collection.coverUrl,
+                    contentDescription = collection.name,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF171620), Color(0xFF231D28))
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.VisibilityOff,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        modifier = Modifier.size(34.dp)
+                    )
+                }
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()

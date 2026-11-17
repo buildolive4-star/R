@@ -18,6 +18,8 @@ import com.example.workers.BackgroundSyncScheduler
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -54,6 +56,20 @@ class GalleryViewModel(
 
     private val knownFirestoreIds = mutableSetOf<String>()
     private var initialFirestoreSnapshotHandled = false
+    private val activeExpirationJobs = mutableMapOf<String, Job>()
+
+    init {
+        viewModelScope.launch {
+            val expiredIds = testUploadsRepository.purgeExpiredUploads()
+            expiredIds.forEach { bookmarksRepository.removeBookmark(it) }
+        }
+        viewModelScope.launch {
+            testUploadsRepository.testUploads.collect { uploads ->
+                uploads.filter { it.isHidden && it.revealExpiresAtEpochMs > 0L }
+                    .forEach { scheduleDeletionAt(it.id, it.revealExpiresAtEpochMs) }
+            }
+        }
+    }
 
     val isStaggeredLayout: StateFlow<Boolean> = prefsRepository.isStaggeredLayout
         .stateIn(
@@ -191,7 +207,7 @@ class GalleryViewModel(
                     CategoryCollection(
                         name = name,
                         count = items.size,
-                        coverUrl = items.first().displayThumbnailUrl
+                        coverUrl = items.firstOrNull { !it.isHidden }?.displayThumbnailUrl.orEmpty()
                     )
                 }
         }
@@ -204,8 +220,9 @@ class GalleryViewModel(
     val featuredImages: StateFlow<List<GalleryImage>> = galleryState
         .map { state ->
             val images = (state as? UiState.Success)?.data ?: return@map emptyList()
-            val explicitFeatured = images.filter { it.featured }
-            (explicitFeatured.ifEmpty { images }).take(5)
+            val visibleImages = images.filterNot { it.isHidden }
+            val explicitFeatured = visibleImages.filter { it.featured }
+            (explicitFeatured.ifEmpty { visibleImages }).take(5)
         }
         .stateIn(
             scope = viewModelScope,
@@ -291,8 +308,38 @@ class GalleryViewModel(
         _events.tryEmit("Checking for new uploads in background…")
     }
 
+    fun revealHiddenImage(imageId: String) {
+        viewModelScope.launch {
+            val expiresAt = testUploadsRepository.startHiddenRevealCountdown(
+                imageId = imageId,
+                ttlMs = HIDDEN_REVEAL_TTL_MS,
+            )
+            if (expiresAt > 0L) {
+                scheduleDeletionAt(imageId, expiresAt)
+            }
+        }
+    }
+
+    private fun scheduleDeletionAt(imageId: String, expiresAtEpochMs: Long) {
+        if (activeExpirationJobs[imageId]?.isActive == true) return
+        activeExpirationJobs[imageId] = viewModelScope.launch {
+            val remainingMs = (expiresAtEpochMs - System.currentTimeMillis()).coerceAtLeast(0L)
+            if (remainingMs > 0L) {
+                delay(remainingMs)
+            }
+            testUploadsRepository.removeUpload(imageId)
+            bookmarksRepository.removeBookmark(imageId)
+            activeExpirationJobs.remove(imageId)
+            _events.tryEmit("Hidden photo permanently deleted")
+        }
+    }
+
     fun toggleBookmark(image: GalleryImage) {
         viewModelScope.launch {
+            if (image.isHidden) {
+                _events.tryEmit("Hidden photos cannot be saved")
+                return@launch
+            }
             val nowSaved = bookmarksRepository.toggleBookmark(image)
             _events.tryEmit(
                 if (nowSaved) "Saved to favorites" else "Removed from favorites"
@@ -324,6 +371,7 @@ class GalleryViewModel(
 
     companion object {
         const val CATEGORY_ALL = "All"
+        const val HIDDEN_REVEAL_TTL_MS = 20_000L
         private const val TAG = "GalleryVM"
         private const val STOP_TIMEOUT_MILLIS = 5000L
     }
