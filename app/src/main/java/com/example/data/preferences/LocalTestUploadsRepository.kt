@@ -26,20 +26,23 @@ data class StoredTestUpload(
     val thumbUrl: String,
     val aspectRatio: Double,
     val createdAtEpochMs: Long,
+    val description: String = "",
+    val featured: Boolean = true,
+    val tags: List<String> = emptyList(),
 ) {
     fun toGalleryImage(): GalleryImage = GalleryImage(
         id = id,
         title = title,
-        description = "Uploaded via ImgBB CDN test",
+        description = description.ifBlank { "Uploaded via ImgBB CDN" },
         category = category,
         imageUrl = imageUrl,
         thumbUrl = thumbUrl,
         aspectRatio = aspectRatio,
         status = "published",
-        featured = true,
-        uploadedBy = "imgbb_test",
-        uploaderName = "ImgBB Test",
-        tags = listOf("imgbb", category.lowercase()),
+        featured = featured,
+        uploadedBy = "pixora_admin",
+        uploaderName = "Pixora Studio",
+        tags = tags.ifEmpty { listOf("imgbb", category.lowercase()) },
         createdAt = Timestamp(createdAtEpochMs / 1000L, 0),
         updatedAt = Timestamp(createdAtEpochMs / 1000L, 0),
     )
@@ -64,6 +67,55 @@ class LocalTestUploadsRepository(private val context: Context) {
         context.testUploadsDataStore.edit { prefs ->
             val current = decodeList(prefs[key]).filterNot { it.id == upload.id }
             prefs[key] = adapter.toJson(listOf(upload) + current)
+        }
+    }
+
+    suspend fun updateUpload(
+        imageId: String,
+        title: String,
+        description: String,
+        category: String,
+        featured: Boolean,
+        tags: List<String>,
+    ) {
+        context.testUploadsDataStore.edit { prefs ->
+            val updated = decodeList(prefs[key]).map { item ->
+                if (item.id == imageId) {
+                    item.copy(
+                        title = title.trim().ifBlank { item.title }.take(120),
+                        description = description.trim().take(600),
+                        category = category.trim().ifBlank { "Photography" }.take(40),
+                        featured = featured,
+                        tags = tags.map { it.trim().take(32) }.filter { it.isNotEmpty() }.distinct().take(10),
+                    )
+                } else {
+                    item
+                }
+            }
+            prefs[key] = adapter.toJson(updated)
+        }
+    }
+
+    suspend fun toggleFeatured(imageId: String): Boolean {
+        var newFeatured = false
+        context.testUploadsDataStore.edit { prefs ->
+            val updated = decodeList(prefs[key]).map { item ->
+                if (item.id == imageId) {
+                    newFeatured = !item.featured
+                    item.copy(featured = newFeatured)
+                } else {
+                    item
+                }
+            }
+            prefs[key] = adapter.toJson(updated)
+        }
+        return newFeatured
+    }
+
+    suspend fun removeUpload(imageId: String) {
+        context.testUploadsDataStore.edit { prefs ->
+            val current = decodeList(prefs[key]).filterNot { it.id == imageId }
+            prefs[key] = adapter.toJson(current)
         }
     }
 

@@ -5,9 +5,11 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.model.GalleryImage
 import com.example.data.model.SavedBookmark
+import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.preferences.StoredTestUpload
 import com.example.notifications.PixoraNotificationManager
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -94,6 +96,44 @@ class ExampleRobolectricTest {
 
         store.setBackgroundSyncEnabled(false)
         assertFalse(store.isBackgroundSyncEnabled())
+    }
+
+    @Test
+    fun `localTestUploadsRepository adds and removes individual uploads`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo = LocalTestUploadsRepository(context)
+        repo.clearAll()
+
+        val upload1 = StoredTestUpload(
+            id = "imgbb_1",
+            title = "Photo 1",
+            category = "Nature",
+            imageUrl = "https://i.ibb.co/1/p1.jpg",
+            thumbUrl = "https://i.ibb.co/1/p1_t.jpg",
+            aspectRatio = 1.0,
+            createdAtEpochMs = 1000L,
+        )
+        val upload2 = StoredTestUpload(
+            id = "imgbb_2",
+            title = "Photo 2",
+            category = "Abstract",
+            imageUrl = "https://i.ibb.co/2/p2.jpg",
+            thumbUrl = "https://i.ibb.co/2/p2_t.jpg",
+            aspectRatio = 1.2,
+            createdAtEpochMs = 2000L,
+        )
+
+        repo.addUpload(upload1)
+        repo.addUpload(upload2)
+        assertEquals(2, repo.testUploads.first().size)
+
+        repo.removeUpload("imgbb_1")
+        val remaining = repo.testUploads.first()
+        assertEquals(1, remaining.size)
+        assertEquals("imgbb_2", remaining.first().id)
+
+        repo.clearAll()
+        assertEquals(0, repo.testUploads.first().size)
     }
 }
 

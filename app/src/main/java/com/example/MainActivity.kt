@@ -451,27 +451,17 @@ fun PixoraUserPanelApp(
                                             val app = checkNotNull(this[APPLICATION_KEY]) {
                                                 "APPLICATION_KEY missing from CreationExtras"
                                             }
-                                            val databaseId = app.getString(R.string.firestore_database_id)
-                                            val db = FirebaseFirestore.getInstance(databaseId)
                                             AdminViewModel(
-                                                repository = GalleryRepository(db),
-                                                testUploadsRepository = LocalTestUploadsRepository(app),
-                                                notifiedImagesStore = NotifiedImagesStore(app),
+                                                uploadsRepository = LocalTestUploadsRepository(app),
                                             )
                                         }
                                     }
                                 )
-                                val adminUser by adminViewModel.adminUser.collectAsStateWithLifecycle()
-                                val isAuthLoading by adminViewModel.isAuthLoading.collectAsStateWithLifecycle()
                                 val publishState by adminViewModel.publishState.collectAsStateWithLifecycle()
-                                val adminImagesState by adminViewModel.adminImagesState.collectAsStateWithLifecycle()
-                                val devicePreviews by adminViewModel.devicePreviewUploads.collectAsStateWithLifecycle()
+                                val uploadedImages by adminViewModel.uploadedImages.collectAsStateWithLifecycle()
 
                                 val adminSnackbar = remember { SnackbarHostState() }
 
-                                LaunchedEffect(adminViewModel) {
-                                    adminViewModel.attemptSilentAdminSignIn(context)
-                                }
                                 LaunchedEffect(adminViewModel) {
                                     adminViewModel.events.collect { msg ->
                                         adminSnackbar.showSnackbar(msg)
@@ -487,15 +477,10 @@ fun PixoraUserPanelApp(
                                 }
 
                                 AdminStudioScreen(
-                                    adminUser = adminUser,
-                                    isAuthLoading = isAuthLoading,
                                     publishState = publishState,
-                                    adminImagesState = adminImagesState,
-                                    devicePreviewUploads = devicePreviews,
-                                    onSignInWithGoogle = { adminViewModel.signInAdminWithGoogle(context) },
-                                    onSignOutAdmin = { adminViewModel.signOutAdmin(context) },
-                                    onUploadAndPublish = { uri, manualUrl, title, desc, cat, tags, featured, pubNow ->
-                                        adminViewModel.uploadAndPublish(
+                                    uploadedImages = uploadedImages,
+                                    onUploadPicture = { uri, manualUrl, title, desc, cat, tags, featured ->
+                                        adminViewModel.uploadPicture(
                                             context = context,
                                             selectedUri = uri,
                                             manualImageUrl = manualUrl,
@@ -504,15 +489,13 @@ fun PixoraUserPanelApp(
                                             category = cat,
                                             tagsRaw = tags,
                                             featured = featured,
-                                            publishImmediately = pubNow,
                                         )
                                     },
                                     onResetPublishState = adminViewModel::resetPublishState,
                                     onToggleFeatured = adminViewModel::toggleFeatured,
-                                    onToggleStatus = adminViewModel::toggleStatus,
                                     onUpdateMetadata = adminViewModel::updateMetadata,
-                                    onDeleteImage = adminViewModel::deleteImage,
-                                    onClearDevicePreviews = adminViewModel::clearDevicePreviews,
+                                    onRemoveUpload = adminViewModel::removeUpload,
+                                    onClearAllUploads = adminViewModel::clearAllUploads,
                                     onBack = { navController.popBackStack() },
                                     snackbarHostState = adminSnackbar,
                                 )
