@@ -1,0 +1,6 @@
+{
+  "name": "Pixora",
+  "description": "A curated visual gallery app showcasing real-time image collections published from an admin panel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

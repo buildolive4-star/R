@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "GalleryImage": {
+      "title": "GalleryImage",
+      "description": "A curated image published from the Admin Panel via ImgBB URL and synced to the User Panel gallery.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Display title of the image (1-120 characters)."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional editorial caption or story behind the image (0-600 characters)."
+        },
+        "category": {
+          "type": "string",
+          "description": "Collection category label such as Nature, Architecture, Abstract, Minimal, or Portraits."
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "Full-resolution HTTPS image URL (e.g. ImgBB display_url)."
+        },
+        "thumbUrl": {
+          "type": "string",
+          "description": "Optional thumbnail HTTPS URL for fast grid loading."
+        },
+        "aspectRatio": {
+          "type": "number",
+          "description": "Width-to-height aspect ratio (0.3 to 3.5)."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["published", "archived"],
+          "description": "Publication visibility status."
+        },
+        "featured": {
+          "type": "boolean",
+          "description": "Whether the image is highlighted in the Featured Spotlight banner."
+        },
+        "uploadedBy": {
+          "type": "string",
+          "description": "Firebase Auth UID of the admin who published the image."
+        },
+        "uploaderName": {
+          "type": "string",
+          "description": "Display name of the publisher."
+        },
+        "tags": {
+          "type": "array",
+          "description": "Bounded list of up to 10 discovery tags."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp written via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp written via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "title",
+        "category",
+        "imageUrl",
+        "status",
+        "featured",
+        "uploadedBy",
+        "uploaderName",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/gallery_images/{imageId}": {
+      "schema": {
+        "$ref": "#/entities/GalleryImage"
+      },
+      "description": "Shared curated gallery images uploaded by admins and browsed in the User Panel without sign-up."
+    }
+  }
+}
