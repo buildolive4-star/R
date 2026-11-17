@@ -30,7 +30,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BrokenImage
@@ -42,6 +41,7 @@ import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +63,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -167,7 +168,7 @@ fun FeaturedSpotlightCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(242.dp)
+                .height(228.dp)
         ) {
             PixoraNetworkImage(
                 imageUrl = image.imageUrl,
@@ -220,21 +221,27 @@ fun FeaturedSpotlightCard(
                     }
                 }
 
-                IconButton(
-                    onClick = onToggleBookmark,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clip(CircleShape)
-                        .background(Color(0xAA1B101D))
-                        .testTag("featured_bookmark_button_${image.id}")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = if (isBookmarked) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
-                        contentDescription = stringResource(
-                            if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
-                        ),
-                        tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White
-                    )
+                    PriceBadgePill(price = image.displayPrice)
+                    IconButton(
+                        onClick = onToggleBookmark,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .clip(CircleShape)
+                            .background(Color(0xAA1B101D))
+                            .testTag("featured_bookmark_button_${image.id}")
+                    ) {
+                        Icon(
+                            imageVector = if (isBookmarked) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
+                            contentDescription = stringResource(
+                                if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
+                            ),
+                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White
+                        )
+                    }
                 }
             }
 
@@ -279,6 +286,28 @@ fun FeaturedSpotlightCard(
 }
 
 @Composable
+fun PriceBadgePill(
+    price: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.22f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.65f)),
+        modifier = modifier
+    ) {
+        Text(
+            text = price,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.secondary,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+        )
+    }
+}
+
+@Composable
 fun GalleryGridCard(
     image: GalleryImage,
     isBookmarked: Boolean,
@@ -295,7 +324,7 @@ fun GalleryGridCard(
         border = BorderStroke(
             width = 1.dp,
             color = if (isBlurredExpired) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
             } else {
                 MaterialTheme.colorScheme.outlineVariant
             }
@@ -305,203 +334,205 @@ fun GalleryGridCard(
             .testTag("gallery_card_${image.id}")
             .clickable(onClick = onClick)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(
-                    if (useAspectRatio) {
-                        Modifier.aspectRatio(image.safeAspectRatio)
-                    } else {
-                        Modifier.aspectRatio(0.82f)
-                    }
-                )
-        ) {
-            when {
-                isBlurredExpired -> {
-                    PixoraBlurredImage(
-                        imageUrl = image.displayThumbnailUrl,
-                        contentDescription = "${image.title} (blurred memory)",
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // Subtle frosted rose-midnight veil so blurred silhouette & hues gently peek through
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0x4D140A14)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(12.dp)
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0x991E1220),
-                                border = BorderStroke(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-                                ),
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.BlurOn,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = Color(0xB81E1220),
-                                border = BorderStroke(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                                )
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.expired_blurred_badge),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFFFDF6FA),
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                image.isHidden -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(Color(0xFF1F1221), Color(0xFF2C172C), Color(0xFF150D17))
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(16.dp)
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
-                                modifier = Modifier.size(52.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Lock,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = Color(0xCC211424),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Timer,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Text(
-                                        text = if (image.isRevealStarted) {
-                                            "${image.remainingSeconds()}s LEFT"
-                                        } else {
-                                            stringResource(R.string.hidden_card_badge)
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                else -> {
-                    PixoraNetworkImage(
-                        imageUrl = image.displayThumbnailUrl,
-                        contentDescription = image.title,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            }
-
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // 9:16 portrait media container (or natural ratio in editorial staggered mode)
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0.0f to Color.Transparent,
-                                0.52f to Color.Transparent,
-                                1.0f to Color(0xE2110912),
-                            )
+                    .fillMaxWidth()
+                    .then(
+                        if (useAspectRatio) {
+                            Modifier.aspectRatio(image.safeAspectRatio)
+                        } else {
+                            Modifier.aspectRatio(9f / 16f)
+                        }
+                    )
+            ) {
+                when {
+                    isBlurredExpired -> {
+                        PixoraBlurredImage(
+                            imageUrl = image.displayThumbnailUrl,
+                            contentDescription = "${image.title} (blurred memory)",
+                            modifier = Modifier.fillMaxSize()
                         )
-                    )
-            )
 
-            if (!image.isHidden && !isBlurredExpired) {
-                IconButton(
-                    onClick = onToggleBookmark,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                        .minimumInteractiveComponentSize()
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color(0x991C101E))
-                        .testTag("card_bookmark_${image.id}")
-                ) {
-                    Icon(
-                        imageVector = if (isBookmarked) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
-                        contentDescription = stringResource(
-                            if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
-                        ),
-                        tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0x4A140A14)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(10.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0x9E1E1220),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                    ),
+                                    modifier = Modifier.size(42.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.BlurOn,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = Color(0xC21E1220),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                    )
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.expired_blurred_badge),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFFFDF6FA),
+                                        maxLines = 1,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    image.isHidden -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(Color(0xFF1F1221), Color(0xFF2E172F), Color(0xFF150D17))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Lock,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = Color(0xCC211424),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Timer,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = if (image.isRevealStarted) {
+                                                "${image.remainingSeconds()}s LEFT"
+                                            } else {
+                                                stringResource(R.string.hidden_card_badge)
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    else -> {
+                        PixoraNetworkImage(
+                            imageUrl = image.displayThumbnailUrl,
+                            contentDescription = image.title,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+
+                if (!image.isHidden && !isBlurredExpired) {
+                    IconButton(
+                        onClick = onToggleBookmark,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .minimumInteractiveComponentSize()
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x9E1C101E))
+                            .testTag("card_bookmark_${image.id}")
+                    ) {
+                        Icon(
+                            imageVector = if (isBookmarked) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
+                            contentDescription = stringResource(
+                                if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
+                            ),
+                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
                 }
             }
 
+            // Footer cleanly below the 9:16 image showing Title, Mood, and Price
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
                     .fillMaxWidth()
-                    .padding(12.dp)
+                    .padding(horizontal = 10.dp, vertical = 9.dp)
             ) {
                 Text(
                     text = image.title,
                     style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = image.category,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Spacer(modifier = Modifier.height(5.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = image.category,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    PriceBadgePill(
+                        price = image.displayPrice,
+                        modifier = Modifier.testTag("card_price_${image.id}")
+                    )
+                }
             }
         }
     }
@@ -601,6 +632,7 @@ fun PixoraNetworkImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    showSpinnerOnLoad: Boolean = false,
 ) {
     SubcomposeAsyncImage(
         model = ImageRequest.Builder(LocalContext.current)
@@ -611,7 +643,22 @@ fun PixoraNetworkImage(
         contentScale = contentScale,
         modifier = modifier,
         loading = {
-            ShimmerBox(modifier = Modifier.fillMaxSize())
+            if (showSpinnerOnLoad) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF130B14)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 2.5.dp,
+                        modifier = Modifier.size(34.dp)
+                    )
+                }
+            } else {
+                ShimmerBox(modifier = Modifier.fillMaxSize())
+            }
         },
         error = {
             Box(

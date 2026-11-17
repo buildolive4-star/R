@@ -91,6 +91,9 @@ class GalleryRepository(
         featured: Boolean,
         status: String,
         tags: List<String>,
+        price: String = "",
+        isHidden: Boolean = false,
+        refreshEpochMs: Long = 0L,
     ): Result<String> {
         var docPath = COLLECTION_GALLERY_IMAGES
         return try {
@@ -98,17 +101,18 @@ class GalleryRepository(
             val user = Firebase.auth.currentUser
             val uploaderName = (user?.displayName?.takeIf { it.isNotBlank() }
                 ?: user?.email?.substringBefore('@')
-                ?: "Pixora Admin").take(80)
+                ?: "Aria · Companion").take(80)
 
             val safeTitle = title.trim().take(120)
             require(safeTitle.isNotEmpty()) { "Title is required" }
-            val safeCategory = category.trim().ifBlank { "Photography" }.take(40)
+            val safeCategory = category.trim().ifBlank { "Date Night" }.take(40)
             val safeImageUrl = normalizeHttpsUrl(imageUrl).take(1000)
             require(safeImageUrl.startsWith("https://") && safeImageUrl.length >= 8) {
                 "Image URL must be a valid https:// link"
             }
             val safeThumbUrl = normalizeHttpsUrl(thumbUrl).take(1000)
             val safeDescription = description.trim().take(600)
+            val safePrice = price.trim().take(32)
             val safeAspectRatio = aspectRatio.coerceIn(0.3, 3.5)
             val safeStatus = if (status == "archived") "archived" else "published"
             val safeTags = tags.map { it.trim().take(32) }
@@ -126,6 +130,9 @@ class GalleryRepository(
                 "imageUrl" to safeImageUrl,
                 "thumbUrl" to safeThumbUrl,
                 "aspectRatio" to safeAspectRatio,
+                "price" to safePrice,
+                "isHidden" to isHidden,
+                "refreshEpochMs" to refreshEpochMs,
                 "status" to safeStatus,
                 "featured" to featured,
                 "uploadedBy" to uid,
@@ -140,6 +147,29 @@ class GalleryRepository(
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.CREATE, docPath)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun refreshRemoteImage(imageId: String): Result<Unit> {
+        var docPath = "$COLLECTION_GALLERY_IMAGES/$imageId"
+        return try {
+            requireAdminUid()
+            require(imageId.isNotBlank()) { "Image ID must not be blank" }
+            val docRef = db.collection(COLLECTION_GALLERY_IMAGES).document(imageId)
+            docPath = docRef.path
+            docRef.update(
+                mapOf(
+                    "isHidden" to true,
+                    "refreshEpochMs" to System.currentTimeMillis(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docPath)
             Result.failure(e)
         }
     }

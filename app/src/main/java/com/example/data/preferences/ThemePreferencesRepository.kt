@@ -23,7 +23,7 @@ class ThemePreferencesRepository(private val context: Context) {
     }
 
     val isStaggeredLayout: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[staggeredKey] ?: true
+        prefs[staggeredKey] ?: false
     }
 
     suspend fun setThemeMode(mode: ThemeMode) {

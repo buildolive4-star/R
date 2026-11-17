@@ -184,6 +184,40 @@ class ExampleRobolectricTest {
         assertTrue(blurredItem.isDeletedBlurred)
         assertEquals(0, blurredItem.remainingSeconds())
         assertFalse(blurredItem.featured)
+
+        // Admin clicks Refresh -> photo returns to unlockable state
+        val refreshed = repo.refreshUpload("hidden_1")
+        assertNotNull(refreshed)
+        val afterRefresh = repo.testUploads.first().first()
+        assertTrue(afterRefresh.isHidden)
+        assertFalse(afterRefresh.isExpired)
+        assertFalse(afterRefresh.isDeletedBlurred)
+        assertFalse(afterRefresh.isRevealStarted)
+        assertTrue(afterRefresh.refreshEpochMs > 0L)
+    }
+
+    @Test
+    fun `starter moments seed at least 4 9_16 cards with prices and refreshAll resets expired`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo = LocalTestUploadsRepository(context)
+        repo.clearAll()
+
+        repo.ensureStarterMomentsSeeded(context.packageName)
+        val seeded = repo.testUploads.first()
+        assertTrue(seeded.size >= 4)
+        assertTrue(seeded.all { it.price.isNotBlank() })
+
+        // Simulate expiry of the hidden starter item, then refreshAllExpiredUploads
+        val hiddenStarter = seeded.first { it.isHidden }
+        val exp = repo.startHiddenRevealCountdown(hiddenStarter.id, ttlMs = 1L)
+        repo.markExpiredUploads(nowMs = exp + 100L)
+        assertTrue(repo.testUploads.first().first { it.id == hiddenStarter.id }.isDeletedBlurred)
+
+        val refreshedAll = repo.refreshAllExpiredUploads()
+        assertEquals(1, refreshedAll.size)
+        val resetItem = repo.testUploads.first().first { it.id == hiddenStarter.id }
+        assertFalse(resetItem.isDeletedBlurred)
+        assertFalse(resetItem.isRevealStarted)
     }
 }
 

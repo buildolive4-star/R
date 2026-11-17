@@ -37,6 +37,9 @@ service cloud.firestore {
              data.imageUrl.matches('^https://.*') &&
              (!('thumbUrl' in data) || (data.thumbUrl is string && data.thumbUrl.size() <= 1000 && (data.thumbUrl.size() == 0 || data.thumbUrl.matches('^https://.*')))) &&
              (!('aspectRatio' in data) || (data.aspectRatio is number && data.aspectRatio >= 0.3 && data.aspectRatio <= 3.5)) &&
+             (!('price' in data) || (data.price is string && data.price.size() <= 32)) &&
+             (!('isHidden' in data) || data.isHidden is bool) &&
+             (!('refreshEpochMs' in data) || (data.refreshEpochMs is number && data.refreshEpochMs >= 0)) &&
              data.status is string && (data.status == 'published' || data.status == 'archived') &&
              data.featured is bool &&
              data.uploadedBy is string && data.uploadedBy.size() >= 1 && data.uploadedBy.size() <= 128 &&
@@ -68,7 +71,8 @@ service cloud.firestore {
                        ]) &&
                        incoming().keys().hasOnly([
                          'title', 'description', 'category', 'imageUrl', 'thumbUrl',
-                         'aspectRatio', 'status', 'featured', 'uploadedBy', 'uploaderName',
+                         'aspectRatio', 'price', 'isHidden', 'refreshEpochMs',
+                         'status', 'featured', 'uploadedBy', 'uploaderName',
                          'tags', 'createdAt', 'updatedAt'
                        ]);
 
@@ -80,7 +84,8 @@ service cloud.firestore {
                        incoming().createdAt == existing().createdAt &&
                        incoming().diff(existing()).affectedKeys().hasOnly([
                          'title', 'description', 'category', 'imageUrl', 'thumbUrl',
-                         'aspectRatio', 'status', 'featured', 'tags', 'updatedAt'
+                         'aspectRatio', 'price', 'isHidden', 'refreshEpochMs',
+                         'status', 'featured', 'tags', 'updatedAt'
                        ]);
 
       allow delete: if isSignedIn() && isValidId(imageId) && isAdmin();

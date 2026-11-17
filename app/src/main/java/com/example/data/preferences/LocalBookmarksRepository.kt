@@ -49,12 +49,13 @@ class LocalBookmarksRepository(private val context: Context) {
                 nowSaved = true
                 val entry = SavedBookmark(
                     imageId = image.id,
-                    title = image.title.ifBlank { "Untitled Artwork" },
+                    title = image.title.ifBlank { "Untitled Moment" },
                     description = image.description,
-                    category = image.category.ifBlank { "Photography" },
+                    category = image.category.ifBlank { "Date Night" },
                     imageUrl = image.imageUrl,
                     thumbUrl = image.thumbUrl,
                     aspectRatio = image.aspectRatio.coerceIn(0.3, 3.5),
+                    price = image.price,
                     uploaderName = image.uploaderName,
                     tags = image.tags,
                     savedAtEpochMs = System.currentTimeMillis(),

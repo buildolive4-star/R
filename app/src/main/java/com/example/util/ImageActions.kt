@@ -20,12 +20,14 @@ object ImageActions {
     fun shareImage(context: Context, title: String, imageUrl: String) {
         val shareText = buildString {
             if (title.isNotBlank()) append(title).append("\n")
-            append(imageUrl)
-        }
+            if (!imageUrl.startsWith("android.resource://")) {
+                append(imageUrl)
+            }
+        }.trim()
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, title.ifBlank { "Pixora Artwork" })
-            putExtra(Intent.EXTRA_TEXT, shareText)
+            putExtra(Intent.EXTRA_SUBJECT, title.ifBlank { "Pixora Moment" })
+            putExtra(Intent.EXTRA_TEXT, shareText.ifBlank { "Shared from Pixora" })
         }
         context.startActivity(Intent.createChooser(intent, "Share photo"))
     }
@@ -38,47 +40,55 @@ object ImageActions {
                     .take(40)
                     .ifBlank { "pixora_photo" }
                 val fileName = "${safeName}_${System.currentTimeMillis()}.jpg"
+                val isLocalResource = image.imageUrl.startsWith("android.resource://")
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val request = Request.Builder().url(image.imageUrl).build()
-                    httpClient.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            error("HTTP ${response.code} downloading image")
-                        }
-                        val body = response.body ?: error("Empty response body")
-                        val mimeType = response.header("Content-Type")
-                            ?.substringBefore(";")
-                            ?.takeIf { it.startsWith("image/") }
-                            ?: "image/jpeg"
-
-                        val values = ContentValues().apply {
-                            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
-                            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q || isLocalResource) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                             put(
                                 MediaStore.Images.Media.RELATIVE_PATH,
                                 "${Environment.DIRECTORY_PICTURES}/Pixora"
                             )
                             put(MediaStore.Images.Media.IS_PENDING, 1)
                         }
+                    }
 
-                        val resolver = context.contentResolver
-                        val uri = resolver.insert(
-                            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                            values
-                        ) ?: error("Unable to create MediaStore record")
+                    val resolver = context.contentResolver
+                    val uri = resolver.insert(
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                        values
+                    ) ?: error("Unable to create MediaStore record")
 
-                        try {
-                            resolver.openOutputStream(uri)?.use { out ->
-                                body.byteStream().copyTo(out)
-                            } ?: error("Unable to open MediaStore output stream")
+                    try {
+                        if (isLocalResource) {
+                            resolver.openInputStream(Uri.parse(image.imageUrl))?.use { input ->
+                                resolver.openOutputStream(uri)?.use { out ->
+                                    input.copyTo(out)
+                                } ?: error("Unable to open MediaStore output stream")
+                            } ?: error("Unable to read bundled photo")
+                        } else {
+                            val request = Request.Builder().url(image.imageUrl).build()
+                            httpClient.newCall(request).execute().use { response ->
+                                if (!response.isSuccessful) {
+                                    error("HTTP ${response.code} downloading image")
+                                }
+                                val body = response.body ?: error("Empty response body")
+                                resolver.openOutputStream(uri)?.use { out ->
+                                    body.byteStream().copyTo(out)
+                                } ?: error("Unable to open MediaStore output stream")
+                            }
+                        }
 
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                             values.clear()
                             values.put(MediaStore.Images.Media.IS_PENDING, 0)
                             resolver.update(uri, values, null, null)
-                        } catch (t: Throwable) {
-                            resolver.delete(uri, null, null)
-                            throw t
                         }
+                    } catch (t: Throwable) {
+                        resolver.delete(uri, null, null)
+                        throw t
                     }
                 } else {
                     val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager

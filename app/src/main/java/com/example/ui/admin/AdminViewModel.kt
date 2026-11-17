@@ -9,6 +9,9 @@ import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.StoredTestUpload
 import com.example.data.remote.ImgBbApiService
 import com.example.data.remote.ImgBbUploadHelper
+import com.example.data.repository.GalleryRepository
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -32,6 +35,7 @@ sealed interface AdminPublishState {
 
 class AdminViewModel(
     private val uploadsRepository: LocalTestUploadsRepository,
+    private val galleryRepository: GalleryRepository? = null,
     private val imgBbApiService: ImgBbApiService = ImgBbApiService.create(),
 ) : ViewModel() {
 
@@ -41,7 +45,7 @@ class AdminViewModel(
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val events: SharedFlow<String> = _events.asSharedFlow()
 
-    private val _uploadedPreviewAlert = MutableSharedFlow<GalleryImage>(extraBufferCapacity = 4)
+    private val _uploadedPreviewAlert = MutableSharedFlow<GalleryImage>(extraBufferCapacity = 8)
     val uploadedPreviewAlert: SharedFlow<GalleryImage> = _uploadedPreviewAlert.asSharedFlow()
 
     val uploadedImages: StateFlow<List<GalleryImage>> = uploadsRepository.testUploads
@@ -58,6 +62,7 @@ class AdminViewModel(
         title: String,
         description: String,
         category: String,
+        price: String,
         tagsRaw: String,
         featured: Boolean,
         isHidden: Boolean,
@@ -73,6 +78,7 @@ class AdminViewModel(
             if (isHidden) "Secret Drop · $stamp" else "Aria · $stamp"
         }
         val cleanCategory = category.trim().ifBlank { "Date Night" }
+        val cleanPrice = price.trim().ifBlank { "₹299" }.take(32)
         val cleanDescription = description.trim()
         val parsedTags = tagsRaw.split(",")
             .map { it.trim() }
@@ -98,10 +104,13 @@ class AdminViewModel(
                 }
                 uploaded.copy(
                     description = cleanDescription,
+                    price = cleanPrice,
                     featured = featured,
                     tags = parsedTags,
                     isHidden = isHidden,
                     revealExpiresAtEpochMs = 0L,
+                    isExpired = false,
+                    refreshEpochMs = System.currentTimeMillis(),
                 )
             } else {
                 val normalized = if (rawManual.startsWith("http://")) {
@@ -119,23 +128,45 @@ class AdminViewModel(
                     category = cleanCategory,
                     imageUrl = normalized,
                     thumbUrl = normalized,
-                    aspectRatio = 1.0,
+                    aspectRatio = 9.0 / 16.0,
                     createdAtEpochMs = System.currentTimeMillis(),
                     description = cleanDescription,
+                    price = cleanPrice,
                     featured = featured,
                     tags = parsedTags,
                     isHidden = isHidden,
                     revealExpiresAtEpochMs = 0L,
+                    isExpired = false,
+                    refreshEpochMs = System.currentTimeMillis(),
                 )
             }
 
             uploadsRepository.addUpload(storedUpload)
+
+            // Best-effort cloud sync if an admin Firebase session is active
+            if (galleryRepository != null && Firebase.auth.currentUser != null) {
+                galleryRepository.createImage(
+                    title = storedUpload.title,
+                    description = storedUpload.description,
+                    category = storedUpload.category,
+                    imageUrl = storedUpload.imageUrl,
+                    thumbUrl = storedUpload.thumbUrl,
+                    aspectRatio = storedUpload.aspectRatio,
+                    featured = storedUpload.featured,
+                    status = "published",
+                    tags = storedUpload.tags,
+                    price = storedUpload.price,
+                    isHidden = storedUpload.isHidden,
+                    refreshEpochMs = storedUpload.refreshEpochMs,
+                )
+            }
+
             _uploadedPreviewAlert.tryEmit(storedUpload.toGalleryImage())
             _publishState.value = AdminPublishState.Success(
                 message = if (isHidden) {
-                    "Hidden photo uploaded! Deletes 20s after reveal."
+                    "Secret 20s drop uploaded ($cleanPrice)! Blurs 20s after unlock."
                 } else {
-                    "Photo uploaded! Live in gallery."
+                    "Moment uploaded ($cleanPrice)! Live in gallery."
                 },
                 imageUrl = storedUpload.imageUrl,
             )
@@ -149,7 +180,32 @@ class AdminViewModel(
     fun toggleFeatured(image: GalleryImage) {
         viewModelScope.launch {
             val nowFeatured = uploadsRepository.toggleFeatured(image.id)
-            _events.tryEmit(if (nowFeatured) "Marked as Spotlight" else "Removed from Spotlight")
+            _events.tryEmit(if (nowFeatured) "Pinned to Featured Drop" else "Removed from Featured Drop")
+        }
+    }
+
+    fun refreshBlurredUpload(imageId: String) {
+        viewModelScope.launch {
+            val refreshed = uploadsRepository.refreshUpload(imageId)
+            if (galleryRepository != null && Firebase.auth.currentUser != null) {
+                galleryRepository.refreshRemoteImage(imageId)
+            }
+            if (refreshed != null) {
+                _uploadedPreviewAlert.tryEmit(refreshed)
+                _events.tryEmit("Refreshed! Unlock option is back for users.")
+            }
+        }
+    }
+
+    fun refreshAllBlurredUploads() {
+        viewModelScope.launch {
+            val refreshedList = uploadsRepository.refreshAllExpiredUploads()
+            if (refreshedList.isEmpty()) {
+                _events.tryEmit("No blurred photos need refresh right now")
+            } else {
+                refreshedList.firstOrNull()?.let { _uploadedPreviewAlert.tryEmit(it) }
+                _events.tryEmit("Refreshed ${refreshedList.size} photo(s) — unlock is open again!")
+            }
         }
     }
 
@@ -158,6 +214,7 @@ class AdminViewModel(
         title: String,
         description: String,
         category: String,
+        price: String,
         tagsRaw: String,
         featured: Boolean,
         isHidden: Boolean,
@@ -174,25 +231,26 @@ class AdminViewModel(
                 title = title,
                 description = description,
                 category = category,
+                price = price,
                 featured = featured,
                 tags = parsedTags,
                 isHidden = isHidden,
             )
-            _events.tryEmit("Artwork updated")
+            _events.tryEmit("Moment updated")
         }
     }
 
     fun removeUpload(imageId: String) {
         viewModelScope.launch {
             uploadsRepository.removeUpload(imageId)
-            _events.tryEmit("Removed uploaded photo")
+            _events.tryEmit("Removed uploaded moment")
         }
     }
 
     fun clearAllUploads() {
         viewModelScope.launch {
             uploadsRepository.clearAll()
-            _events.tryEmit("Cleared uploaded photos")
+            _events.tryEmit("Cleared uploaded moments")
         }
     }
 }

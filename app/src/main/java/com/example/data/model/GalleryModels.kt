@@ -16,7 +16,8 @@ data class GalleryImage(
     val category: String = "Date Night",
     val imageUrl: String = "",
     val thumbUrl: String = "",
-    val aspectRatio: Double = 1.0,
+    val aspectRatio: Double = 9.0 / 16.0,
+    val price: String = "",
     val status: String = "published",
     val featured: Boolean = false,
     val uploadedBy: String = "",
@@ -25,6 +26,7 @@ data class GalleryImage(
     val isHidden: Boolean = false,
     val revealExpiresAtEpochMs: Long = 0L,
     val isExpired: Boolean = false,
+    val refreshEpochMs: Long = 0L,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 ) {
@@ -32,10 +34,13 @@ data class GalleryImage(
         get() = thumbUrl.ifBlank { imageUrl }
 
     val safeAspectRatio: Float
-        get() = aspectRatio.toFloat().coerceIn(0.55f, 2.2f)
+        get() = aspectRatio.toFloat().coerceIn(0.5f, 2.2f)
+
+    val displayPrice: String
+        get() = price.trim().ifBlank { "Free" }
 
     val isRevealStarted: Boolean
-        get() = isHidden && revealExpiresAtEpochMs > 0L
+        get() = isHidden && !isExpired && revealExpiresAtEpochMs > 0L
 
     val isDeletedBlurred: Boolean
         get() = isExpired || (isHidden && revealExpiresAtEpochMs > 0L && System.currentTimeMillis() >= revealExpiresAtEpochMs)
@@ -56,7 +61,8 @@ data class SavedBookmark(
     val category: String = "",
     val imageUrl: String = "",
     val thumbUrl: String = "",
-    val aspectRatio: Double = 1.0,
+    val aspectRatio: Double = 9.0 / 16.0,
+    val price: String = "",
     val uploaderName: String = "Aria · Companion",
     val tags: List<String> = emptyList(),
     val savedAtEpochMs: Long = 0L,
@@ -69,6 +75,7 @@ data class SavedBookmark(
         imageUrl = imageUrl,
         thumbUrl = thumbUrl,
         aspectRatio = aspectRatio,
+        price = price,
         uploaderName = uploaderName,
         tags = tags,
     )

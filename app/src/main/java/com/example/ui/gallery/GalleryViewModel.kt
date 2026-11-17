@@ -8,6 +8,8 @@ import com.example.data.model.CategoryCollection
 import com.example.data.model.GalleryImage
 import com.example.data.model.SavedBookmark
 import com.example.data.model.UiState
+import com.example.data.preferences.HiddenRevealRecord
+import com.example.data.preferences.HiddenRevealStateStore
 import com.example.data.preferences.LocalBookmarksRepository
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
@@ -29,9 +31,11 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class GalleryViewModel(
@@ -40,6 +44,8 @@ class GalleryViewModel(
     private val testUploadsRepository: LocalTestUploadsRepository,
     private val prefsRepository: ThemePreferencesRepository,
     private val notifiedImagesStore: NotifiedImagesStore,
+    private val hiddenRevealStateStore: HiddenRevealStateStore? = null,
+    private val appPackageName: String = "",
 ) : ViewModel() {
 
     private val _selectedCategory = MutableStateFlow(CATEGORY_ALL)
@@ -54,19 +60,25 @@ class GalleryViewModel(
     private val _newArrivalEvents = MutableSharedFlow<GalleryImage>(extraBufferCapacity = 8)
     val newArrivalEvents: SharedFlow<GalleryImage> = _newArrivalEvents.asSharedFlow()
 
+    // Instant in-memory reveal expiry overlay so Unlock responds in 0ms
+    private val optimisticRevealExpiries = MutableStateFlow<Map<String, Pair<Long, Long>>>(emptyMap())
+
     private val knownFirestoreIds = mutableSetOf<String>()
     private var initialFirestoreSnapshotHandled = false
     private val activeExpirationJobs = mutableMapOf<String, Job>()
 
     init {
         viewModelScope.launch {
+            if (appPackageName.isNotBlank()) {
+                testUploadsRepository.ensureStarterMomentsSeeded(appPackageName)
+            }
             val expiredIds = testUploadsRepository.markExpiredUploads()
             expiredIds.forEach { bookmarksRepository.removeBookmark(it) }
         }
         viewModelScope.launch {
             testUploadsRepository.testUploads.collect { uploads ->
                 uploads.filter { it.isHidden && !it.isExpired && it.revealExpiresAtEpochMs > 0L }
-                    .forEach { scheduleExpirationAt(it.id, it.revealExpiresAtEpochMs) }
+                    .forEach { scheduleExpirationAt(it.id, it.revealExpiresAtEpochMs, it.refreshEpochMs, isRemote = false) }
             }
         }
     }
@@ -75,7 +87,7 @@ class GalleryViewModel(
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = true,
+            initialValue = false,
         )
 
     val themeMode: StateFlow<ThemeMode> = prefsRepository.themeMode
@@ -144,19 +156,69 @@ class GalleryViewModel(
             emit(UiState.Error(rootError.message ?: "Unable to sync companion feed"))
         }
 
+    private val remoteRevealRecordsFlow = hiddenRevealStateStore?.revealStates
+        ?: flowOf(emptyMap<String, HiddenRevealRecord>())
+
     val galleryState: StateFlow<UiState<List<GalleryImage>>> = combine(
         remoteGalleryFlow,
         testUploadsRepository.testUploads,
-    ) { remoteState, localTests ->
+        remoteRevealRecordsFlow,
+        optimisticRevealExpiries,
+    ) { remoteState, localTests, remoteRevealMap, optimisticMap ->
+        val now = System.currentTimeMillis()
+        val applyOptimistic: (GalleryImage) -> GalleryImage = { img ->
+            val opt = optimisticMap[img.id]
+            if (img.isHidden && !img.isExpired && img.revealExpiresAtEpochMs == 0L &&
+                opt != null && opt.second == img.refreshEpochMs
+            ) {
+                val expiredNow = now >= opt.first
+                img.copy(
+                    revealExpiresAtEpochMs = opt.first,
+                    isExpired = expiredNow,
+                )
+            } else {
+                img
+            }
+        }
+
+        val mappedLocal = localTests.map(applyOptimistic)
+
         when (remoteState) {
             is UiState.Loading -> {
-                if (localTests.isNotEmpty()) UiState.Success(localTests) else UiState.Loading
+                if (mappedLocal.isNotEmpty()) UiState.Success(mappedLocal) else UiState.Loading
             }
             is UiState.Error -> {
-                if (localTests.isNotEmpty()) UiState.Success(localTests) else remoteState
+                if (mappedLocal.isNotEmpty()) UiState.Success(mappedLocal) else remoteState
             }
             is UiState.Success -> {
-                val merged = (localTests + remoteState.data)
+                val mappedRemote = remoteState.data.map { remoteImg ->
+                    val withReveal = if (remoteImg.isHidden) {
+                        val key = HiddenRevealStateStore.buildKey(remoteImg.id, remoteImg.refreshEpochMs)
+                        val record = remoteRevealMap[key]
+                        if (record != null) {
+                            val expiredNow = record.isExpired || (record.expiresAtEpochMs > 0L && now >= record.expiresAtEpochMs)
+                            if (record.expiresAtEpochMs > 0L && !expiredNow) {
+                                scheduleExpirationAt(
+                                    imageId = remoteImg.id,
+                                    expiresAtEpochMs = record.expiresAtEpochMs,
+                                    refreshEpochMs = remoteImg.refreshEpochMs,
+                                    isRemote = true,
+                                )
+                            }
+                            remoteImg.copy(
+                                revealExpiresAtEpochMs = record.expiresAtEpochMs,
+                                isExpired = expiredNow,
+                            )
+                        } else {
+                            remoteImg
+                        }
+                    } else {
+                        remoteImg
+                    }
+                    applyOptimistic(withReveal)
+                }
+
+                val merged = (mappedLocal + mappedRemote)
                     .distinctBy { it.id }
                     .sortedByDescending { it.createdAt ?: Timestamp(0, 0) }
                 UiState.Success(merged)
@@ -248,6 +310,7 @@ class GalleryViewModel(
                         img.title.lowercase().contains(trimmedQuery) ||
                         img.description.lowercase().contains(trimmedQuery) ||
                         img.category.lowercase().contains(trimmedQuery) ||
+                        img.price.lowercase().contains(trimmedQuery) ||
                         img.tags.any { it.lowercase().contains(trimmedQuery) }
                     matchesCategory && matchesQuery
                 }
@@ -313,28 +376,56 @@ class GalleryViewModel(
         _events.tryEmit("This moment expired after 20s — only a blurred memory remains.")
     }
 
-    fun revealHiddenImage(imageId: String) {
+    fun emitInAppAlertPreview(image: GalleryImage) {
+        _newArrivalEvents.tryEmit(image)
+    }
+
+    fun revealHiddenImage(image: GalleryImage) {
+        val imageId = image.id
+        val immediateExpiry = System.currentTimeMillis() + HIDDEN_REVEAL_TTL_MS
+        optimisticRevealExpiries.update { it + (imageId to (immediateExpiry to image.refreshEpochMs)) }
+
         viewModelScope.launch {
-            val expiresAt = testUploadsRepository.startHiddenRevealCountdown(
+            val localExpiresAt = testUploadsRepository.startHiddenRevealCountdown(
                 imageId = imageId,
                 ttlMs = HIDDEN_REVEAL_TTL_MS,
             )
-            if (expiresAt > 0L) {
-                scheduleExpirationAt(imageId, expiresAt)
+            if (localExpiresAt > 0L) {
+                scheduleExpirationAt(imageId, localExpiresAt, image.refreshEpochMs, isRemote = false)
+            } else if (hiddenRevealStateStore != null) {
+                val remoteExpiresAt = hiddenRevealStateStore.startCountdown(
+                    imageId = imageId,
+                    refreshEpochMs = image.refreshEpochMs,
+                    ttlMs = HIDDEN_REVEAL_TTL_MS,
+                )
+                scheduleExpirationAt(imageId, remoteExpiresAt, image.refreshEpochMs, isRemote = true)
+            } else {
+                scheduleExpirationAt(imageId, immediateExpiry, image.refreshEpochMs, isRemote = false)
             }
         }
     }
 
-    private fun scheduleExpirationAt(imageId: String, expiresAtEpochMs: Long) {
-        if (activeExpirationJobs[imageId]?.isActive == true) return
-        activeExpirationJobs[imageId] = viewModelScope.launch {
+    private fun scheduleExpirationAt(
+        imageId: String,
+        expiresAtEpochMs: Long,
+        refreshEpochMs: Long,
+        isRemote: Boolean,
+    ) {
+        val jobKey = "${imageId}_$refreshEpochMs"
+        if (activeExpirationJobs[jobKey]?.isActive == true) return
+        activeExpirationJobs[jobKey] = viewModelScope.launch {
             val remainingMs = (expiresAtEpochMs - System.currentTimeMillis()).coerceAtLeast(0L)
             if (remainingMs > 0L) {
                 delay(remainingMs)
             }
-            testUploadsRepository.markExpired(imageId)
+            if (isRemote) {
+                hiddenRevealStateStore?.markExpired(imageId, refreshEpochMs)
+            } else {
+                testUploadsRepository.markExpired(imageId)
+            }
+            optimisticRevealExpiries.update { it - imageId }
             bookmarksRepository.removeBookmark(imageId)
-            activeExpirationJobs.remove(imageId)
+            activeExpirationJobs.remove(jobKey)
             _events.tryEmit("Moment deleted · Blurred memory kept")
         }
     }
@@ -366,11 +457,15 @@ class GalleryViewModel(
         }
     }
 
-    fun resolvePagerImages(imageId: String): List<GalleryImage> {
-        val galleryList = (galleryState.value as? UiState.Success)?.data.orEmpty()
+    fun resolvePagerImagesFromState(
+        state: UiState<List<GalleryImage>>,
+        savedBookmarks: List<SavedBookmark>,
+        imageId: String,
+    ): List<GalleryImage> {
+        val galleryList = (state as? UiState.Success)?.data.orEmpty()
         val eligibleGallery = galleryList.filter { !it.isDeletedBlurred || it.id == imageId }
         if (eligibleGallery.any { it.id == imageId }) return eligibleGallery
-        val bookmarkList = bookmarks.value.map { it.toGalleryImage() }
+        val bookmarkList = savedBookmarks.map { it.toGalleryImage() }
         if (bookmarkList.any { it.id == imageId }) return bookmarkList
         return emptyList()
     }

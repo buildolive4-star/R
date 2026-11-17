@@ -83,6 +83,7 @@ fun SettingsScreen(
     onLayoutModeChange: (Boolean) -> Unit,
     onClearSaved: () -> Unit,
     onSecretAdminTrigger: () -> Unit,
+    onSendTestAlert: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
@@ -188,6 +189,17 @@ fun SettingsScreen(
                                 .testTag("settings_enable_alerts_button")
                         ) {
                             Text(text = stringResource(R.string.enable_alerts_button))
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        FilledTonalButton(
+                            onClick = onSendTestAlert,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("settings_test_alert_button")
+                        ) {
+                            Text(text = stringResource(R.string.test_alert_button))
                         }
                     }
                 }

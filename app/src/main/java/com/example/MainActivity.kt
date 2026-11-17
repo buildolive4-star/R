@@ -66,6 +66,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.data.model.GalleryImage
 import com.example.data.model.UiState
+import com.example.data.preferences.HiddenRevealStateStore
 import com.example.data.preferences.LocalBookmarksRepository
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
@@ -216,6 +217,8 @@ fun PixoraUserPanelApp(
                     testUploadsRepository = LocalTestUploadsRepository(app),
                     prefsRepository = ThemePreferencesRepository(app),
                     notifiedImagesStore = NotifiedImagesStore(app),
+                    hiddenRevealStateStore = HiddenRevealStateStore(app),
+                    appPackageName = app.packageName,
                 )
             }
         }
@@ -430,7 +433,17 @@ fun PixoraUserPanelApp(
                                     },
                                     onLayoutModeChange = viewModel::setStaggeredLayout,
                                     onClearSaved = viewModel::clearAllBookmarks,
-                                    onSecretAdminTrigger = { showAdminPasscodeSheet = true }
+                                    onSecretAdminTrigger = { showAdminPasscodeSheet = true },
+                                    onSendTestAlert = {
+                                        val sample = (galleryState as? UiState.Success)?.data?.firstOrNull()
+                                            ?: GalleryImage(
+                                                id = "test_alert_preview",
+                                                title = "New Companion Moment",
+                                                category = "Date Night",
+                                                price = "₹299",
+                                            )
+                                        viewModel.emitInAppAlertPreview(sample)
+                                    }
                                 )
                             }
 
@@ -439,14 +452,16 @@ fun PixoraUserPanelApp(
                                 arguments = listOf(navArgument("imageId") { type = NavType.StringType })
                             ) { entry ->
                                 val imageId = entry.arguments?.getString("imageId").orEmpty()
-                                val pagerImages = viewModel.resolvePagerImages(imageId)
+                                val pagerImages = remember(galleryState, bookmarks, imageId) {
+                                    viewModel.resolvePagerImagesFromState(galleryState, bookmarks, imageId)
+                                }
 
                                 ImageDetailScreen(
                                     images = pagerImages,
                                     initialImageId = imageId,
                                     bookmarkedIds = bookmarkedIds,
                                     onToggleBookmark = viewModel::toggleBookmark,
-                                    onRevealHiddenImage = { img -> viewModel.revealHiddenImage(img.id) },
+                                    onRevealHiddenImage = { img -> viewModel.revealHiddenImage(img) },
                                     onShowMessage = { msg ->
                                         scope.launch { snackbarHostState.showSnackbar(msg) }
                                     },
@@ -461,8 +476,10 @@ fun PixoraUserPanelApp(
                                             val app = checkNotNull(this[APPLICATION_KEY]) {
                                                 "APPLICATION_KEY missing from CreationExtras"
                                             }
+                                            val databaseId = app.getString(R.string.firestore_database_id)
                                             AdminViewModel(
                                                 uploadsRepository = LocalTestUploadsRepository(app),
+                                                galleryRepository = GalleryRepository(FirebaseFirestore.getInstance(databaseId)),
                                             )
                                         }
                                     }
@@ -489,7 +506,7 @@ fun PixoraUserPanelApp(
                                 AdminStudioScreen(
                                     publishState = publishState,
                                     uploadedImages = uploadedImages,
-                                    onUploadPicture = { uri, manualUrl, title, desc, cat, tags, featured, isHidden ->
+                                    onUploadPicture = { uri, manualUrl, title, desc, cat, price, tags, featured, isHidden ->
                                         adminViewModel.uploadPicture(
                                             context = context,
                                             selectedUri = uri,
@@ -497,6 +514,7 @@ fun PixoraUserPanelApp(
                                             title = title,
                                             description = desc,
                                             category = cat,
+                                            price = price,
                                             tagsRaw = tags,
                                             featured = featured,
                                             isHidden = isHidden,
@@ -504,6 +522,8 @@ fun PixoraUserPanelApp(
                                     },
                                     onResetPublishState = adminViewModel::resetPublishState,
                                     onToggleFeatured = adminViewModel::toggleFeatured,
+                                    onRefreshBlurredUpload = adminViewModel::refreshBlurredUpload,
+                                    onRefreshAllBlurred = adminViewModel::refreshAllBlurredUploads,
                                     onUpdateMetadata = adminViewModel::updateMetadata,
                                     onRemoveUpload = adminViewModel::removeUpload,
                                     onClearAllUploads = adminViewModel::clearAllUploads,

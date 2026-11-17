@@ -42,6 +42,7 @@ import com.example.R
 import com.example.data.model.SavedBookmark
 import com.example.ui.components.EmptyGalleryState
 import com.example.ui.components.PixoraNetworkImage
+import com.example.ui.components.PriceBadgePill
 
 @Composable
 fun SavedScreen(
@@ -176,15 +177,21 @@ private fun BookmarkTile(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(2.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         text = bookmark.category,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
+                    PriceBadgePill(price = bookmark.price.trim().ifBlank { "Free" })
                 }
             }
         }

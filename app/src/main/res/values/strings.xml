@@ -126,4 +126,9 @@
     <string name="hidden_protected_notice">Screenshots &amp; screen recording are blocked. Blurs permanently 20s after unlock.</string>
     <string name="hidden_protected_countdown_notice">Screen capture blocked · Turning into blurred memory in %1$ds</string>
     <string name="screen_protection_active">Screenshot &amp; screen recording protection active</string>
+    <string name="admin_price_label">Photo Price (Shown Below Card)</string>
+    <string name="admin_price_input_label">Price</string>
+    <string name="admin_refresh_single">Refresh so users can unlock again</string>
+    <string name="admin_refresh_all_blurred">Refresh All Blurred (%1$d) for Unlock</string>
+    <string name="test_alert_button">Test Alert</string>
 </resources>

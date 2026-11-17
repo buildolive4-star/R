@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -52,6 +53,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -95,6 +97,7 @@ import com.example.data.model.GalleryImage
 import com.example.data.remote.ImgBbApiService
 import com.example.ui.components.PixoraBlurredImage
 import com.example.ui.components.PixoraNetworkImage
+import com.example.ui.components.PriceBadgePill
 import kotlinx.coroutines.launch
 
 private val STUDIO_CATEGORIES = listOf(
@@ -107,9 +110,18 @@ private val STUDIO_CATEGORIES = listOf(
     "Exclusive",
 )
 
+private val QUICK_PRICE_PRESETS = listOf(
+    "Free",
+    "₹199",
+    "₹299",
+    "₹499",
+    "₹999",
+)
+
 private enum class StudioFilter(val label: String) {
     ALL("All"),
-    FEATURED("Spotlight"),
+    BLURRED("Blurred"),
+    FEATURED("Featured"),
 }
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
@@ -123,17 +135,21 @@ fun AdminStudioScreen(
         title: String,
         description: String,
         category: String,
+        price: String,
         tagsRaw: String,
         featured: Boolean,
         isHidden: Boolean,
     ) -> Unit,
     onResetPublishState: () -> Unit,
     onToggleFeatured: (GalleryImage) -> Unit,
+    onRefreshBlurredUpload: (String) -> Unit,
+    onRefreshAllBlurred: () -> Unit,
     onUpdateMetadata: (
         imageId: String,
         title: String,
         description: String,
         category: String,
+        price: String,
         tagsRaw: String,
         featured: Boolean,
         isHidden: Boolean,
@@ -154,6 +170,7 @@ fun AdminStudioScreen(
     var description by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(STUDIO_CATEGORIES.first()) }
     var customCategory by remember { mutableStateOf("") }
+    var price by remember { mutableStateOf("₹299") }
     var tagsRaw by remember { mutableStateOf("") }
     var featured by remember { mutableStateOf(true) }
     var isHidden by remember { mutableStateOf(false) }
@@ -186,9 +203,14 @@ fun AdminStudioScreen(
         }
     }
 
+    val blurredCount = remember(uploadedImages) {
+        uploadedImages.count { it.isDeletedBlurred || it.isRevealStarted }
+    }
+
     val filteredUploads = remember(uploadedImages, selectedFilter) {
         when (selectedFilter) {
             StudioFilter.ALL -> uploadedImages
+            StudioFilter.BLURRED -> uploadedImages.filter { it.isDeletedBlurred || it.isRevealStarted }
             StudioFilter.FEATURED -> uploadedImages.filter { it.featured }
         }
     }
@@ -349,7 +371,7 @@ fun AdminStudioScreen(
                                             .data(selectedUri)
                                             .crossfade(true)
                                             .build(),
-                                        contentDescription = title.ifBlank { "Selected artwork" },
+                                        contentDescription = title.ifBlank { "Selected moment" },
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
                                     )
@@ -433,17 +455,60 @@ fun AdminStudioScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        OutlinedTextField(
-                            value = title,
-                            onValueChange = { title = it },
-                            singleLine = true,
-                            label = { Text(text = stringResource(R.string.admin_title_optional_label)) },
-                            placeholder = { Text(text = stringResource(R.string.admin_title_optional_hint)) },
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("admin_title_input")
+                        Text(
+                            text = stringResource(R.string.admin_price_label),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            QUICK_PRICE_PRESETS.forEach { preset ->
+                                FilterChip(
+                                    selected = price.trim() == preset,
+                                    onClick = { price = preset },
+                                    label = { Text(text = preset) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.secondary,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onSecondary
+                                    ),
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = title,
+                                onValueChange = { title = it },
+                                singleLine = true,
+                                label = { Text(text = stringResource(R.string.admin_title_optional_label)) },
+                                placeholder = { Text(text = stringResource(R.string.admin_title_optional_hint)) },
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .weight(1.3f)
+                                    .testTag("admin_title_input")
+                            )
+                            OutlinedTextField(
+                                value = price,
+                                onValueChange = { price = it },
+                                singleLine = true,
+                                label = { Text(text = stringResource(R.string.admin_price_input_label)) },
+                                placeholder = { Text(text = "₹299") },
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("admin_price_input")
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(10.dp))
 
@@ -578,7 +643,7 @@ fun AdminStudioScreen(
                                         onValueChange = { tagsRaw = it },
                                         singleLine = true,
                                         label = { Text(text = stringResource(R.string.admin_tags_label)) },
-                                        placeholder = { Text(text = "sunset, 4k") },
+                                        placeholder = { Text(text = "date, cozy") },
                                         shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier.weight(1f)
                                     )
@@ -700,6 +765,7 @@ fun AdminStudioScreen(
                                     title,
                                     description,
                                     effectiveCategory,
+                                    price,
                                     tagsRaw,
                                     featured,
                                     isHidden,
@@ -768,14 +834,44 @@ fun AdminStudioScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        if (blurredCount > 0) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            FilledTonalButton(
+                                onClick = onRefreshAllBlurred,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("admin_refresh_all_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = stringResource(R.string.admin_refresh_all_blurred, blurredCount),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             StudioFilter.entries.forEach { filter ->
+                                val labelText = if (filter == StudioFilter.BLURRED && blurredCount > 0) {
+                                    "${filter.label} ($blurredCount)"
+                                } else {
+                                    filter.label
+                                }
                                 FilterChip(
                                     selected = selectedFilter == filter,
                                     onClick = { selectedFilter = filter },
-                                    label = { Text(text = filter.label) },
+                                    label = { Text(text = labelText) },
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = MaterialTheme.colorScheme.primary,
                                         selectedLabelColor = MaterialTheme.colorScheme.onPrimary
@@ -791,6 +887,7 @@ fun AdminStudioScreen(
                     StudioUploadCard(
                         image = upload,
                         onToggleFeatured = { onToggleFeatured(upload) },
+                        onRefreshBlurred = { onRefreshBlurredUpload(upload.id) },
                         onEdit = { editingImage = upload },
                         onCopyLink = {
                             clipboard.setText(AnnotatedString(upload.imageUrl))
@@ -815,12 +912,13 @@ fun AdminStudioScreen(
         AdminEditArtworkSheet(
             image = current,
             onDismiss = { editingImage = null },
-            onSave = { newTitle, newDesc, newCat, newTags, newFeat, newHidden ->
+            onSave = { newTitle, newDesc, newCat, newPrice, newTags, newFeat, newHidden ->
                 onUpdateMetadata(
                     current.id,
                     newTitle,
                     newDesc,
                     newCat,
+                    newPrice,
                     newTags,
                     newFeat,
                     newHidden,
@@ -863,11 +961,14 @@ fun AdminStudioScreen(
 private fun StudioUploadCard(
     image: GalleryImage,
     onToggleFeatured: () -> Unit,
+    onRefreshBlurred: () -> Unit,
     onEdit: () -> Unit,
     onCopyLink: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val canRefresh = image.isDeletedBlurred || image.isRevealStarted
+
     Card(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -933,24 +1034,41 @@ private fun StudioUploadCard(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                         )
                     }
-                    Text(
-                        text = image.category,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                    PriceBadgePill(price = image.displayPrice)
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = image.category,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (canRefresh) {
+                IconButton(
+                    onClick = onRefreshBlurred,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("admin_refresh_button_${image.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = stringResource(R.string.admin_refresh_single),
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
-            }
-            IconButton(
-                onClick = onToggleFeatured,
-                modifier = Modifier.minimumInteractiveComponentSize()
-            ) {
-                Icon(
-                    imageVector = if (image.featured) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                    contentDescription = "Toggle spotlight",
-                    tint = if (image.featured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            } else {
+                IconButton(
+                    onClick = onToggleFeatured,
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) {
+                    Icon(
+                        imageVector = if (image.featured) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                        contentDescription = "Toggle featured",
+                        tint = if (image.featured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             IconButton(
                 onClick = onCopyLink,
@@ -967,7 +1085,7 @@ private fun StudioUploadCard(
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Edit,
-                    contentDescription = "Edit artwork"
+                    contentDescription = "Edit moment"
                 )
             }
             IconButton(
@@ -993,6 +1111,7 @@ private fun AdminEditArtworkSheet(
         title: String,
         description: String,
         category: String,
+        price: String,
         tagsRaw: String,
         featured: Boolean,
         isHidden: Boolean,
@@ -1002,6 +1121,7 @@ private fun AdminEditArtworkSheet(
     var title by remember { mutableStateOf(image.title) }
     var description by remember { mutableStateOf(image.description) }
     var category by remember { mutableStateOf(image.category) }
+    var price by remember { mutableStateOf(image.price.ifBlank { "₹299" }) }
     var tagsRaw by remember { mutableStateOf(image.tags.joinToString(", ")) }
     var featured by remember { mutableStateOf(image.featured) }
     var isHidden by remember { mutableStateOf(image.isHidden) }
@@ -1031,20 +1151,33 @@ private fun AdminEditArtworkSheet(
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth()
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = category,
+                    onValueChange = { category = it },
+                    singleLine = true,
+                    label = { Text(text = stringResource(R.string.upload_category_label)) },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = price,
+                    onValueChange = { price = it },
+                    singleLine = true,
+                    label = { Text(text = stringResource(R.string.admin_price_input_label)) },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.weight(1f)
+                )
+            }
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
                 minLines = 2,
                 maxLines = 4,
                 label = { Text(text = stringResource(R.string.admin_description_label)) },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = category,
-                onValueChange = { category = it },
-                singleLine = true,
-                label = { Text(text = stringResource(R.string.upload_category_label)) },
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1078,6 +1211,7 @@ private fun AdminEditArtworkSheet(
                         title,
                         description,
                         category,
+                        price,
                         tagsRaw,
                         featured,
                         isHidden,

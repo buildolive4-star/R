@@ -80,6 +80,7 @@ import com.example.R
 import com.example.data.model.GalleryImage
 import com.example.ui.components.PixoraBlurredImage
 import com.example.ui.components.PixoraNetworkImage
+import com.example.ui.components.PriceBadgePill
 import com.example.util.ImageActions
 import com.google.firebase.Timestamp
 import kotlinx.coroutines.delay
@@ -126,7 +127,13 @@ fun ImageDetailScreen(
         mutableIntStateOf(currentImage.remainingSeconds())
     }
 
-    LaunchedEffect(currentImage.id, currentImage.isHidden, currentImage.revealExpiresAtEpochMs, currentImage.isExpired) {
+    LaunchedEffect(
+        currentImage.id,
+        currentImage.isHidden,
+        currentImage.revealExpiresAtEpochMs,
+        currentImage.isExpired,
+        currentImage.refreshEpochMs,
+    ) {
         if (currentImage.isExpired) {
             remainingSec = 0
         } else if (currentImage.isRevealStarted) {
@@ -136,6 +143,8 @@ fun ImageDetailScreen(
                 if (secs <= 0) break
                 delay(250L)
             }
+        } else {
+            remainingSec = 20
         }
     }
 
@@ -296,7 +305,9 @@ fun ImageDetailScreen(
                                     color = Color.White,
                                     textAlign = TextAlign.Center
                                 )
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
+                                PriceBadgePill(price = pageImage.displayPrice)
+                                Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = stringResource(R.string.hidden_detail_subtitle),
                                     style = MaterialTheme.typography.bodyMedium,
@@ -364,6 +375,7 @@ fun ImageDetailScreen(
                             imageUrl = pageImage.imageUrl,
                             contentDescription = pageImage.title,
                             contentScale = ContentScale.Fit,
+                            showSpinnerOnLoad = true,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .then(
@@ -570,13 +582,22 @@ fun ImageDetailScreen(
                         .widthIn(max = 600.dp)
                 ) {
                     Column(modifier = Modifier.padding(18.dp)) {
-                        Text(
-                            text = currentImage.title,
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = Color.White,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = currentImage.title,
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = Color.White,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            PriceBadgePill(price = currentImage.displayPrice)
+                        }
 
                         Spacer(modifier = Modifier.height(4.dp))
 
