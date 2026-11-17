@@ -20,7 +20,7 @@ object ImageActions {
     fun shareImage(context: Context, title: String, imageUrl: String) {
         val shareText = buildString {
             if (title.isNotBlank()) append(title).append("\n")
-            if (!imageUrl.startsWith("android.resource://")) {
+            if (!imageUrl.startsWith("android.resource://") && !imageUrl.startsWith("file://")) {
                 append(imageUrl)
             }
         }.trim()
@@ -40,7 +40,8 @@ object ImageActions {
                     .take(40)
                     .ifBlank { "pixora_photo" }
                 val fileName = "${safeName}_${System.currentTimeMillis()}.jpg"
-                val isLocalResource = image.imageUrl.startsWith("android.resource://")
+                val isLocalResource = image.imageUrl.startsWith("android.resource://") ||
+                    image.imageUrl.startsWith("file://")
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q || isLocalResource) {
                     val values = ContentValues().apply {

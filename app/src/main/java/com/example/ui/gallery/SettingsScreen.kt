@@ -143,59 +143,59 @@ fun SettingsScreen(
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = (if (hasNotificationPermission) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary)
-                            .copy(alpha = 0.16f),
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Rounded.NotificationsActive,
-                                contentDescription = null,
-                                tint = if (hasNotificationPermission) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = (if (hasNotificationPermission) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary)
+                                .copy(alpha = 0.16f),
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.NotificationsActive,
+                                    contentDescription = null,
+                                    tint = if (hasNotificationPermission) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (hasNotificationPermission) {
+                                    stringResource(R.string.alerts_enabled_badge)
+                                } else {
+                                    stringResource(R.string.enable_alerts_title)
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = stringResource(R.string.notification_channel_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = if (hasNotificationPermission) {
-                                stringResource(R.string.alerts_enabled_badge)
-                            } else {
-                                stringResource(R.string.enable_alerts_title)
-                            },
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = stringResource(R.string.notification_channel_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(12.dp))
                     if (!hasNotificationPermission) {
-                        Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = onRequestNotificationPermission,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
+                                .fillMaxWidth()
                                 .minimumInteractiveComponentSize()
                                 .testTag("settings_enable_alerts_button")
                         ) {
                             Text(text = stringResource(R.string.enable_alerts_button))
                         }
                     } else {
-                        Spacer(modifier = Modifier.width(8.dp))
                         FilledTonalButton(
                             onClick = onSendTestAlert,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
+                                .fillMaxWidth()
                                 .minimumInteractiveComponentSize()
                                 .testTag("settings_test_alert_button")
                         ) {

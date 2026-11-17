@@ -94,7 +94,6 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.R
 import com.example.data.model.GalleryImage
-import com.example.data.remote.ImgBbApiService
 import com.example.ui.components.PixoraBlurredImage
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
@@ -162,7 +161,6 @@ fun AdminStudioScreen(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
-    val isImgBbConfigured = remember { ImgBbApiService.isApiKeyConfigured() }
 
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var manualUrl by remember { mutableStateOf("") }
@@ -292,6 +290,61 @@ fun AdminStudioScreen(
                 }
             }
 
+            // Primary Top Refresh Action Bar — always visible at the top
+            item(key = "admin_top_refresh_bar") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 680.dp)
+                ) {
+                    if (blurredCount > 0) {
+                        Button(
+                            onClick = onRefreshAllBlurred,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .minimumInteractiveComponentSize()
+                                .testTag("admin_refresh_all_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.admin_refresh_all_blurred, blurredCount),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    } else {
+                        FilledTonalButton(
+                            onClick = onRefreshAllBlurred,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .minimumInteractiveComponentSize()
+                                .testTag("admin_refresh_all_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.admin_refresh_top_ready),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+
             // Quick Upload Composer
             item(key = "admin_upload_composer") {
                 Card(
@@ -315,33 +368,6 @@ fun AdminStudioScreen(
                         )
 
                         Spacer(modifier = Modifier.height(12.dp))
-
-                        if (!isImgBbConfigured) {
-                            Surface(
-                                shape = MaterialTheme.shapes.medium,
-                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 12.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.ErrorOutline,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = stringResource(R.string.imgbb_bridge_missing),
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                            }
-                        }
 
                         Surface(
                             onClick = {
@@ -834,31 +860,6 @@ fun AdminStudioScreen(
                             }
                         }
 
-                        if (blurredCount > 0) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            FilledTonalButton(
-                                onClick = onRefreshAllBlurred,
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .minimumInteractiveComponentSize()
-                                    .testTag("admin_refresh_all_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Refresh,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = stringResource(R.string.admin_refresh_all_blurred, blurredCount),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
                         Spacer(modifier = Modifier.height(8.dp))
 
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -975,128 +976,150 @@ private fun StudioUploadCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier.testTag("admin_artwork_card_${image.id}")
     ) {
-        Row(
-            modifier = Modifier.padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (image.isDeletedBlurred) {
-                PixoraBlurredImage(
-                    imageUrl = image.displayThumbnailUrl,
-                    contentDescription = image.title,
-                    modifier = Modifier
-                        .size(68.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                )
-            } else {
-                PixoraNetworkImage(
-                    imageUrl = image.displayThumbnailUrl,
-                    contentDescription = image.title,
-                    modifier = Modifier
-                        .size(68.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = image.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val statusLabel = when {
-                        image.isDeletedBlurred -> "BLURRED"
-                        image.isHidden -> "SECRET · 20s"
-                        else -> "LIVE"
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = when {
-                            image.isDeletedBlurred -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)
-                            image.isHidden -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-                            else -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
-                        }
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (image.isDeletedBlurred) {
+                    PixoraBlurredImage(
+                        imageUrl = image.displayThumbnailUrl,
+                        contentDescription = image.title,
+                        modifier = Modifier
+                            .size(68.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                    )
+                } else {
+                    PixoraNetworkImage(
+                        imageUrl = image.displayThumbnailUrl,
+                        contentDescription = image.title,
+                        modifier = Modifier
+                            .size(68.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = image.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = statusLabel,
-                            style = MaterialTheme.typography.labelSmall,
+                        val statusLabel = when {
+                            image.isDeletedBlurred -> "BLURRED"
+                            image.isHidden -> "SECRET · 20s"
+                            else -> "LIVE"
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(50),
                             color = when {
-                                image.isDeletedBlurred -> MaterialTheme.colorScheme.secondary
-                                image.isHidden -> MaterialTheme.colorScheme.primary
-                                else -> MaterialTheme.colorScheme.tertiary
-                            },
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                image.isDeletedBlurred -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)
+                                image.isHidden -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                else -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
+                            }
+                        ) {
+                            Text(
+                                text = statusLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = when {
+                                    image.isDeletedBlurred -> MaterialTheme.colorScheme.secondary
+                                    image.isHidden -> MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.tertiary
+                                },
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                        PriceBadgePill(price = image.displayPrice)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = image.category,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (canRefresh) {
+                    Button(
+                        onClick = onRefreshBlurred,
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        modifier = Modifier
+                            .height(40.dp)
+                            .minimumInteractiveComponentSize()
+                            .testTag("admin_refresh_button_${image.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.admin_refresh_single),
+                            style = MaterialTheme.typography.labelMedium
                         )
                     }
-                    PriceBadgePill(price = image.displayPrice)
+                } else {
+                    IconButton(
+                        onClick = onToggleFeatured,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            imageVector = if (image.featured) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                            contentDescription = "Toggle featured",
+                            tint = if (image.featured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = image.category,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (canRefresh) {
-                IconButton(
-                    onClick = onRefreshBlurred,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .testTag("admin_refresh_button_${image.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Refresh,
-                        contentDescription = stringResource(R.string.admin_refresh_single),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onCopyLink,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.ContentCopy,
+                            contentDescription = stringResource(R.string.copy_link)
+                        )
+                    }
+                    IconButton(
+                        onClick = onEdit,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Edit,
+                            contentDescription = "Edit moment"
+                        )
+                    }
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.DeleteOutline,
+                            contentDescription = stringResource(R.string.admin_delete_button),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
-            } else {
-                IconButton(
-                    onClick = onToggleFeatured,
-                    modifier = Modifier.minimumInteractiveComponentSize()
-                ) {
-                    Icon(
-                        imageVector = if (image.featured) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                        contentDescription = "Toggle featured",
-                        tint = if (image.featured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            IconButton(
-                onClick = onCopyLink,
-                modifier = Modifier.minimumInteractiveComponentSize()
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.ContentCopy,
-                    contentDescription = stringResource(R.string.copy_link)
-                )
-            }
-            IconButton(
-                onClick = onEdit,
-                modifier = Modifier.minimumInteractiveComponentSize()
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Edit,
-                    contentDescription = "Edit moment"
-                )
-            }
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.minimumInteractiveComponentSize()
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.DeleteOutline,
-                    contentDescription = stringResource(R.string.admin_delete_button),
-                    tint = MaterialTheme.colorScheme.error
-                )
             }
         }
     }

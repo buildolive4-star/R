@@ -89,16 +89,25 @@ class AdminViewModel(
         viewModelScope.launch {
             val storedUpload: StoredTestUpload = if (selectedUri != null) {
                 _publishState.value = AdminPublishState.UploadingToImgBb
-                val imgBbResult = ImgBbUploadHelper.uploadUriToImgBb(
-                    context = context.applicationContext,
-                    apiService = imgBbApiService,
-                    imageUri = selectedUri,
-                    title = cleanTitle,
-                    category = cleanCategory,
-                )
-                val uploaded = imgBbResult.getOrElse { err ->
+                val uploadResult = if (ImgBbApiService.isApiKeyConfigured()) {
+                    ImgBbUploadHelper.uploadUriToImgBb(
+                        context = context.applicationContext,
+                        apiService = imgBbApiService,
+                        imageUri = selectedUri,
+                        title = cleanTitle,
+                        category = cleanCategory,
+                    )
+                } else {
+                    ImgBbUploadHelper.saveUriLocallyForDeviceFeed(
+                        context = context.applicationContext,
+                        imageUri = selectedUri,
+                        title = cleanTitle,
+                        category = cleanCategory,
+                    )
+                }
+                val uploaded = uploadResult.getOrElse { err ->
                     _publishState.value = AdminPublishState.Error(
-                        err.localizedMessage ?: "ImgBB upload failed. Check internet connection."
+                        err.localizedMessage ?: "Unable to upload selected photo."
                     )
                     return@launch
                 }
@@ -201,8 +210,11 @@ class AdminViewModel(
         viewModelScope.launch {
             val refreshedList = uploadsRepository.refreshAllExpiredUploads()
             if (refreshedList.isEmpty()) {
-                _events.tryEmit("No blurred photos need refresh right now")
+                _events.tryEmit("All secret photos are ready to open & unlock!")
             } else {
+                if (galleryRepository != null && Firebase.auth.currentUser != null) {
+                    refreshedList.forEach { galleryRepository.refreshRemoteImage(it.id) }
+                }
                 refreshedList.firstOrNull()?.let { _uploadedPreviewAlert.tryEmit(it) }
                 _events.tryEmit("Refreshed ${refreshedList.size} photo(s) — unlock is open again!")
             }

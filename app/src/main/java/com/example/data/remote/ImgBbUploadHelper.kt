@@ -65,6 +65,39 @@ object ImgBbUploadHelper {
         }
     }
 
+    suspend fun saveUriLocallyForDeviceFeed(
+        context: Context,
+        imageUri: Uri,
+        title: String,
+        category: String,
+    ): Result<StoredTestUpload> = withContext(Dispatchers.IO) {
+        runCatching {
+            val decoded = decodeScaledBitmap(context, imageUri)
+            val scaled = scaleDownIfNeeded(decoded, MAX_DIMENSION_PX)
+            val ratio = (scaled.width.toDouble() / scaled.height.toDouble()).coerceIn(0.4, 2.5)
+            val uploadsDir = java.io.File(context.filesDir, "admin_uploads").apply { mkdirs() }
+            val fileName = "moment_${UUID.randomUUID().toString().take(8)}.jpg"
+            val outFile = java.io.File(uploadsDir, fileName)
+            outFile.outputStream().use { stream ->
+                val ok = scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, stream)
+                if (scaled !== decoded) scaled.recycle()
+                decoded.recycle()
+                if (!ok) error("Unable to save selected photo")
+            }
+            val fileUri = Uri.fromFile(outFile).toString()
+            val safeTitle = title.trim().ifBlank { "Aria Moment" }.take(120)
+            StoredTestUpload(
+                id = "local_${UUID.randomUUID().toString().take(8)}",
+                title = safeTitle,
+                category = category.trim().ifBlank { "Date Night" }.take(40),
+                imageUrl = fileUri,
+                thumbUrl = fileUri,
+                aspectRatio = ratio,
+                createdAtEpochMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
     internal fun encodeUriToBase64(context: Context, uri: Uri): Pair<String, Double> {
         val decoded = decodeScaledBitmap(context, uri)
         val scaled = scaleDownIfNeeded(decoded, MAX_DIMENSION_PX)

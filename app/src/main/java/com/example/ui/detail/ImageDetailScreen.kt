@@ -287,18 +287,18 @@ fun ImageDetailScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                                    modifier = Modifier.size(68.dp)
+                                    modifier = Modifier.size(60.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             imageVector = Icons.Rounded.VisibilityOff,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(32.dp)
+                                            modifier = Modifier.size(30.dp)
                                         )
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
                                 Text(
                                     text = stringResource(R.string.hidden_detail_title),
                                     style = MaterialTheme.typography.headlineSmall,
@@ -307,20 +307,13 @@ fun ImageDetailScreen(
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 PriceBadgePill(price = pageImage.displayPrice)
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Text(
-                                    text = stringResource(R.string.hidden_detail_subtitle),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFFD6C4D4),
-                                    textAlign = TextAlign.Center
-                                )
-                                Spacer(modifier = Modifier.height(20.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
                                 Button(
                                     onClick = { onRevealHiddenImage(pageImage) },
                                     shape = RoundedCornerShape(16.dp),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(52.dp)
+                                        .height(54.dp)
                                         .minimumInteractiveComponentSize()
                                         .testTag("detail_reveal_hidden_button")
                                 ) {
@@ -332,6 +325,13 @@ fun ImageDetailScreen(
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(text = stringResource(R.string.reveal_photo_button))
                                 }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = stringResource(R.string.hidden_detail_subtitle),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFD6C4D4),
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
                     }
