@@ -31,27 +31,36 @@ data class StoredTestUpload(
     val tags: List<String> = emptyList(),
     val isHidden: Boolean = false,
     val revealExpiresAtEpochMs: Long = 0L,
+    val isExpired: Boolean = false,
 ) {
-    fun toGalleryImage(): GalleryImage = GalleryImage(
-        id = id,
-        title = title,
-        description = description.ifBlank {
-            if (isHidden) "Protected disappearing photo" else "Uploaded via ImgBB CDN"
-        },
-        category = category,
-        imageUrl = imageUrl,
-        thumbUrl = thumbUrl,
-        aspectRatio = aspectRatio,
-        status = "published",
-        featured = if (isHidden) false else featured,
-        uploadedBy = "pixora_admin",
-        uploaderName = "Pixora Studio",
-        tags = tags.ifEmpty { listOf("imgbb", category.lowercase()) },
-        isHidden = isHidden,
-        revealExpiresAtEpochMs = revealExpiresAtEpochMs,
-        createdAt = Timestamp(createdAtEpochMs / 1000L, 0),
-        updatedAt = Timestamp(createdAtEpochMs / 1000L, 0),
-    )
+    fun toGalleryImage(nowMs: Long = System.currentTimeMillis()): GalleryImage {
+        val expiredNow = isExpired || (isHidden && revealExpiresAtEpochMs > 0L && nowMs >= revealExpiresAtEpochMs)
+        return GalleryImage(
+            id = id,
+            title = title,
+            description = description.ifBlank {
+                when {
+                    expiredNow -> "Expired after 20s · Blurred memory"
+                    isHidden -> "Private 20s disappearing drop"
+                    else -> "Shared by Aria · Companion"
+                }
+            },
+            category = category,
+            imageUrl = imageUrl,
+            thumbUrl = thumbUrl,
+            aspectRatio = aspectRatio,
+            status = "published",
+            featured = if (isHidden || expiredNow) false else featured,
+            uploadedBy = "pixora_admin",
+            uploaderName = "Aria · Companion",
+            tags = tags.ifEmpty { listOf("companion", category.lowercase()) },
+            isHidden = isHidden,
+            revealExpiresAtEpochMs = revealExpiresAtEpochMs,
+            isExpired = expiredNow,
+            createdAt = Timestamp(createdAtEpochMs / 1000L, 0),
+            updatedAt = Timestamp(createdAtEpochMs / 1000L, 0),
+        )
+    }
 }
 
 class LocalTestUploadsRepository(private val context: Context) {
@@ -66,9 +75,8 @@ class LocalTestUploadsRepository(private val context: Context) {
     val testUploads: Flow<List<GalleryImage>> = context.testUploadsDataStore.data.map { prefs ->
         val now = System.currentTimeMillis()
         decodeList(prefs[key])
-            .filterNot { it.isHidden && it.revealExpiresAtEpochMs > 0L && now >= it.revealExpiresAtEpochMs }
             .sortedByDescending { it.createdAtEpochMs }
-            .map { it.toGalleryImage() }
+            .map { it.toGalleryImage(now) }
     }
 
     suspend fun addUpload(upload: StoredTestUpload) {
@@ -94,11 +102,12 @@ class LocalTestUploadsRepository(private val context: Context) {
                     item.copy(
                         title = title.trim().ifBlank { item.title }.take(120),
                         description = description.trim().take(600),
-                        category = category.trim().ifBlank { "Photography" }.take(40),
+                        category = category.trim().ifBlank { "Date Night" }.take(40),
                         featured = featured,
                         tags = tags.map { it.trim().take(32) }.filter { it.isNotEmpty() }.distinct().take(10),
                         isHidden = nextHidden,
                         revealExpiresAtEpochMs = if (!nextHidden) 0L else item.revealExpiresAtEpochMs,
+                        isExpired = if (!nextHidden) false else item.isExpired,
                     )
                 } else {
                     item
@@ -113,7 +122,7 @@ class LocalTestUploadsRepository(private val context: Context) {
         context.testUploadsDataStore.edit { prefs ->
             val now = System.currentTimeMillis()
             val updated = decodeList(prefs[key]).map { item ->
-                if (item.id == imageId && item.isHidden) {
+                if (item.id == imageId && item.isHidden && !item.isExpired) {
                     val resolvedExpiry = if (item.revealExpiresAtEpochMs > 0L) {
                         item.revealExpiresAtEpochMs
                     } else {
@@ -130,20 +139,40 @@ class LocalTestUploadsRepository(private val context: Context) {
         return expiresAt
     }
 
-    suspend fun purgeExpiredUploads(nowMs: Long = System.currentTimeMillis()): List<String> {
-        val removedIds = mutableListOf<String>()
+    suspend fun markExpired(imageId: String) {
+        context.testUploadsDataStore.edit { prefs ->
+            val updated = decodeList(prefs[key]).map { item ->
+                if (item.id == imageId) {
+                    item.copy(isExpired = true, featured = false)
+                } else {
+                    item
+                }
+            }
+            prefs[key] = adapter.toJson(updated)
+        }
+    }
+
+    suspend fun markExpiredUploads(nowMs: Long = System.currentTimeMillis()): List<String> {
+        val newlyExpiredIds = mutableListOf<String>()
         context.testUploadsDataStore.edit { prefs ->
             val current = decodeList(prefs[key])
-            val kept = current.filter { item ->
-                val expired = item.isHidden && item.revealExpiresAtEpochMs > 0L && nowMs >= item.revealExpiresAtEpochMs
-                if (expired) removedIds.add(item.id)
-                !expired
+            val updated = current.map { item ->
+                val shouldExpire = !item.isExpired &&
+                    item.isHidden &&
+                    item.revealExpiresAtEpochMs > 0L &&
+                    nowMs >= item.revealExpiresAtEpochMs
+                if (shouldExpire) {
+                    newlyExpiredIds.add(item.id)
+                    item.copy(isExpired = true, featured = false)
+                } else {
+                    item
+                }
             }
-            if (removedIds.isNotEmpty()) {
-                prefs[key] = adapter.toJson(kept)
+            if (newlyExpiredIds.isNotEmpty()) {
+                prefs[key] = adapter.toJson(updated)
             }
         }
-        return removedIds
+        return newlyExpiredIds
     }
 
     suspend fun toggleFeatured(imageId: String): Boolean {

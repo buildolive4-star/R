@@ -60,13 +60,13 @@ class GalleryViewModel(
 
     init {
         viewModelScope.launch {
-            val expiredIds = testUploadsRepository.purgeExpiredUploads()
+            val expiredIds = testUploadsRepository.markExpiredUploads()
             expiredIds.forEach { bookmarksRepository.removeBookmark(it) }
         }
         viewModelScope.launch {
             testUploadsRepository.testUploads.collect { uploads ->
-                uploads.filter { it.isHidden && it.revealExpiresAtEpochMs > 0L }
-                    .forEach { scheduleDeletionAt(it.id, it.revealExpiresAtEpochMs) }
+                uploads.filter { it.isHidden && !it.isExpired && it.revealExpiresAtEpochMs > 0L }
+                    .forEach { scheduleExpirationAt(it.id, it.revealExpiresAtEpochMs) }
             }
         }
     }
@@ -141,7 +141,7 @@ class GalleryViewModel(
             if (firestoreError == null && error is CancellationException) throw error
             val rootError = firestoreError ?: error
             Log.w(TAG, "Error observing gallery images", rootError)
-            emit(UiState.Error(rootError.message ?: "Unable to sync gallery images"))
+            emit(UiState.Error(rootError.message ?: "Unable to sync companion feed"))
         }
 
     val galleryState: StateFlow<UiState<List<GalleryImage>>> = combine(
@@ -200,14 +200,15 @@ class GalleryViewModel(
     val collections: StateFlow<List<CategoryCollection>> = galleryState
         .map { state ->
             val images = (state as? UiState.Success)?.data ?: return@map emptyList()
-            images.groupBy { it.category.trim().ifBlank { "Photography" } }
+            images.groupBy { it.category.trim().ifBlank { "Date Night" } }
                 .entries
                 .sortedByDescending { it.value.size }
                 .map { (name, items) ->
                     CategoryCollection(
                         name = name,
                         count = items.size,
-                        coverUrl = items.firstOrNull { !it.isHidden }?.displayThumbnailUrl.orEmpty()
+                        coverUrl = items.firstOrNull { !it.isHidden && !it.isDeletedBlurred }
+                            ?.displayThumbnailUrl.orEmpty()
                     )
                 }
         }
@@ -220,7 +221,7 @@ class GalleryViewModel(
     val featuredImages: StateFlow<List<GalleryImage>> = galleryState
         .map { state ->
             val images = (state as? UiState.Success)?.data ?: return@map emptyList()
-            val visibleImages = images.filterNot { it.isHidden }
+            val visibleImages = images.filterNot { it.isHidden || it.isDeletedBlurred }
             val explicitFeatured = visibleImages.filter { it.featured }
             (explicitFeatured.ifEmpty { visibleImages }).take(5)
         }
@@ -305,7 +306,11 @@ class GalleryViewModel(
 
     fun triggerBackgroundCheckNow(context: Context) {
         BackgroundSyncScheduler.triggerImmediateCheck(context)
-        _events.tryEmit("Checking for new uploads in background…")
+        _events.tryEmit("Checking for new companion drops…")
+    }
+
+    fun notifyExpiredBlurredTap() {
+        _events.tryEmit("This moment expired after 20s — only a blurred memory remains.")
     }
 
     fun revealHiddenImage(imageId: String) {
@@ -315,29 +320,29 @@ class GalleryViewModel(
                 ttlMs = HIDDEN_REVEAL_TTL_MS,
             )
             if (expiresAt > 0L) {
-                scheduleDeletionAt(imageId, expiresAt)
+                scheduleExpirationAt(imageId, expiresAt)
             }
         }
     }
 
-    private fun scheduleDeletionAt(imageId: String, expiresAtEpochMs: Long) {
+    private fun scheduleExpirationAt(imageId: String, expiresAtEpochMs: Long) {
         if (activeExpirationJobs[imageId]?.isActive == true) return
         activeExpirationJobs[imageId] = viewModelScope.launch {
             val remainingMs = (expiresAtEpochMs - System.currentTimeMillis()).coerceAtLeast(0L)
             if (remainingMs > 0L) {
                 delay(remainingMs)
             }
-            testUploadsRepository.removeUpload(imageId)
+            testUploadsRepository.markExpired(imageId)
             bookmarksRepository.removeBookmark(imageId)
             activeExpirationJobs.remove(imageId)
-            _events.tryEmit("Hidden photo permanently deleted")
+            _events.tryEmit("Moment deleted · Blurred memory kept")
         }
     }
 
     fun toggleBookmark(image: GalleryImage) {
         viewModelScope.launch {
-            if (image.isHidden) {
-                _events.tryEmit("Hidden photos cannot be saved")
+            if (image.isHidden || image.isDeletedBlurred) {
+                _events.tryEmit("Private 20s & expired moments cannot be saved")
                 return@launch
             }
             val nowSaved = bookmarksRepository.toggleBookmark(image)
@@ -357,13 +362,14 @@ class GalleryViewModel(
     fun clearAllBookmarks() {
         viewModelScope.launch {
             bookmarksRepository.clearAll()
-            _events.tryEmit("Cleared saved favorites")
+            _events.tryEmit("Cleared favorite moments")
         }
     }
 
     fun resolvePagerImages(imageId: String): List<GalleryImage> {
         val galleryList = (galleryState.value as? UiState.Success)?.data.orEmpty()
-        if (galleryList.any { it.id == imageId }) return galleryList
+        val eligibleGallery = galleryList.filter { !it.isDeletedBlurred || it.id == imageId }
+        if (eligibleGallery.any { it.id == imageId }) return eligibleGallery
         val bookmarkList = bookmarks.value.map { it.toGalleryImage() }
         if (bookmarkList.any { it.id == imageId }) return bookmarkList
         return emptyList()

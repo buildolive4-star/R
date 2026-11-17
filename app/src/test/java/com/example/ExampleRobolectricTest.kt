@@ -137,7 +137,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `hidden photo starts 20s countdown on reveal and purges permanently on expiry`() = runTest {
+    fun `hidden photo starts 20s countdown on reveal and turns into blurred preview on expiry`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val repo = LocalTestUploadsRepository(context)
         repo.clearAll()
@@ -145,7 +145,7 @@ class ExampleRobolectricTest {
         val hiddenUpload = StoredTestUpload(
             id = "hidden_1",
             title = "Secret Shot",
-            category = "Photography",
+            category = "Date Night",
             imageUrl = "https://i.ibb.co/sec/secret.jpg",
             thumbUrl = "https://i.ibb.co/sec/secret_t.jpg",
             aspectRatio = 1.0,
@@ -158,6 +158,7 @@ class ExampleRobolectricTest {
         val beforeReveal = repo.testUploads.first().first()
         assertTrue(beforeReveal.isHidden)
         assertFalse(beforeReveal.isRevealStarted)
+        assertFalse(beforeReveal.isDeletedBlurred)
         assertFalse(beforeReveal.featured)
 
         val expiry1 = repo.startHiddenRevealCountdown("hidden_1", ttlMs = 20_000L)
@@ -168,14 +169,21 @@ class ExampleRobolectricTest {
 
         val afterReveal = repo.testUploads.first().first()
         assertTrue(afterReveal.isRevealStarted)
+        assertFalse(afterReveal.isDeletedBlurred)
         assertTrue(afterReveal.remainingSeconds() in 1..20)
 
-        val purgedEarly = repo.purgeExpiredUploads(nowMs = expiry1 - 1000L)
-        assertTrue(purgedEarly.isEmpty())
+        val expiredEarly = repo.markExpiredUploads(nowMs = expiry1 - 1000L)
+        assertTrue(expiredEarly.isEmpty())
 
-        val purgedAfter = repo.purgeExpiredUploads(nowMs = expiry1 + 100L)
-        assertEquals(listOf("hidden_1"), purgedAfter)
-        assertEquals(0, repo.testUploads.first().size)
+        val expiredAfter = repo.markExpiredUploads(nowMs = expiry1 + 100L)
+        assertEquals(listOf("hidden_1"), expiredAfter)
+
+        // Blurred residual card remains in the list with isExpired = true
+        val blurredItem = repo.testUploads.first().first()
+        assertTrue(blurredItem.isExpired)
+        assertTrue(blurredItem.isDeletedBlurred)
+        assertEquals(0, blurredItem.remainingSeconds())
+        assertFalse(blurredItem.featured)
     }
 }
 

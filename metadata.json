@@ -1,6 +1,6 @@
 {
   "name": "Pixora",
-  "description": "A curated visual gallery app showcasing real-time image collections published from an admin panel.",
+  "description": "A private virtual companion moments gallery with Velvet Rose design, 20s disappearing snaps, blurred residual previews, and screen protection.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

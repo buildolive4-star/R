@@ -372,7 +372,11 @@ fun PixoraUserPanelApp(
                                     onCheckNow = { viewModel.triggerBackgroundCheckNow(context) },
                                     onSecretAdminTrigger = { showAdminPasscodeSheet = true },
                                     onImageClick = { img ->
-                                        navController.navigate("detail/${img.id}")
+                                        if (img.isDeletedBlurred) {
+                                            viewModel.notifyExpiredBlurredTap()
+                                        } else {
+                                            navController.navigate("detail/${img.id}")
+                                        }
                                     },
                                     onToggleBookmark = viewModel::toggleBookmark
                                 )
@@ -517,8 +521,12 @@ fun PixoraUserPanelApp(
                 image = activeBannerImage,
                 onViewClick = { img ->
                     activeBannerImage = null
-                    navController.navigate("detail/${img.id}") {
-                        launchSingleTop = true
+                    if (img.isDeletedBlurred) {
+                        viewModel.notifyExpiredBlurredTap()
+                    } else {
+                        navController.navigate("detail/${img.id}") {
+                            launchSingleTop = true
+                        }
                     }
                 },
                 onDismiss = { activeBannerImage = null },

@@ -13,17 +13,18 @@ data class GalleryImage(
     @DocumentId val id: String = "",
     val title: String = "",
     val description: String = "",
-    val category: String = "Photography",
+    val category: String = "Date Night",
     val imageUrl: String = "",
     val thumbUrl: String = "",
     val aspectRatio: Double = 1.0,
     val status: String = "published",
     val featured: Boolean = false,
     val uploadedBy: String = "",
-    val uploaderName: String = "Pixora Studio",
+    val uploaderName: String = "Aria · Companion",
     val tags: List<String> = emptyList(),
     val isHidden: Boolean = false,
     val revealExpiresAtEpochMs: Long = 0L,
+    val isExpired: Boolean = false,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 ) {
@@ -36,7 +37,11 @@ data class GalleryImage(
     val isRevealStarted: Boolean
         get() = isHidden && revealExpiresAtEpochMs > 0L
 
+    val isDeletedBlurred: Boolean
+        get() = isExpired || (isHidden && revealExpiresAtEpochMs > 0L && System.currentTimeMillis() >= revealExpiresAtEpochMs)
+
     fun remainingSeconds(nowMs: Long = System.currentTimeMillis()): Int {
+        if (isExpired) return 0
         if (!isRevealStarted) return 20
         val diffMs = (revealExpiresAtEpochMs - nowMs).coerceAtLeast(0L)
         return ((diffMs + 999L) / 1000L).toInt()
@@ -52,7 +57,7 @@ data class SavedBookmark(
     val imageUrl: String = "",
     val thumbUrl: String = "",
     val aspectRatio: Double = 1.0,
-    val uploaderName: String = "Pixora Studio",
+    val uploaderName: String = "Aria · Companion",
     val tags: List<String> = emptyList(),
     val savedAtEpochMs: Long = 0L,
 ) {

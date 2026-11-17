@@ -61,7 +61,7 @@ object PixoraNotificationManager {
             ).apply {
                 description = context.getString(R.string.notification_channel_desc)
                 enableLights(true)
-                lightColor = Color.parseColor("#F4B860")
+                lightColor = Color.parseColor("#FF7AA2")
                 enableVibration(true)
                 vibrationPattern = WHATSAPP_VIBRATION
                 setSound(soundUri, audioAttrs)

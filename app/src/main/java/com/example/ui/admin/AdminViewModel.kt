@@ -70,9 +70,9 @@ class AdminViewModel(
 
         val cleanTitle = title.trim().ifBlank {
             val stamp = SimpleDateFormat("MMM d, HH:mm", Locale.US).format(Date())
-            if (isHidden) "Hidden · $stamp" else "Pixora · $stamp"
+            if (isHidden) "Secret Drop · $stamp" else "Aria · $stamp"
         }
-        val cleanCategory = category.trim().ifBlank { "Photography" }
+        val cleanCategory = category.trim().ifBlank { "Date Night" }
         val cleanDescription = description.trim()
         val parsedTags = tagsRaw.split(",")
             .map { it.trim() }

@@ -93,17 +93,18 @@ import coil.request.ImageRequest
 import com.example.R
 import com.example.data.model.GalleryImage
 import com.example.data.remote.ImgBbApiService
+import com.example.ui.components.PixoraBlurredImage
 import com.example.ui.components.PixoraNetworkImage
 import kotlinx.coroutines.launch
 
 private val STUDIO_CATEGORIES = listOf(
-    "Photography",
-    "Nature",
-    "Architecture",
-    "Abstract",
-    "Minimal",
-    "Wallpapers",
-    "Portraits",
+    "Date Night",
+    "Candid",
+    "Selfies",
+    "Morning",
+    "Outfits",
+    "Travel",
+    "Exclusive",
 )
 
 private enum class StudioFilter(val label: String) {
@@ -877,13 +878,23 @@ private fun StudioUploadCard(
             modifier = Modifier.padding(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            PixoraNetworkImage(
-                imageUrl = image.displayThumbnailUrl,
-                contentDescription = image.title,
-                modifier = Modifier
-                    .size(68.dp)
-                    .clip(RoundedCornerShape(14.dp))
-            )
+            if (image.isDeletedBlurred) {
+                PixoraBlurredImage(
+                    imageUrl = image.displayThumbnailUrl,
+                    contentDescription = image.title,
+                    modifier = Modifier
+                        .size(68.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                )
+            } else {
+                PixoraNetworkImage(
+                    imageUrl = image.displayThumbnailUrl,
+                    contentDescription = image.title,
+                    modifier = Modifier
+                        .size(68.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                )
+            }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -898,18 +909,27 @@ private fun StudioUploadCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val statusLabel = when {
+                        image.isDeletedBlurred -> "BLURRED"
+                        image.isHidden -> "SECRET · 20s"
+                        else -> "LIVE"
+                    }
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = if (image.isHidden) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-                        } else {
-                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
+                        color = when {
+                            image.isDeletedBlurred -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)
+                            image.isHidden -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                            else -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
                         }
                     ) {
                         Text(
-                            text = if (image.isHidden) "HIDDEN · 20s" else "LIVE",
+                            text = statusLabel,
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (image.isHidden) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                            color = when {
+                                image.isDeletedBlurred -> MaterialTheme.colorScheme.secondary
+                                image.isHidden -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.tertiary
+                            },
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                         )
                     }

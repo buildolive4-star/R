@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Download
@@ -45,6 +46,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -76,6 +78,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.GalleryImage
+import com.example.ui.components.PixoraBlurredImage
 import com.example.ui.components.PixoraNetworkImage
 import com.example.util.ImageActions
 import com.google.firebase.Timestamp
@@ -119,12 +122,14 @@ fun ImageDetailScreen(
     var offset by remember { mutableStateOf(Offset.Zero) }
     var showChrome by remember { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
-    var remainingSec by remember(currentImage.id, currentImage.revealExpiresAtEpochMs) {
+    var remainingSec by remember(currentImage.id, currentImage.revealExpiresAtEpochMs, currentImage.isExpired) {
         mutableIntStateOf(currentImage.remainingSeconds())
     }
 
-    LaunchedEffect(currentImage.id, currentImage.isHidden, currentImage.revealExpiresAtEpochMs) {
-        if (currentImage.isRevealStarted) {
+    LaunchedEffect(currentImage.id, currentImage.isHidden, currentImage.revealExpiresAtEpochMs, currentImage.isExpired) {
+        if (currentImage.isExpired) {
+            remainingSec = 0
+        } else if (currentImage.isRevealStarted) {
             while (true) {
                 val secs = currentImage.remainingSeconds()
                 remainingSec = secs
@@ -147,11 +152,12 @@ fun ImageDetailScreen(
     val copiedMessage = stringResource(R.string.link_copied)
     val savedMessage = stringResource(R.string.photo_saved)
     val saveFailedMessage = stringResource(R.string.photo_save_failed)
+    val isCurrentExpired = currentImage.isDeletedBlurred || (currentImage.isRevealStarted && remainingSec <= 0)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF070709))
+            .background(Color(0xFF0E090E))
     ) {
         HorizontalPager(
             state = pagerState,
@@ -160,139 +166,227 @@ fun ImageDetailScreen(
         ) { page ->
             val pageImage = images[page]
             val isCurrentPage = page == pagerState.currentPage
-            if (pageImage.isHidden && !pageImage.isRevealStarted) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color(0xFF0E0E14), Color(0xFF1A1622), Color(0xFF09090D))
-                            )
+            val isPageExpired = pageImage.isDeletedBlurred ||
+                (isCurrentPage && pageImage.isRevealStarted && remainingSec <= 0)
+
+            when {
+                isPageExpired -> {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        PixoraBlurredImage(
+                            imageUrl = pageImage.displayThumbnailUrl,
+                            contentDescription = "${pageImage.title} (blurred memory)",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
                         )
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        shape = MaterialTheme.shapes.extraLarge,
-                        color = Color(0xDD17171F),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = 420.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0x77120912))
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
                         ) {
                             Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                                modifier = Modifier.size(68.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.VisibilityOff,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = stringResource(R.string.hidden_detail_title),
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = Color.White,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = stringResource(R.string.hidden_detail_subtitle),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFFC5C1CD),
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(20.dp))
-                            Button(
-                                onClick = { onRevealHiddenImage(pageImage) },
-                                shape = RoundedCornerShape(16.dp),
+                                shape = MaterialTheme.shapes.extraLarge,
+                                color = Color(0xDE1B111E),
+                                border = BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(52.dp)
-                                    .minimumInteractiveComponentSize()
-                                    .testTag("detail_reveal_hidden_button")
+                                    .widthIn(max = 420.dp)
+                                    .testTag("detail_expired_blurred_card")
                             ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Visibility,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = stringResource(R.string.reveal_photo_button))
+                                Column(
+                                    modifier = Modifier.padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                                        modifier = Modifier.size(68.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.BlurOn,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(34.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = stringResource(R.string.expired_detail_title),
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        color = Color.White,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = stringResource(R.string.expired_detail_subtitle),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color(0xFFD8C6D5),
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(20.dp))
+                                    OutlinedButton(
+                                        onClick = onBack,
+                                        shape = RoundedCornerShape(16.dp),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp)
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("detail_expired_back_button")
+                                    ) {
+                                        Text(text = stringResource(R.string.back), color = Color.White)
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(pageImage.id) {
-                            detectTransformGestures { _, pan, zoom, _ ->
-                                if (isCurrentPage) {
-                                    val newScale = (scale * zoom).coerceIn(1f, 4f)
-                                    scale = newScale
-                                    offset = if (newScale > 1.05f) {
-                                        Offset(
-                                            x = (offset.x + pan.x).coerceIn(-700f, 700f),
-                                            y = (offset.y + pan.y).coerceIn(-900f, 900f)
+
+                pageImage.isHidden && !pageImage.isRevealStarted -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xFF150C17), Color(0xFF231325), Color(0xFF0E090E))
+                                )
+                            )
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            shape = MaterialTheme.shapes.extraLarge,
+                            color = Color(0xDD1C111E),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .widthIn(max = 420.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                    modifier = Modifier.size(68.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.VisibilityOff,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(32.dp)
                                         )
-                                    } else {
-                                        Offset.Zero
                                     }
+                                }
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = stringResource(R.string.hidden_detail_title),
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = stringResource(R.string.hidden_detail_subtitle),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFFD6C4D4),
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(20.dp))
+                                Button(
+                                    onClick = { onRevealHiddenImage(pageImage) },
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(52.dp)
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("detail_reveal_hidden_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Visibility,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(text = stringResource(R.string.reveal_photo_button))
                                 }
                             }
                         }
-                        .pointerInput(pageImage.id) {
-                            detectTapGestures(
-                                onTap = { showChrome = !showChrome },
-                                onDoubleTap = {
-                                    if (scale > 1.2f) {
-                                        scale = 1f
-                                        offset = Offset.Zero
-                                    } else {
-                                        scale = 2.2f
-                                    }
-                                }
-                            )
-                        }
-                ) {
-                    PixoraNetworkImage(
-                        imageUrl = pageImage.imageUrl,
-                        contentDescription = pageImage.title,
-                        contentScale = ContentScale.Fit,
+                    }
+                }
+
+                else -> {
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .then(
-                                if (isCurrentPage) {
-                                    Modifier.graphicsLayer(
-                                        scaleX = scale,
-                                        scaleY = scale,
-                                        translationX = offset.x,
-                                        translationY = offset.y
-                                    )
-                                } else {
-                                    Modifier
+                            .pointerInput(pageImage.id) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    if (isCurrentPage) {
+                                        val newScale = (scale * zoom).coerceIn(1f, 4f)
+                                        scale = newScale
+                                        offset = if (newScale > 1.05f) {
+                                            Offset(
+                                                x = (offset.x + pan.x).coerceIn(-700f, 700f),
+                                                y = (offset.y + pan.y).coerceIn(-900f, 900f)
+                                            )
+                                        } else {
+                                            Offset.Zero
+                                        }
+                                    }
                                 }
-                            )
-                    )
+                            }
+                            .pointerInput(pageImage.id) {
+                                detectTapGestures(
+                                    onTap = { showChrome = !showChrome },
+                                    onDoubleTap = {
+                                        if (scale > 1.2f) {
+                                            scale = 1f
+                                            offset = Offset.Zero
+                                        } else {
+                                            scale = 2.2f
+                                        }
+                                    }
+                                )
+                            }
+                    ) {
+                        PixoraNetworkImage(
+                            imageUrl = pageImage.imageUrl,
+                            contentDescription = pageImage.title,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(
+                                    if (isCurrentPage) {
+                                        Modifier.graphicsLayer(
+                                            scaleX = scale,
+                                            scaleY = scale,
+                                            translationX = offset.x,
+                                            translationY = offset.y
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                        )
+                    }
                 }
             }
         }
 
         // Top Floating Toolbar
         AnimatedVisibility(
-            visible = showChrome,
+            visible = showChrome || isCurrentExpired,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter)
@@ -302,7 +396,7 @@ fun ImageDetailScreen(
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color(0xCC070709), Color.Transparent)
+                            listOf(Color(0xCC0E090E), Color.Transparent)
                         )
                     )
                     .statusBarsPadding()
@@ -318,7 +412,7 @@ fun ImageDetailScreen(
                         modifier = Modifier
                             .minimumInteractiveComponentSize()
                             .clip(CircleShape)
-                            .background(Color(0xAA16161D))
+                            .background(Color(0xAA1D1220))
                             .testTag("detail_back_button")
                     ) {
                         Icon(
@@ -332,10 +426,35 @@ fun ImageDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (currentImage.isRevealStarted) {
+                        if (isCurrentExpired) {
                             Surface(
                                 shape = RoundedCornerShape(50),
-                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.88f),
+                                color = Color(0xCC281426),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                                modifier = Modifier.testTag("detail_expired_pill")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.BlurOn,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = stringResource(R.string.expired_blurred_badge),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        } else if (currentImage.isRevealStarted) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.9f),
                                 border = BorderStroke(1.dp, Color(0x66FFFFFF)),
                                 modifier = Modifier.testTag("detail_countdown_pill")
                             ) {
@@ -360,7 +479,7 @@ fun ImageDetailScreen(
                         } else {
                             Surface(
                                 shape = RoundedCornerShape(50),
-                                color = Color(0xAA16161D),
+                                color = Color(0xAA1D1220),
                                 border = BorderStroke(1.dp, Color(0x44FFFFFF))
                             ) {
                                 Text(
@@ -374,25 +493,25 @@ fun ImageDetailScreen(
                         if (images.size > 1) {
                             Surface(
                                 shape = RoundedCornerShape(50),
-                                color = Color(0xAA16161D)
+                                color = Color(0xAA1D1220)
                             ) {
                                 Text(
                                     text = "${pagerState.currentPage + 1} / ${images.size}",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFFD5D1DC),
+                                    color = Color(0xFFE0CEDD),
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                 )
                             }
                         }
                     }
 
-                    if (!currentImage.isHidden) {
+                    if (!currentImage.isHidden && !isCurrentExpired) {
                         IconButton(
                             onClick = { onToggleBookmark(currentImage) },
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
                                 .clip(CircleShape)
-                                .background(Color(0xAA16161D))
+                                .background(Color(0xAA1D1220))
                                 .testTag("detail_bookmark_button")
                         ) {
                             Icon(
@@ -408,7 +527,7 @@ fun ImageDetailScreen(
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xAA16161D)),
+                                .background(Color(0xAA1D1220)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -423,9 +542,9 @@ fun ImageDetailScreen(
             }
         }
 
-        // Bottom Floating Metadata & Actions
+        // Bottom Floating Metadata & Actions (hidden once expired to keep blurred lock card clean)
         AnimatedVisibility(
-            visible = showChrome,
+            visible = showChrome && !isCurrentExpired,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -435,7 +554,7 @@ fun ImageDetailScreen(
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color(0xD9070709), Color(0xFA070709))
+                            listOf(Color.Transparent, Color(0xD90E090E), Color(0xFA0E090E))
                         )
                     )
                     .navigationBarsPadding()
@@ -444,8 +563,8 @@ fun ImageDetailScreen(
             ) {
                 Surface(
                     shape = MaterialTheme.shapes.extraLarge,
-                    color = Color(0xDD16161D),
-                    border = BorderStroke(1.dp, Color(0x28FFFFFF)),
+                    color = Color(0xDD1C111E),
+                    border = BorderStroke(1.dp, Color(0x2EFFC0D5)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .widthIn(max = 600.dp)
@@ -464,7 +583,7 @@ fun ImageDetailScreen(
                         Text(
                             text = "${stringResource(R.string.uploaded_by_prefix, currentImage.uploaderName)} · $formattedDate",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFB3B0BA)
+                            color = Color(0xFFC6B3C3)
                         )
 
                         if (currentImage.description.isNotBlank()) {
@@ -472,7 +591,7 @@ fun ImageDetailScreen(
                             Text(
                                 text = currentImage.description,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFFE4E1EA),
+                                color = Color(0xFFF3E4F0),
                                 maxLines = 4,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -487,12 +606,12 @@ fun ImageDetailScreen(
                                 currentImage.tags.take(6).forEach { tag ->
                                     Surface(
                                         shape = RoundedCornerShape(50),
-                                        color = Color(0x22FFFFFF)
+                                        color = Color(0x24FF7AA2)
                                     ) {
                                         Text(
                                             text = "#$tag",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = Color(0xFFD5D1DC),
+                                            color = Color(0xFFF5D8E4),
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                         )
                                     }
@@ -505,7 +624,7 @@ fun ImageDetailScreen(
                             Text(
                                 text = stringResource(R.string.swipe_hint),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF9C98A6)
+                                color = Color(0xFFA791A4)
                             )
                         }
 
@@ -515,7 +634,7 @@ fun ImageDetailScreen(
                             Surface(
                                 shape = RoundedCornerShape(14.dp),
                                 color = Color(0x22FFFFFF),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
@@ -536,7 +655,7 @@ fun ImageDetailScreen(
                                             stringResource(R.string.hidden_protected_notice)
                                         },
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFFE4E1EA)
+                                        color = Color(0xFFF3E4F0)
                                     )
                                 }
                             }
