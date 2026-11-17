@@ -38,6 +38,19 @@ jobs:
             base64 -d debug.keystore.base64 > debug.keystore
           fi
 
+      - name: Restore google-services.json from GitHub Secrets
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ ! -f app/google-services.json ]; then
+            if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+              printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            else
+              echo "::error::Missing app/google-services.json! Add GOOGLE_SERVICES_JSON in GitHub Repository Secrets (Settings -> Secrets and variables -> Actions) or upload app/google-services.json to your private repo."
+              exit 1
+            fi
+          fi
+
       - name: Inject IMGBB_API_KEY from GitHub Secrets
         env:
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
