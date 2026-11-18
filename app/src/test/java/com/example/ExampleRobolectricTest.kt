@@ -11,6 +11,8 @@ import com.example.data.model.SavedBookmark
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.preferences.StoredTestUpload
+import com.example.data.firebase.GoogleAuthHelper
+import com.example.data.repository.UserCrmRepository
 import com.example.notifications.PixoraNotificationManager
 import com.example.util.ContactLeakFilter
 import com.example.util.ProfileCompletionCalculator
@@ -229,5 +231,19 @@ class ExampleRobolectricTest {
         assertTrue(labels.contains("Old Users"))
         assertTrue(labels.contains("Hot Lead"))
         assertEquals("hot", LeadTag.HOT)
+    }
+
+    @Test
+    fun `access code normalization strips invalid chars and uppercases`() {
+        assertEquals("JU-4829", UserCrmRepository.normalizeAccessCode(" ju-4829 "))
+        assertEquals("PARTNER_24", UserCrmRepository.normalizeAccessCode("partner_24!@#"))
+    }
+
+    @Test
+    fun `auth diagnostic info reads web client id from google services resources`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val diag = GoogleAuthHelper.getAuthDiagnosticInfo(context)
+        assertTrue(diag.hasWebClientId)
+        assertEquals(GoogleAuthHelper.EXPECTED_DEBUG_SHA1_COLON, diag.expectedSha1Colon)
     }
 }

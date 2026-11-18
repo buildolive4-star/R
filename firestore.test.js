@@ -407,3 +407,81 @@ test("Chat threads allow client, approved staff owner, and admin, while blocking
     })
   );
 });
+
+test("Main Admin transfer codes grant admin access and deleting code revokes access immediately", async () => {
+  const superDb = testEnv
+    .authenticatedContext(SUPER_ADMIN_UID, {
+      email: SUPER_ADMIN_EMAIL,
+      email_verified: true,
+    })
+    .firestore();
+  const partnerDb = testEnv
+    .authenticatedContext("partner_uid_99", {
+      email: "partner99@gmail.com",
+      email_verified: true,
+    })
+    .firestore();
+  const past = new Date(Date.now() - 5000);
+
+  // Non-super-admin cannot create an access code
+  await assertFails(
+    partnerDb.collection("admin_access_codes").doc("HACK99").set({
+      code: "HACK99",
+      label: "Unauthorized",
+      createdByEmail: "partner99@gmail.com",
+      active: true,
+      createdAt: past,
+    })
+  );
+
+  // Super Admin creates transfer code PARTNER24
+  await assertSucceeds(
+    superDb.collection("admin_access_codes").doc("PARTNER24").set({
+      code: "PARTNER24",
+      label: "Partner Rohan",
+      createdByEmail: SUPER_ADMIN_EMAIL,
+      active: true,
+      createdAt: past,
+    })
+  );
+
+  // Partner cannot activate admin session with a non-existent code
+  await assertFails(
+    partnerDb.collection("admins").doc("partner_uid_99").set({
+      name: "Rohan",
+      phone: "9876543210",
+      email: "partner99@gmail.com",
+      codeUsed: "WRONGCODE",
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+
+  // Partner activates admin session with PARTNER24 + Name/Phone/Email
+  await assertSucceeds(
+    partnerDb.collection("admins").doc("partner_uid_99").set({
+      name: "Rohan",
+      phone: "9876543210",
+      email: "partner99@gmail.com",
+      codeUsed: "PARTNER24",
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+
+  // Partner now has Admin access (can list users & publish profiles), but STILL cannot create/delete codes!
+  await assertSucceeds(partnerDb.collection("users").get());
+  await assertFails(
+    partnerDb.collection("admin_access_codes").doc("SUBCODE1").set({
+      code: "SUBCODE1",
+      label: "Should fail",
+      createdByEmail: "partner99@gmail.com",
+      active: true,
+      createdAt: past,
+    })
+  );
+
+  // Main Admin deletes PARTNER24 -> Partner loses admin access immediately!
+  await assertSucceeds(superDb.collection("admin_access_codes").doc("PARTNER24").delete());
+  await assertFails(partnerDb.collection("users").get());
+});

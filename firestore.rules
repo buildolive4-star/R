@@ -22,6 +22,10 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidAccessCodeId(id) {
+      return id is string && id.size() >= 4 && id.size() <= 24 && id.matches('^[A-Z0-9_\\-]+$');
+    }
+
     function isValidEmailDocId(id) {
       return id is string && id.size() >= 3 && id.size() <= 128 && id.matches('^[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}$');
     }
@@ -33,14 +37,31 @@ service cloud.firestore {
              request.auth.token.email.lower() == 'buildolive4@gmail.com';
     }
 
+    function hasValidCodeAdmin(uid) {
+      return exists(/databases/$(database)/documents/admins/$(uid)) &&
+             get(/databases/$(database)/documents/admins/$(uid)).data.codeUsed is string &&
+             isValidAccessCodeId(get(/databases/$(database)/documents/admins/$(uid)).data.codeUsed) &&
+             exists(/databases/$(database)/documents/admin_access_codes/$(get(/databases/$(database)/documents/admins/$(uid)).data.codeUsed)) &&
+             get(/databases/$(database)/documents/admin_access_codes/$(get(/databases/$(database)/documents/admins/$(uid)).data.codeUsed)).data.active == true;
+    }
+
     function isAdmin() {
       return isSignedIn() &&
              'email' in request.auth.token &&
              request.auth.token.email_verified == true && (
         request.auth.token.email.lower() == 'buildolive4@gmail.com' ||
         exists(/databases/$(database)/documents/admin_emails/$(request.auth.token.email.lower())) ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        hasValidCodeAdmin(request.auth.uid)
       );
+    }
+
+    function isValidAdminMember(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.phone is string && data.phone.size() >= 8 && data.phone.size() <= 24 &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+             data.codeUsed is string && data.codeUsed.size() >= 4 && data.codeUsed.size() <= 24 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
     function userDocExists(uid) {
@@ -143,9 +164,58 @@ service cloud.firestore {
       return !(text.lower().matches('.*([0-9][0-9\\s\\-\\.]{6,}[0-9]|@[a-z0-9_.]{2,}|instagram\\.com|insta\\s*id|whatsapp|telegram|snapchat|https?://).*'));
     }
 
+    // Revocable transfer/access codes: ONLY Main Admin can create or delete!
+    match /admin_access_codes/{codeId} {
+      allow get: if isSignedIn() && isValidAccessCodeId(codeId);
+      allow list: if isSuperAdmin();
+      allow create: if isSuperAdmin() &&
+                       isValidAccessCodeId(codeId) &&
+                       incoming().code == codeId &&
+                       incoming().label is string && incoming().label.size() <= 60 &&
+                       incoming().createdByEmail == request.auth.token.email.lower() &&
+                       incoming().active == true &&
+                       incoming().createdAt is timestamp &&
+                       incoming().createdAt <= request.time &&
+                       incoming().keys().hasAll(['code', 'label', 'createdByEmail', 'active', 'createdAt']) &&
+                       incoming().keys().hasOnly(['code', 'label', 'createdByEmail', 'active', 'createdAt']);
+      allow delete: if isSuperAdmin() && isValidAccessCodeId(codeId);
+      allow update: if false;
+    }
+
+    // Admin member sessions (Name, Phone, Email + Code Used)
     match /admins/{adminUid} {
-      allow get: if isSignedIn() && isValidId(adminUid) && (request.auth.uid == adminUid || isAdmin());
-      allow list, create, update, delete: if false;
+      allow get: if isSignedIn() && isValidId(adminUid) && (request.auth.uid == adminUid || isSuperAdmin());
+      allow list: if isSuperAdmin();
+      allow create: if isSignedIn() &&
+                       isValidId(adminUid) &&
+                       request.auth.uid == adminUid &&
+                       isValidAdminMember(incoming()) &&
+                       (
+                         isSuperAdmin() ||
+                         (
+                           isValidAccessCodeId(incoming().codeUsed) &&
+                           exists(/databases/$(database)/documents/admin_access_codes/$(incoming().codeUsed)) &&
+                           get(/databases/$(database)/documents/admin_access_codes/$(incoming().codeUsed)).data.active == true
+                         )
+                       ) &&
+                       incoming().keys().hasAll(['name', 'phone', 'email', 'codeUsed', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['name', 'phone', 'email', 'codeUsed', 'createdAt', 'updatedAt']);
+      allow update: if isSignedIn() &&
+                       isValidId(adminUid) &&
+                       request.auth.uid == adminUid &&
+                       isValidAdminMember(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         isSuperAdmin() ||
+                         (
+                           isValidAccessCodeId(incoming().codeUsed) &&
+                           exists(/databases/$(database)/documents/admin_access_codes/$(incoming().codeUsed)) &&
+                           get(/databases/$(database)/documents/admin_access_codes/$(incoming().codeUsed)).data.active == true
+                         )
+                       ) &&
+                       incoming().keys().hasAll(['name', 'phone', 'email', 'codeUsed', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['name', 'phone', 'email', 'codeUsed', 'createdAt', 'updatedAt']);
+      allow delete: if isSuperAdmin() || (isSignedIn() && isValidId(adminUid) && request.auth.uid == adminUid);
     }
 
     match /admin_emails/{emailId} {
@@ -325,7 +395,6 @@ service cloud.firestore {
         );
 
         allow create: if isSignedIn() &&
-                         isValidId(chatId) &&
                          isValidId(messageId) &&
                          incoming().senderUid == request.auth.uid &&
                          incoming().senderName is string && incoming().senderName.size() >= 1 && incoming().senderName.size() <= 80 &&

@@ -86,7 +86,9 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.R
+import com.example.data.model.AdminAccessCode
 import com.example.data.model.AdminEmailEntry
+import com.example.data.model.AdminMemberProfile
 import com.example.data.model.AdminUserFilter
 import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
@@ -112,6 +114,10 @@ fun AdminStudioScreen(
     isVerifiedAdmin: Boolean,
     isSuperAdmin: Boolean,
     adminEmails: List<AdminEmailEntry>,
+    adminAccessCodes: List<AdminAccessCode> = emptyList(),
+    adminMembers: List<AdminMemberProfile> = emptyList(),
+    myAdminMember: AdminMemberProfile? = null,
+    isAuthBusy: Boolean = false,
     publishState: AdminPublishState,
     managedProfiles: List<GalleryImage>,
     pagedUsers: List<UserAccount>,
@@ -123,6 +129,11 @@ fun AdminStudioScreen(
     selectedProfileContact: Pair<String, CompanionPrivateContact>?,
     onSignInAdminGoogle: () -> Unit,
     onSignOutAdmin: () -> Unit,
+    onSaveMainAdminProfile: (name: String, phone: String, email: String) -> Unit = { _, _, _ -> },
+    onCreateAccessCode: (code: String, label: String) -> Unit = { _, _ -> },
+    onDeleteAccessCode: (code: String) -> Unit = {},
+    onRemoveAdminMember: (uid: String) -> Unit = {},
+    onRedeemAccessCode: (name: String, phone: String, email: String, code: String) -> Unit = { _, _, _, _ -> },
     onAddAdminEmail: (String) -> Unit,
     onRemoveAdminEmail: (String) -> Unit,
     onPublishCompanionProfile: (
@@ -153,6 +164,7 @@ fun AdminStudioScreen(
     onOpenChatAsAdmin: (String) -> Unit,
     onBack: () -> Unit,
     snackbarHostState: SnackbarHostState,
+    authErrorMessage: String? = null,
 ) {
     BackHandler(onBack = onBack)
 
@@ -223,7 +235,7 @@ fun AdminStudioScreen(
                         ) {
                             Icon(Icons.Rounded.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Admins", style = MaterialTheme.typography.labelMedium)
+                            Text("Codes & Admins", style = MaterialTheme.typography.labelMedium)
                         }
                     }
 
@@ -252,126 +264,125 @@ fun AdminStudioScreen(
                 }
             }
 
-            // Admin Auth Notice if signed in with non-whitelisted email or signed out
             if (!isVerifiedAdmin) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f)),
+                AdminAccessGateView(
+                    authUser = authUser,
+                    isBusy = isAuthBusy,
+                    authErrorMessage = authErrorMessage,
+                    onSignInGoogle = onSignInAdminGoogle,
+                    onSignOut = onSignOutAdmin,
+                    onRedeemAccessCode = onRedeemAccessCode,
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                // Top Refresh Secret Photos bar
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
-                    Text(
-                        text = if (authUser == null) {
-                            "Sign in with Super Admin Gmail or an approved co-admin Gmail to unlock cloud CRM, Chats & Multi-Admin sync."
-                        } else {
-                            "${authUser.email} is not added by Super Admin yet. Ask Super Admin to whitelist your Gmail in Admins."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(10.dp)
-                    )
-                }
-            }
-
-            // Top Refresh Secret Photos bar
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            ) {
-                FilledTonalButton(
-                    onClick = onRefreshAllBlurred,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                        .testTag("admin_refresh_all_button")
-                ) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (blurredCount > 0) {
-                            stringResource(R.string.admin_refresh_all_blurred, blurredCount)
-                        } else {
-                            stringResource(R.string.admin_refresh_top_ready)
-                        }
-                    )
-                }
-            }
-
-            // 3 Top Tabs: Create / Chats (CRM) / Staff
-            TabRow(selectedTabIndex = selectedTabIndex) {
-                Tab(
-                    selected = selectedTabIndex == 0,
-                    onClick = { selectedTabIndex = 0 },
-                    text = { Text("Create") },
-                    icon = { Icon(Icons.Rounded.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                    modifier = Modifier.testTag("admin_tab_create")
-                )
-                Tab(
-                    selected = selectedTabIndex == 1,
-                    onClick = { selectedTabIndex = 1 },
-                    text = { Text("Chats (${totalFilteredUsers})") },
-                    icon = { Icon(Icons.AutoMirrored.Rounded.Chat, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                    modifier = Modifier.testTag("admin_tab_chats")
-                )
-                Tab(
-                    selected = selectedTabIndex == 2,
-                    onClick = { selectedTabIndex = 2 },
-                    text = {
+                    FilledTonalButton(
+                        onClick = onRefreshAllBlurred,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("admin_refresh_all_button")
+                    ) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            if (pendingStaffUsers.isNotEmpty()) "Staff (${pendingStaffUsers.size})"
-                            else "Staff"
+                            text = if (blurredCount > 0) {
+                                stringResource(R.string.admin_refresh_all_blurred, blurredCount)
+                            } else {
+                                stringResource(R.string.admin_refresh_top_ready)
+                            }
                         )
-                    },
-                    icon = { Icon(Icons.Rounded.Badge, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                    modifier = Modifier.testTag("admin_tab_staff")
-                )
-            }
+                    }
+                }
 
-            when (selectedTabIndex) {
-                0 -> AdminCreateProfileTab(
-                    publishState = publishState,
-                    onPublishProfile = onPublishCompanionProfile,
-                    onResetPublishState = onResetPublishState,
-                    modifier = Modifier.weight(1f)
-                )
+                // 3 Top Tabs: Create / Chats (CRM) / Staff
+                TabRow(selectedTabIndex = selectedTabIndex) {
+                    Tab(
+                        selected = selectedTabIndex == 0,
+                        onClick = { selectedTabIndex = 0 },
+                        text = { Text("Create") },
+                        icon = { Icon(Icons.Rounded.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        modifier = Modifier.testTag("admin_tab_create")
+                    )
+                    Tab(
+                        selected = selectedTabIndex == 1,
+                        onClick = { selectedTabIndex = 1 },
+                        text = { Text("Chats (${totalFilteredUsers})") },
+                        icon = { Icon(Icons.AutoMirrored.Rounded.Chat, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        modifier = Modifier.testTag("admin_tab_chats")
+                    )
+                    Tab(
+                        selected = selectedTabIndex == 2,
+                        onClick = { selectedTabIndex = 2 },
+                        text = {
+                            Text(
+                                if (pendingStaffUsers.isNotEmpty()) "Staff (${pendingStaffUsers.size})"
+                                else "Staff"
+                            )
+                        },
+                        icon = { Icon(Icons.Rounded.Badge, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        modifier = Modifier.testTag("admin_tab_staff")
+                    )
+                }
 
-                1 -> AdminUsersCrmTab(
-                    pagedUsers = pagedUsers,
-                    totalFilteredCount = totalFilteredUsers,
-                    hasMoreUsers = hasMoreUsers,
-                    selectedFilter = selectedUserFilter,
-                    allChats = allChats,
-                    onSelectFilter = onSelectUserFilter,
-                    onLoadNextPage = onLoadNextUsersPage,
-                    onSetLeadTag = onSetUserLeadTag,
-                    onSetModeration = onSetUserModeration,
-                    onOpenChatAsAdmin = onOpenChatAsAdmin,
-                    modifier = Modifier.weight(1f)
-                )
+                when (selectedTabIndex) {
+                    0 -> AdminCreateProfileTab(
+                        publishState = publishState,
+                        onPublishProfile = onPublishCompanionProfile,
+                        onResetPublishState = onResetPublishState,
+                        modifier = Modifier.weight(1f)
+                    )
 
-                else -> AdminStaffTab(
-                    pendingStaffUsers = pendingStaffUsers,
-                    managedProfiles = managedProfiles,
-                    allChats = allChats,
-                    selectedProfileContact = selectedProfileContact,
-                    onApproveStaff = onApproveStaff,
-                    onRejectStaff = onRejectStaff,
-                    onLoadPrivateContact = onLoadPrivateContact,
-                    onRefreshProfile = onRefreshProfile,
-                    onDeleteProfile = onDeleteProfile,
-                    onOpenChatAsAdmin = onOpenChatAsAdmin,
-                    modifier = Modifier.weight(1f)
-                )
+                    1 -> AdminUsersCrmTab(
+                        pagedUsers = pagedUsers,
+                        totalFilteredCount = totalFilteredUsers,
+                        hasMoreUsers = hasMoreUsers,
+                        selectedFilter = selectedUserFilter,
+                        allChats = allChats,
+                        onSelectFilter = onSelectUserFilter,
+                        onLoadNextPage = onLoadNextUsersPage,
+                        onSetLeadTag = onSetUserLeadTag,
+                        onSetModeration = onSetUserModeration,
+                        onOpenChatAsAdmin = onOpenChatAsAdmin,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    else -> AdminStaffTab(
+                        pendingStaffUsers = pendingStaffUsers,
+                        managedProfiles = managedProfiles,
+                        allChats = allChats,
+                        selectedProfileContact = selectedProfileContact,
+                        onApproveStaff = onApproveStaff,
+                        onRejectStaff = onRejectStaff,
+                        onLoadPrivateContact = onLoadPrivateContact,
+                        onRefreshProfile = onRefreshProfile,
+                        onDeleteProfile = onDeleteProfile,
+                        onOpenChatAsAdmin = onOpenChatAsAdmin,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }
 
-    if (showMultiAdminDialog) {
-        MultiAdminEmailsDialog(
+    if (showMultiAdminDialog && isSuperAdmin) {
+        MainAdminTransferDialog(
+            authUserEmail = authUser?.email.orEmpty(),
+            myAdminMember = myAdminMember,
+            adminAccessCodes = adminAccessCodes,
+            adminMembers = adminMembers,
             adminEmails = adminEmails,
+            isBusy = isAuthBusy,
+            onSaveMainAdminProfile = onSaveMainAdminProfile,
+            onCreateAccessCode = onCreateAccessCode,
+            onDeleteAccessCode = onDeleteAccessCode,
+            onRemoveAdminMember = onRemoveAdminMember,
             onAddEmail = onAddAdminEmail,
             onRemoveEmail = onRemoveAdminEmail,
             onDismiss = { showMultiAdminDialog = false }
@@ -750,91 +761,4 @@ private fun AdminCreateProfileTab(
     }
 }
 
-@Composable
-private fun MultiAdminEmailsDialog(
-    adminEmails: List<AdminEmailEntry>,
-    onAddEmail: (String) -> Unit,
-    onRemoveEmail: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var emailDraft by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Rounded.AdminPanelSettings, contentDescription = null) },
-        title = { Text("Multi-Admin Access") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Add partner Gmail addresses directly here — no Firebase Console needed. They just tap Cloud Sign-In inside Admin Studio.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = emailDraft,
-                        onValueChange = { emailDraft = it },
-                        singleLine = true,
-                        label = { Text("Co-Admin Gmail") },
-                        placeholder = { Text("partner@gmail.com") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("co_admin_email_input")
-                    )
-                    Button(
-                        onClick = {
-                            if (emailDraft.isNotBlank()) {
-                                onAddEmail(emailDraft)
-                                emailDraft = ""
-                            }
-                        },
-                        modifier = Modifier.testTag("add_co_admin_button")
-                    ) {
-                        Text("Add")
-                    }
-                }
-
-                if (adminEmails.isNotEmpty()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        adminEmails.forEach { entry ->
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainer,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = entry.email,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    IconButton(onClick = { onRemoveEmail(entry.email) }) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.DeleteOutline,
-                                            contentDescription = "Remove co-admin",
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Done") }
-        }
-    )
-}

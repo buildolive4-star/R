@@ -25,6 +25,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import com.example.data.firebase.GoogleAuthHelper
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.Logout
@@ -99,6 +101,7 @@ fun ProfileEditorSection(
         genderPreference: String,
     ) -> Unit,
     onApplyForStaff: (staffRole: String, staffPrice: String) -> Unit,
+    authErrorMessage: String? = null,
 ) {
     val context = LocalContext.current
     var name by remember(userAccount?.uid, userAccount?.name, firebaseUser?.displayName) {
@@ -233,6 +236,41 @@ fun ProfileEditorSection(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Continue with Google")
+                }
+                val diagInfo = remember(context) { GoogleAuthHelper.getAuthDiagnosticInfo(context) }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (diagInfo.isSha1Matched && diagInfo.hasWebClientId) {
+                        "Build Key: Verified (${diagInfo.packageName})"
+                    } else {
+                        "Build Key Warning: SHA-1 ${diagInfo.runtimeSha1Colon ?: "unknown"}"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (diagInfo.isSha1Matched && diagInfo.hasWebClientId) {
+                        MaterialTheme.colorScheme.tertiary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    }
+                )
+                if (!authErrorMessage.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("profile_auth_error_banner")
+                    ) {
+                        SelectionContainer {
+                            Text(
+                                text = authErrorMessage,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
                 }
             } else {
                 Row(

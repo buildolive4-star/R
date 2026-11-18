@@ -158,6 +158,28 @@ data class AdminEmailEntry(
 
 @Keep
 @IgnoreExtraProperties
+data class AdminAccessCode(
+    @DocumentId val code: String = "",
+    val label: String = "",
+    val createdByEmail: String = "",
+    val active: Boolean = true,
+    @ServerTimestamp val createdAt: Timestamp? = null,
+)
+
+@Keep
+@IgnoreExtraProperties
+data class AdminMemberProfile(
+    @DocumentId val uid: String = "",
+    val name: String = "",
+    val phone: String = "",
+    val email: String = "",
+    val codeUsed: String = "",
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+)
+
+@Keep
+@IgnoreExtraProperties
 data class ChatThread(
     @DocumentId val id: String = "",
     val clientUid: String = "",

@@ -5,7 +5,9 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.GoogleAuthHelper
+import com.example.data.model.AdminAccessCode
 import com.example.data.model.AdminEmailEntry
+import com.example.data.model.AdminMemberProfile
 import com.example.data.model.AdminUserFilter
 import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
@@ -84,6 +86,30 @@ class AdminViewModel(
     private val _selectedProfileContact = MutableStateFlow<Pair<String, CompanionPrivateContact>?>(null)
     val selectedProfileContact: StateFlow<Pair<String, CompanionPrivateContact>?> = _selectedProfileContact.asStateFlow()
 
+    private val _authErrorMessage = MutableStateFlow<String?>(null)
+    val authErrorMessage: StateFlow<String?> = _authErrorMessage.asStateFlow()
+
+    private val _isBusy = MutableStateFlow(false)
+    val isBusy: StateFlow<Boolean> = _isBusy.asStateFlow()
+
+    val myAdminMember: StateFlow<AdminMemberProfile?> = _authUser
+        .flatMapLatest { user ->
+            if (user == null) flowOf(null) else userCrmRepository.observeMyAdminMember(user.uid)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), null)
+
+    val adminAccessCodes: StateFlow<List<AdminAccessCode>> = _isSuperAdmin
+        .flatMapLatest { isSuper ->
+            if (isSuper) userCrmRepository.observeAdminAccessCodes() else flowOf(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val adminMembers: StateFlow<List<AdminMemberProfile>> = _isSuperAdmin
+        .flatMapLatest { isSuper ->
+            if (isSuper) userCrmRepository.observeAdminMembers() else flowOf(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
     private val authListener = FirebaseAuth.AuthStateListener { auth ->
         _authUser.value = auth.currentUser
         refreshAdminAccess()
@@ -92,6 +118,23 @@ class AdminViewModel(
     init {
         Firebase.auth.addAuthStateListener(authListener)
         refreshAdminAccess()
+        // Live revocation guard: if Main Admin deletes the partner's transfer code, immediately lock Admin Panel
+        viewModelScope.launch {
+            myAdminMember
+                .flatMapLatest { member ->
+                    val code = member?.codeUsed.orEmpty()
+                    if (member == null || code == "MASTER" || code.isBlank()) {
+                        flowOf(true)
+                    } else {
+                        userCrmRepository.observeCodeActive(code)
+                    }
+                }
+                .collect { active ->
+                    if (!active && !_isSuperAdmin.value) {
+                        refreshAdminAccess()
+                    }
+                }
+        }
     }
 
     override fun onCleared() {
@@ -114,19 +157,26 @@ class AdminViewModel(
 
     fun signInAdminWithGoogle(activityContext: Context) {
         viewModelScope.launch {
+            _authErrorMessage.value = null
+            _isBusy.value = true
             val res = GoogleAuthHelper.signInWithGoogle(activityContext)
             res.onSuccess { user ->
                 _authUser.value = user
+                _authErrorMessage.value = null
                 val isAdmin = userCrmRepository.checkIsCurrentUserAdmin()
                 _isVerifiedAdmin.value = isAdmin
                 _isSuperAdmin.value = userCrmRepository.isSuperAdminEmail(user.email)
+                _isBusy.value = false
                 if (isAdmin) {
                     _events.tryEmit("Signed in as Admin: ${user.email}")
                 } else {
-                    _events.tryEmit("${user.email} is not on the Admin whitelist yet.")
+                    _events.tryEmit("Google verified! Enter Admin Code given by Main Admin.")
                 }
             }.onFailure { err ->
-                _events.tryEmit(err.localizedMessage ?: "Google sign-in cancelled")
+                _isBusy.value = false
+                val message = err.localizedMessage ?: "Google sign-in failed. Please try again."
+                _authErrorMessage.value = message
+                _events.tryEmit(message)
             }
         }
     }
@@ -245,6 +295,80 @@ class AdminViewModel(
                 _events.tryEmit("Removed co-admin: $email")
             }.onFailure { err ->
                 _events.tryEmit(err.localizedMessage ?: "Failed to remove admin")
+            }
+        }
+    }
+
+    fun createAdminAccessCode(rawCode: String, label: String) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.createAdminAccessCode(rawCode, label)
+            _isBusy.value = false
+            res.onSuccess { created ->
+                _events.tryEmit("Transfer Code saved: $created")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to create code")
+            }
+        }
+    }
+
+    fun deleteAdminAccessCode(code: String) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.deleteAdminAccessCode(code)
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("Code $code deleted! Access revoked immediately.")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to delete code")
+            }
+        }
+    }
+
+    fun removeAdminMember(memberUid: String) {
+        viewModelScope.launch {
+            val res = userCrmRepository.removeAdminMember(memberUid)
+            res.onSuccess {
+                _events.tryEmit("Admin operator removed")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to remove operator")
+            }
+        }
+    }
+
+    fun saveMainAdminProfile(name: String, phone: String, email: String) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.saveMainAdminProfile(name, phone, email)
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("Main Admin details saved")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to save Main Admin details")
+            }
+        }
+    }
+
+    fun redeemAdminAccessCode(name: String, phone: String, email: String, code: String) {
+        viewModelScope.launch {
+            _authErrorMessage.value = null
+            _isBusy.value = true
+            val res = userCrmRepository.redeemAdminAccessCode(name, phone, email, code)
+            if (res.isSuccess) {
+                val isAdmin = userCrmRepository.checkIsCurrentUserAdmin()
+                _isVerifiedAdmin.value = isAdmin
+                _isBusy.value = false
+                if (isAdmin) {
+                    _events.tryEmit("Admin access unlocked!")
+                } else {
+                    _authErrorMessage.value = "Code verification failed. Ask Main Admin for a valid code."
+                }
+            } else {
+                _isBusy.value = false
+                val msg = res.exceptionOrNull()?.localizedMessage
+                    ?: "Invalid or deleted Admin Code."
+                _authErrorMessage.value = msg
+                _events.tryEmit(msg)
             }
         }
     }

@@ -280,6 +280,7 @@ fun JustUsAppRoot(
     val clientChats by sessionViewModel.clientChats.collectAsStateWithLifecycle()
     val staffInboxChats by sessionViewModel.staffInboxChats.collectAsStateWithLifecycle()
     val pendingChatProfile by sessionViewModel.pendingChatProfile.collectAsStateWithLifecycle()
+    val authErrorMessage by sessionViewModel.authErrorMessage.collectAsStateWithLifecycle()
 
     var showAdminPasscodeSheet by remember { mutableStateOf(false) }
     var activeBannerImage by remember { mutableStateOf<GalleryImage?>(null) }
@@ -517,7 +518,8 @@ fun JustUsAppRoot(
                                                 price = "₹499",
                                             )
                                         viewModel.emitInAppAlertPreview(sample)
-                                    }
+                                    },
+                                    authErrorMessage = authErrorMessage,
                                 )
                             }
 
@@ -594,6 +596,10 @@ fun JustUsAppRoot(
                                 val isVerifiedAdmin by adminViewModel.isVerifiedAdmin.collectAsStateWithLifecycle()
                                 val isSuperAdmin by adminViewModel.isSuperAdmin.collectAsStateWithLifecycle()
                                 val adminEmails by adminViewModel.adminEmails.collectAsStateWithLifecycle()
+                                val adminAccessCodes by adminViewModel.adminAccessCodes.collectAsStateWithLifecycle()
+                                val adminMembers by adminViewModel.adminMembers.collectAsStateWithLifecycle()
+                                val myAdminMember by adminViewModel.myAdminMember.collectAsStateWithLifecycle()
+                                val isAdminBusy by adminViewModel.isBusy.collectAsStateWithLifecycle()
                                 val publishState by adminViewModel.publishState.collectAsStateWithLifecycle()
                                 val managedProfiles by adminViewModel.combinedManagedImages.collectAsStateWithLifecycle()
                                 val filteredUsers by adminViewModel.filteredUsers.collectAsStateWithLifecycle()
@@ -603,6 +609,7 @@ fun JustUsAppRoot(
                                 val pendingStaffUsers by adminViewModel.pendingStaffUsers.collectAsStateWithLifecycle()
                                 val allChats by adminViewModel.allChats.collectAsStateWithLifecycle()
                                 val selectedContact by adminViewModel.selectedProfileContact.collectAsStateWithLifecycle()
+                                val adminAuthError by adminViewModel.authErrorMessage.collectAsStateWithLifecycle()
 
                                 val adminSnackbar = remember { SnackbarHostState() }
 
@@ -623,6 +630,10 @@ fun JustUsAppRoot(
                                     isVerifiedAdmin = isVerifiedAdmin,
                                     isSuperAdmin = isSuperAdmin,
                                     adminEmails = adminEmails,
+                                    adminAccessCodes = adminAccessCodes,
+                                    adminMembers = adminMembers,
+                                    myAdminMember = myAdminMember,
+                                    isAuthBusy = isAdminBusy,
                                     publishState = publishState,
                                     managedProfiles = managedProfiles,
                                     pagedUsers = pagedUsers,
@@ -634,6 +645,11 @@ fun JustUsAppRoot(
                                     selectedProfileContact = selectedContact,
                                     onSignInAdminGoogle = { adminViewModel.signInAdminWithGoogle(context) },
                                     onSignOutAdmin = { adminViewModel.signOutAdmin(context) },
+                                    onSaveMainAdminProfile = adminViewModel::saveMainAdminProfile,
+                                    onCreateAccessCode = adminViewModel::createAdminAccessCode,
+                                    onDeleteAccessCode = adminViewModel::deleteAdminAccessCode,
+                                    onRemoveAdminMember = adminViewModel::removeAdminMember,
+                                    onRedeemAccessCode = adminViewModel::redeemAdminAccessCode,
                                     onAddAdminEmail = adminViewModel::addAdminEmail,
                                     onRemoveAdminEmail = adminViewModel::removeAdminEmail,
                                     onPublishCompanionProfile = { uris, manualUrl, name, phone, ageText, price, address, role, tier, cat, bio, hiddenTimed ->
@@ -671,6 +687,7 @@ fun JustUsAppRoot(
                                     },
                                     onBack = { navController.popBackStack() },
                                     snackbarHostState = adminSnackbar,
+                                    authErrorMessage = adminAuthError,
                                 )
                             }
                         }

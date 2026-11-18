@@ -101,6 +101,7 @@ fun SettingsScreen(
     onClearSaved: () -> Unit,
     onSecretAdminTrigger: () -> Unit,
     onSendTestAlert: () -> Unit = {},
+    authErrorMessage: String? = null,
     modifier: Modifier = Modifier,
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
@@ -139,6 +140,7 @@ fun SettingsScreen(
                 onSignOut = onSignOut,
                 onSaveProfile = onSaveProfile,
                 onApplyForStaff = onApplyForStaff,
+                authErrorMessage = authErrorMessage,
             )
 
             Spacer(modifier = Modifier.height(16.dp))

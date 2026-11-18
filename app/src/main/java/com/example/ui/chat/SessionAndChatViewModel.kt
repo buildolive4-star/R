@@ -54,6 +54,13 @@ class SessionAndChatViewModel(
     private val _navigateToChatId = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val navigateToChatId: SharedFlow<String> = _navigateToChatId.asSharedFlow()
 
+    private val _authErrorMessage = MutableStateFlow<String?>(null)
+    val authErrorMessage: StateFlow<String?> = _authErrorMessage.asStateFlow()
+
+    fun clearAuthError() {
+        _authErrorMessage.value = null
+    }
+
     private val authListener = FirebaseAuth.AuthStateListener { auth ->
         _firebaseUser.value = auth.currentUser
     }
@@ -123,15 +130,19 @@ class SessionAndChatViewModel(
 
     fun signInWithGoogle(activityContext: Context, onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
+            _authErrorMessage.value = null
             _isBusy.value = true
             val res = GoogleAuthHelper.signInWithGoogle(activityContext, autoSelectSilentOnly = false)
             _isBusy.value = false
             res.onSuccess { user ->
                 _firebaseUser.value = user
+                _authErrorMessage.value = null
                 userCrmRepository.setOnlinePresence(user.uid, true)
                 onSuccess?.invoke()
             }.onFailure { err ->
-                _events.tryEmit(err.localizedMessage ?: "Google sign-in cancelled")
+                val message = err.localizedMessage ?: "Google sign-in failed. Please try again."
+                _authErrorMessage.value = message
+                _events.tryEmit(message)
             }
         }
     }
@@ -202,11 +213,15 @@ class SessionAndChatViewModel(
                 val signInResult = GoogleAuthHelper.signInWithGoogle(activityContext)
                 if (signInResult.isFailure) {
                     _isBusy.value = false
-                    _events.tryEmit("Google sign-in is required to open private chat")
+                    val message = signInResult.exceptionOrNull()?.localizedMessage
+                        ?: "Google sign-in is required to open private chat"
+                    _authErrorMessage.value = message
+                    _events.tryEmit(message)
                     return@launch
                 }
                 user = signInResult.getOrNull()
                 _firebaseUser.value = user
+                _authErrorMessage.value = null
             }
 
             val existing = userAccount.value
