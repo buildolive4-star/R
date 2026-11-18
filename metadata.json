@@ -1,6 +1,6 @@
 {
-  "name": "JustUs",
-  "description": "Private companion & verified staff connection platform with 16:9 VIP showcase, 9:16 40s moments, private chat onboarding, and multi-admin CRM.",
+  "name": "DateMate",
+  "description": "A Better Way to Connect — Premium dating and companionship application with 3D romantic visuals, swipeable profile discovery, 6-step date bookings, real-time chat, and membership tiers.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

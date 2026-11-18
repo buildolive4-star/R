@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "JustUs"
+rootProject.name = "DateMate"
 
 include(":app")

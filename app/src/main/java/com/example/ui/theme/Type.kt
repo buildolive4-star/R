@@ -8,115 +8,115 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.example.R
 
-val PlayfairDisplayFontFamily = FontFamily(
-    Font(R.font.playfair_display, FontWeight.Normal),
-    Font(R.font.playfair_display, FontWeight.Medium),
-    Font(R.font.playfair_display, FontWeight.SemiBold),
-    Font(R.font.playfair_display, FontWeight.Bold),
+val PoppinsFontFamily = FontFamily(
+    Font(R.font.poppins, FontWeight.Normal),
+    Font(R.font.poppins, FontWeight.Medium),
+    Font(R.font.poppins, FontWeight.SemiBold),
+    Font(R.font.poppins, FontWeight.Bold),
 )
 
-val SpaceGroteskFontFamily = FontFamily(
-    Font(R.font.space_grotesk, FontWeight.Normal),
-    Font(R.font.space_grotesk, FontWeight.Medium),
-    Font(R.font.space_grotesk, FontWeight.SemiBold),
-    Font(R.font.space_grotesk, FontWeight.Bold),
+val InterFontFamily = FontFamily(
+    Font(R.font.inter, FontWeight.Normal),
+    Font(R.font.inter, FontWeight.Medium),
+    Font(R.font.inter, FontWeight.SemiBold),
+    Font(R.font.inter, FontWeight.Bold),
 )
 
-val PlusJakartaSansFontFamily = FontFamily(
-    Font(R.font.plus_jakarta_sans, FontWeight.Normal),
-    Font(R.font.plus_jakarta_sans, FontWeight.Medium),
-    Font(R.font.plus_jakarta_sans, FontWeight.SemiBold),
-    Font(R.font.plus_jakarta_sans, FontWeight.Bold),
-)
+// Backwards-compatible aliases
+val PlayfairDisplayFontFamily = PoppinsFontFamily
+val SpaceGroteskFontFamily = PoppinsFontFamily
+val PlusJakartaSansFontFamily = InterFontFamily
 
-val JustUsTypography = Typography(
+val DateMateTypography = Typography(
     displaySmall = TextStyle(
-        fontFamily = PlayfairDisplayFontFamily,
+        fontFamily = PoppinsFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 34.sp,
         lineHeight = 40.sp,
         letterSpacing = (-0.4).sp,
     ),
     headlineLarge = TextStyle(
-        fontFamily = PlayfairDisplayFontFamily,
+        fontFamily = PoppinsFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 28.sp,
         lineHeight = 34.sp,
-        letterSpacing = (-0.2).sp,
+        letterSpacing = (-0.3).sp,
     ),
     headlineMedium = TextStyle(
-        fontFamily = SpaceGroteskFontFamily,
+        fontFamily = PoppinsFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 24.sp,
         lineHeight = 30.sp,
         letterSpacing = (-0.2).sp,
     ),
     headlineSmall = TextStyle(
-        fontFamily = SpaceGroteskFontFamily,
+        fontFamily = PoppinsFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 20.sp,
         lineHeight = 26.sp,
     ),
     titleLarge = TextStyle(
-        fontFamily = SpaceGroteskFontFamily,
+        fontFamily = PoppinsFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 18.sp,
         lineHeight = 24.sp,
     ),
     titleMedium = TextStyle(
-        fontFamily = PlusJakartaSansFontFamily,
+        fontFamily = PoppinsFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
         lineHeight = 22.sp,
-        letterSpacing = 0.1.sp,
+        letterSpacing = 0.05.sp,
     ),
     titleSmall = TextStyle(
-        fontFamily = PlusJakartaSansFontFamily,
+        fontFamily = PoppinsFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 14.sp,
         lineHeight = 20.sp,
-        letterSpacing = 0.1.sp,
+        letterSpacing = 0.05.sp,
     ),
     bodyLarge = TextStyle(
-        fontFamily = PlusJakartaSansFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
         lineHeight = 24.sp,
-        letterSpacing = 0.15.sp,
+        letterSpacing = 0.1.sp,
     ),
     bodyMedium = TextStyle(
-        fontFamily = PlusJakartaSansFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
         lineHeight = 20.sp,
-        letterSpacing = 0.15.sp,
+        letterSpacing = 0.1.sp,
     ),
     bodySmall = TextStyle(
-        fontFamily = PlusJakartaSansFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.2.sp,
+        letterSpacing = 0.15.sp,
     ),
     labelLarge = TextStyle(
-        fontFamily = PlusJakartaSansFontFamily,
+        fontFamily = PoppinsFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 14.sp,
         lineHeight = 20.sp,
         letterSpacing = 0.1.sp,
     ),
     labelMedium = TextStyle(
-        fontFamily = PlusJakartaSansFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.4.sp,
+        letterSpacing = 0.25.sp,
     ),
     labelSmall = TextStyle(
-        fontFamily = PlusJakartaSansFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
         lineHeight = 14.sp,
-        letterSpacing = 0.4.sp,
+        letterSpacing = 0.25.sp,
     ),
 )
+
+val JustUsTypography = DateMateTypography

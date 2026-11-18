@@ -43,10 +43,10 @@ import org.robolectric.annotation.Config
 class ExampleRobolectricTest {
 
     @Test
-    fun `read app name from context returns JustUs`() {
+    fun `read app name from context returns DateMate`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val appName = context.getString(R.string.app_name)
-        assertEquals("JustUs", appName)
+        assertEquals("DateMate", appName)
     }
 
     @Test
@@ -409,5 +409,52 @@ class ExampleRobolectricTest {
         player.startIncomingRingtone()
         player.startOutgoingRingback()
         player.stopAll()
+    }
+
+    @Test
+    fun `dateMateViewModel 6-step booking flow creates confirmed booking and notification`() {
+        val vm = com.example.ui.datemate.DateMateViewModel()
+        val initialCount = vm.bookings.value.size
+        vm.openBookingWizard("comp_aanya_01")
+        assertTrue(vm.showBookingWizard.value)
+        assertEquals(2, vm.bookingDraft.value.step)
+        vm.updateBookingDraft {
+            it.copy(
+                selectedDateLabel = "Sun, 25 May",
+                selectedTimeSlot = "08:30 PM",
+                durationHours = 4,
+                venueExperience = "Fine Dining & Lounge",
+                step = 6
+            )
+        }
+        val created = vm.confirmBookingFromDraft()
+        assertNotNull(created)
+        assertEquals("Aanya Sharma", created?.companionName)
+        assertEquals(4, created?.durationHours)
+        assertEquals(initialCount + 1, vm.bookings.value.size)
+        assertFalse(vm.showBookingWizard.value)
+    }
+
+    @Test
+    fun `dateMateViewModel discover deck filters by city, likes profile, and upgrades membership`() {
+        val vm = com.example.ui.datemate.DateMateViewModel()
+        vm.updateDiscoverFilters(
+            com.example.data.model.DiscoverFilters(selectedCity = "Mumbai", maxDistanceKm = 20)
+        )
+        val mumbaiDeck = vm.getDiscoverDeck()
+        assertTrue(mumbaiDeck.isNotEmpty())
+        assertTrue(mumbaiDeck.all { it.city == "Mumbai" })
+
+        val top = mumbaiDeck.first()
+        vm.likeCompanionOnDiscover(top.id, isSuperLike = true)
+        assertTrue(top.id in vm.favoriteIds.value)
+        assertEquals(top.id, vm.lastMatchedCompanion.value?.id)
+
+        vm.selectMembershipPlan(com.example.data.model.MembershipTier.PLATINUM, isYearly = true)
+        assertEquals(
+            com.example.data.model.MembershipTier.PLATINUM,
+            vm.userProfile.value.membershipTier
+        )
+        assertTrue(vm.userProfile.value.isYearlyBilling)
     }
 }
