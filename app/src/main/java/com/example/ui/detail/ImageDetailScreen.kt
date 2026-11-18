@@ -11,8 +11,6 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,19 +28,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Bookmark
-import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.Security
-import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,7 +52,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,11 +62,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,70 +73,55 @@ import com.example.data.model.GalleryImage
 import com.example.ui.components.PixoraBlurredImage
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
-import com.example.util.ImageActions
-import com.google.firebase.Timestamp
+import com.example.ui.theme.WhatsAppGreen
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Locale
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ImageDetailScreen(
-    images: List<GalleryImage>,
-    initialImageId: String,
+    profile: GalleryImage?,
     bookmarkedIds: Set<String>,
     onToggleBookmark: (GalleryImage) -> Unit,
     onRevealHiddenImage: (GalleryImage) -> Unit,
-    onShowMessage: (String) -> Unit,
+    onChatClick: (GalleryImage) -> Unit,
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
-    val initialStillExists = remember(images, initialImageId) {
-        images.any { it.id == initialImageId }
-    }
-    if (images.isEmpty() || !initialStillExists) {
+    if (profile == null) {
         LaunchedEffect(Unit) { onBack() }
         return
     }
 
-    val initialIndex = remember(images, initialImageId) {
-        images.indexOfFirst { it.id == initialImageId }.coerceAtLeast(0)
+    val photoUrls = remember(profile.id, profile.photoUrls, profile.imageUrl) {
+        profile.allPhotoUrls.ifEmpty { listOf(profile.displayThumbnailUrl) }
     }
-    val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { images.size })
-    val currentImage = images[pagerState.currentPage.coerceIn(0, images.lastIndex)]
-    val isBookmarked = bookmarkedIds.contains(currentImage.id)
-
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val scope = rememberCoroutineScope()
+    val pagerState = rememberPagerState(pageCount = { photoUrls.size.coerceAtLeast(1) })
+    val isBookmarked = bookmarkedIds.contains(profile.id)
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var showChrome by remember { mutableStateOf(true) }
-    var isSaving by remember { mutableStateOf(false) }
-    var remainingSec by remember(currentImage.id, currentImage.revealExpiresAtEpochMs, currentImage.isExpired) {
-        mutableIntStateOf(currentImage.remainingSeconds())
+    var remainingSec by remember(profile.id, profile.revealExpiresAtEpochMs, profile.isExpired) {
+        mutableIntStateOf(profile.remainingSeconds())
     }
 
     LaunchedEffect(
-        currentImage.id,
-        currentImage.isHidden,
-        currentImage.revealExpiresAtEpochMs,
-        currentImage.isExpired,
-        currentImage.refreshEpochMs,
+        profile.id,
+        profile.isHidden,
+        profile.revealExpiresAtEpochMs,
+        profile.isExpired,
+        profile.refreshEpochMs,
     ) {
-        if (currentImage.isExpired) {
+        if (profile.isExpired) {
             remainingSec = 0
-        } else if (currentImage.isRevealStarted) {
+        } else if (profile.isRevealStarted) {
             while (true) {
-                val secs = currentImage.remainingSeconds()
+                val secs = profile.remainingSeconds()
                 remainingSec = secs
                 if (secs <= 0) break
                 delay(250L)
             }
         } else {
-            remainingSec = 20
+            remainingSec = 40
         }
     }
 
@@ -153,132 +130,37 @@ fun ImageDetailScreen(
         offset = Offset.Zero
     }
 
-    val formattedDate = remember(currentImage.createdAt, currentImage.updatedAt) {
-        val ts = currentImage.createdAt ?: currentImage.updatedAt ?: Timestamp.now()
-        SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(ts.toDate())
-    }
-
-    val copiedMessage = stringResource(R.string.link_copied)
-    val savedMessage = stringResource(R.string.photo_saved)
-    val saveFailedMessage = stringResource(R.string.photo_save_failed)
-    val isCurrentExpired = currentImage.isDeletedBlurred || (currentImage.isRevealStarted && remainingSec <= 0)
+    val isCurrentExpired = profile.isDeletedBlurred || (profile.isRevealStarted && remainingSec <= 0)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0E090E))
+            .background(Color(0xFF0D080E))
     ) {
-        HorizontalPager(
-            state = pagerState,
-            userScrollEnabled = scale <= 1.05f,
-            modifier = Modifier.fillMaxSize()
-        ) { page ->
-            val pageImage = images[page]
-            val isCurrentPage = page == pagerState.currentPage
-            val isPageExpired = pageImage.isDeletedBlurred ||
-                (isCurrentPage && pageImage.isRevealStarted && remainingSec <= 0)
-
-            when {
-                isPageExpired -> {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        PixoraBlurredImage(
-                            imageUrl = pageImage.displayThumbnailUrl,
-                            contentDescription = "${pageImage.title} (blurred memory)",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0x77120912))
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Surface(
-                                shape = MaterialTheme.shapes.extraLarge,
-                                color = Color(0xDE1B111E),
-                                border = BorderStroke(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .widthIn(max = 420.dp)
-                                    .testTag("detail_expired_blurred_card")
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(24.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                                        modifier = Modifier.size(68.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.BlurOn,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(34.dp)
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text(
-                                        text = stringResource(R.string.expired_detail_title),
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        color = Color.White,
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = stringResource(R.string.expired_detail_subtitle),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color(0xFFD8C6D5),
-                                        textAlign = TextAlign.Center
-                                    )
-                                    Spacer(modifier = Modifier.height(20.dp))
-                                    OutlinedButton(
-                                        onClick = onBack,
-                                        shape = RoundedCornerShape(16.dp),
-                                        border = BorderStroke(
-                                            1.dp,
-                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                                        ),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(48.dp)
-                                            .minimumInteractiveComponentSize()
-                                            .testTag("detail_expired_back_button")
-                                    ) {
-                                        Text(text = stringResource(R.string.back), color = Color.White)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                pageImage.isHidden && !pageImage.isRevealStarted -> {
+        when {
+            isCurrentExpired -> {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    PixoraBlurredImage(
+                        imageUrl = photoUrls.first(),
+                        contentDescription = profile.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color(0xFF150C17), Color(0xFF231325), Color(0xFF0E090E))
-                                )
-                            )
+                            .background(Color(0x38120912))
                             .padding(24.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Surface(
                             shape = MaterialTheme.shapes.extraLarge,
-                            color = Color(0xDD1C111E),
+                            color = Color(0xDC1B111E),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .widthIn(max = 420.dp)
+                                .testTag("detail_expired_blurred_card")
                         ) {
                             Column(
                                 modifier = Modifier.padding(24.dp),
@@ -286,62 +168,160 @@ fun ImageDetailScreen(
                             ) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                                    modifier = Modifier.size(60.dp)
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                                    modifier = Modifier.size(64.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
-                                            imageVector = Icons.Rounded.VisibilityOff,
+                                            imageVector = Icons.Rounded.BlurOn,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(30.dp)
+                                            modifier = Modifier.size(32.dp)
                                         )
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(14.dp))
                                 Text(
-                                    text = stringResource(R.string.hidden_detail_title),
+                                    text = stringResource(R.string.expired_detail_title),
                                     style = MaterialTheme.typography.headlineSmall,
                                     color = Color.White,
                                     textAlign = TextAlign.Center
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
-                                PriceBadgePill(price = pageImage.displayPrice)
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = stringResource(R.string.expired_detail_subtitle),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFFD8C6D5),
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(18.dp))
                                 Button(
-                                    onClick = { onRevealHiddenImage(pageImage) },
+                                    onClick = { onChatClick(profile) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreen),
                                     shape = RoundedCornerShape(16.dp),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(54.dp)
+                                        .height(50.dp)
                                         .minimumInteractiveComponentSize()
-                                        .testTag("detail_reveal_hidden_button")
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Rounded.Visibility,
+                                        imageVector = Icons.AutoMirrored.Rounded.Chat,
                                         contentDescription = null,
-                                        modifier = Modifier.size(20.dp)
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(text = stringResource(R.string.reveal_photo_button))
+                                    Text(text = "${stringResource(R.string.chat_now)} with ${profile.title}", color = Color.White)
                                 }
                                 Spacer(modifier = Modifier.height(10.dp))
-                                Text(
-                                    text = stringResource(R.string.hidden_detail_subtitle),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFFD6C4D4),
-                                    textAlign = TextAlign.Center
-                                )
+                                OutlinedButton(
+                                    onClick = onBack,
+                                    shape = RoundedCornerShape(16.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("detail_expired_back_button")
+                                ) {
+                                    Text(text = stringResource(R.string.back), color = Color.White)
+                                }
                             }
                         }
                     }
                 }
+            }
 
-                else -> {
+            profile.isHidden && !profile.isRevealStarted -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color(0xFF150C17), Color(0xFF231325), Color(0xFF0E090E))
+                            )
+                        )
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = Color(0xDD1C111E),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 420.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                modifier = Modifier.size(60.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.VisibilityOff,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(30.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = "${profile.title}, ${profile.age}",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = Color.White,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            PriceBadgePill(price = profile.displayPrice)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = { onRevealHiddenImage(profile) },
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("detail_reveal_hidden_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Visibility,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(text = stringResource(R.string.reveal_photo_button))
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = stringResource(R.string.hidden_detail_subtitle),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFD6C4D4),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+
+            else -> {
+                HorizontalPager(
+                    state = pagerState,
+                    userScrollEnabled = scale <= 1.05f,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    val photoUrl = photoUrls[page]
+                    val isCurrentPage = page == pagerState.currentPage
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .pointerInput(pageImage.id) {
+                            .pointerInput(photoUrl) {
                                 detectTransformGestures { _, pan, zoom, _ ->
                                     if (isCurrentPage) {
                                         val newScale = (scale * zoom).coerceIn(1f, 4f)
@@ -357,7 +337,7 @@ fun ImageDetailScreen(
                                     }
                                 }
                             }
-                            .pointerInput(pageImage.id) {
+                            .pointerInput(photoUrl) {
                                 detectTapGestures(
                                     onTap = { showChrome = !showChrome },
                                     onDoubleTap = {
@@ -372,8 +352,8 @@ fun ImageDetailScreen(
                             }
                     ) {
                         PixoraNetworkImage(
-                            imageUrl = pageImage.imageUrl,
-                            contentDescription = pageImage.title,
+                            imageUrl = photoUrl,
+                            contentDescription = profile.title,
                             contentScale = ContentScale.Fit,
                             showSpinnerOnLoad = true,
                             modifier = Modifier
@@ -438,36 +418,10 @@ fun ImageDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (isCurrentExpired) {
+                        if (profile.isRevealStarted && !isCurrentExpired) {
                             Surface(
                                 shape = RoundedCornerShape(50),
-                                color = Color(0xCC281426),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
-                                modifier = Modifier.testTag("detail_expired_pill")
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.BlurOn,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Text(
-                                        text = stringResource(R.string.expired_blurred_badge),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = Color.White
-                                    )
-                                }
-                            }
-                        } else if (currentImage.isRevealStarted) {
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.9f),
-                                border = BorderStroke(1.dp, Color(0x66FFFFFF)),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                                 modifier = Modifier.testTag("detail_countdown_pill")
                             ) {
                                 Row(
@@ -495,20 +449,21 @@ fun ImageDetailScreen(
                                 border = BorderStroke(1.dp, Color(0x44FFFFFF))
                             ) {
                                 Text(
-                                    text = currentImage.category,
+                                    text = "${profile.role} · ${profile.category}",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                                 )
                             }
                         }
-                        if (images.size > 1) {
+
+                        if (photoUrls.size > 1 && !isCurrentExpired) {
                             Surface(
                                 shape = RoundedCornerShape(50),
                                 color = Color(0xAA1D1220)
                             ) {
                                 Text(
-                                    text = "${pagerState.currentPage + 1} / ${images.size}",
+                                    text = "${pagerState.currentPage + 1} / ${photoUrls.size}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color(0xFFE0CEDD),
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
@@ -517,9 +472,9 @@ fun ImageDetailScreen(
                         }
                     }
 
-                    if (!currentImage.isHidden && !isCurrentExpired) {
+                    if (!profile.isHidden && !isCurrentExpired) {
                         IconButton(
-                            onClick = { onToggleBookmark(currentImage) },
+                            onClick = { onToggleBookmark(profile) },
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
                                 .clip(CircleShape)
@@ -535,26 +490,13 @@ fun ImageDetailScreen(
                             )
                         }
                     } else {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xAA1D1220)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Security,
-                                contentDescription = stringResource(R.string.screen_protection_active),
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                        Spacer(modifier = Modifier.size(48.dp))
                     }
                 }
             }
         }
 
-        // Bottom Floating Metadata & Actions (hidden once expired to keep blurred lock card clean)
+        // Bottom Floating Profile Details + WhatsApp Chat Action (NO Phone/Address exposed!)
         AnimatedVisibility(
             visible = showChrome && !isCurrentExpired,
             enter = fadeIn(),
@@ -587,30 +529,34 @@ fun ImageDetailScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = currentImage.title,
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = Color.White,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.weight(1f)
-                            )
+                            ) {
+                                Text(
+                                    text = "${profile.title}, ${profile.age}",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.Rounded.Verified,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
-                            PriceBadgePill(price = currentImage.displayPrice)
+                            PriceBadgePill(price = profile.displayPrice)
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(
-                            text = "${stringResource(R.string.uploaded_by_prefix, currentImage.uploaderName)} · $formattedDate",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFC6B3C3)
-                        )
-
-                        if (currentImage.description.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(10.dp))
+                        if (profile.description.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = currentImage.description,
+                                text = profile.description,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Color(0xFFF3E4F0),
                                 maxLines = 4,
@@ -618,30 +564,8 @@ fun ImageDetailScreen(
                             )
                         }
 
-                        if (currentImage.tags.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                currentImage.tags.take(6).forEach { tag ->
-                                    Surface(
-                                        shape = RoundedCornerShape(50),
-                                        color = Color(0x24FF7AA2)
-                                    ) {
-                                        Text(
-                                            text = "#$tag",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color(0xFFF5D8E4),
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        if (images.size > 1) {
-                            Spacer(modifier = Modifier.height(10.dp))
+                        if (photoUrls.size > 1) {
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = stringResource(R.string.swipe_hint),
                                 style = MaterialTheme.typography.labelSmall,
@@ -651,117 +575,29 @@ fun ImageDetailScreen(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        if (currentImage.isHidden) {
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color(0x22FFFFFF),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Security,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = if (currentImage.isRevealStarted) {
-                                            stringResource(R.string.hidden_protected_countdown_notice, remainingSec)
-                                        } else {
-                                            stringResource(R.string.hidden_protected_notice)
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFFF3E4F0)
-                                    )
-                                }
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                FilledTonalButton(
-                                    onClick = {
-                                        if (!isSaving) {
-                                            isSaving = true
-                                            scope.launch {
-                                                val result = ImageActions.saveImageToGallery(context, currentImage)
-                                                isSaving = false
-                                                onShowMessage(
-                                                    if (result.isSuccess) savedMessage else saveFailedMessage
-                                                )
-                                            }
-                                        }
-                                    },
-                                    enabled = !isSaving,
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .minimumInteractiveComponentSize()
-                                        .testTag("detail_save_button")
-                                ) {
-                                    if (isSaving) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(16.dp),
-                                            strokeWidth = 2.dp
-                                        )
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Download,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = stringResource(R.string.save_to_device),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-
-                                FilledTonalButton(
-                                    onClick = {
-                                        ImageActions.shareImage(
-                                            context,
-                                            currentImage.title,
-                                            currentImage.imageUrl
-                                        )
-                                    },
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .minimumInteractiveComponentSize()
-                                        .testTag("detail_share_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Share,
-                                        contentDescription = stringResource(R.string.share_image),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-
-                                FilledTonalButton(
-                                    onClick = {
-                                        clipboard.setText(AnnotatedString(currentImage.imageUrl))
-                                        onShowMessage(copiedMessage)
-                                    },
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .minimumInteractiveComponentSize()
-                                        .testTag("detail_copy_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.ContentCopy,
-                                        contentDescription = stringResource(R.string.copy_link),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
+                        Button(
+                            onClick = { onChatClick(profile) },
+                            colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreen),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .minimumInteractiveComponentSize()
+                                .testTag("detail_whatsapp_chat_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Chat,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Chat on JustUs · ${profile.displayPrice}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
                         }
                     }
                 }

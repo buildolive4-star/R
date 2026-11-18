@@ -1,6 +1,8 @@
 package com.example.data.firebase
 
 import android.util.Log
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
@@ -25,11 +27,21 @@ fun handleFirestoreError(
         ?: causes.firstOrNull { it !is CancellationException }
         ?: exception
 
+    val currentUser = runCatching { Firebase.auth.currentUser }.getOrNull()
+    val providersArray = JSONArray().apply {
+        currentUser?.providerData?.forEach { info ->
+            put(JSONObject().apply {
+                put("providerId", info.providerId)
+                put("email", info.email ?: JSONObject.NULL)
+            })
+        }
+    }
+
     val authInfoJson = JSONObject().apply {
-        put("userId", JSONObject.NULL)
-        put("email", JSONObject.NULL)
-        put("emailVerified", false)
-        put("providerInfo", JSONArray())
+        put("userId", currentUser?.uid ?: JSONObject.NULL)
+        put("email", currentUser?.email ?: JSONObject.NULL)
+        put("emailVerified", currentUser?.isEmailVerified ?: false)
+        put("providerInfo", providersArray)
     }
 
     val errorInfoJson = JSONObject().apply {

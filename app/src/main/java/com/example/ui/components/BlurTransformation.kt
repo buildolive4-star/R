@@ -8,17 +8,17 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * Cross-version bitmap blur transformation for expired hidden photos.
- * Downscales to a small grid and runs multi-pass box blur so the residual
- * blurred colors/silhouette remain softly visible on all Android API levels (24–36).
+ * Light frosted blur transformation for expired 40s photos.
+ * Keeps recognizable facial contours and colors so users can still predict
+ * whose photo they viewed, without leaving sharp detail exposed.
  */
 class LowResBlurTransformation(
-    private val maxGridDim: Int = 32,
-    private val blurPasses: Int = 3,
+    private val maxGridDim: Int = 96,
+    private val blurPasses: Int = 1,
     private val outputScale: Int = 4,
 ) : Transformation {
 
-    override val cacheKey: String = "low_res_blur_${maxGridDim}_${blurPasses}_$outputScale"
+    override val cacheKey: String = "soft_predictable_blur_${maxGridDim}_${blurPasses}_$outputScale"
 
     override suspend fun transform(input: Bitmap, size: Size): Bitmap {
         val softInput = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
@@ -32,8 +32,8 @@ class LowResBlurTransformation(
         val srcW = softInput.width.coerceAtLeast(1)
         val srcH = softInput.height.coerceAtLeast(1)
         val scaleFactor = maxGridDim.toFloat() / max(srcW, srcH).toFloat()
-        val smallW = (srcW * scaleFactor).roundToInt().coerceIn(10, maxGridDim)
-        val smallH = (srcH * scaleFactor).roundToInt().coerceIn(10, maxGridDim)
+        val smallW = (srcW * scaleFactor).roundToInt().coerceIn(16, maxGridDim)
+        val smallH = (srcH * scaleFactor).roundToInt().coerceIn(16, maxGridDim)
 
         val tiny = Bitmap.createScaledBitmap(softInput, smallW, smallH, true)
         val working = if (tiny.config != Bitmap.Config.ARGB_8888 || !tiny.isMutable) {
@@ -52,8 +52,8 @@ class LowResBlurTransformation(
         }
 
         working.setPixels(pixels, 0, smallW, 0, 0, smallW, smallH)
-        val outW = (smallW * outputScale).coerceAtLeast(32)
-        val outH = (smallH * outputScale).coerceAtLeast(32)
+        val outW = (smallW * outputScale).coerceAtLeast(64)
+        val outH = (smallH * outputScale).coerceAtLeast(64)
         return Bitmap.createScaledBitmap(working, outW, outH, true)
     }
 

@@ -1,85 +1,160 @@
 {
   "entities": {
-    "GalleryImage": {
-      "title": "GalleryImage",
-      "description": "A curated image published from the Admin Panel via ImgBB URL and synced to the User Panel gallery.",
+    "AdminEmail": {
+      "title": "AdminEmail",
+      "description": "Email granted Admin Studio access by the Super Admin without manual Firebase Console edits.",
       "type": "object",
       "properties": {
-        "title": {
-          "type": "string",
-          "description": "Display title of the image (1-120 characters)."
-        },
-        "description": {
-          "type": "string",
-          "description": "Optional editorial caption or story behind the image (0-600 characters)."
-        },
-        "category": {
-          "type": "string",
-          "description": "Collection category label such as Nature, Architecture, Abstract, Minimal, or Portraits."
-        },
-        "imageUrl": {
-          "type": "string",
-          "description": "Full-resolution HTTPS image URL (e.g. ImgBB display_url)."
-        },
-        "thumbUrl": {
-          "type": "string",
-          "description": "Optional thumbnail HTTPS URL for fast grid loading."
-        },
-        "aspectRatio": {
-          "type": "number",
-          "description": "Width-to-height aspect ratio (0.3 to 3.5)."
-        },
-        "status": {
-          "type": "string",
-          "enum": ["published", "archived"],
-          "description": "Publication visibility status."
-        },
-        "featured": {
-          "type": "boolean",
-          "description": "Whether the image is highlighted in the Featured Spotlight banner."
-        },
-        "uploadedBy": {
-          "type": "string",
-          "description": "Firebase Auth UID of the admin who published the image."
-        },
-        "uploaderName": {
-          "type": "string",
-          "description": "Display name of the publisher."
-        },
-        "tags": {
-          "type": "array",
-          "description": "Bounded list of up to 10 discovery tags."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server creation timestamp written via FieldValue.serverTimestamp()."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server update timestamp written via FieldValue.serverTimestamp()."
-        }
+        "email": { "type": "string" },
+        "addedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "addedBy", "createdAt"]
+    },
+    "CompanionProfile": {
+      "title": "CompanionProfile",
+      "description": "Public companion/staff profile published in VIP 16:9 carousel or 2-column 9:16 grid. Phone and address are isolated in private/contact.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "age": { "type": "integer" },
+        "price": { "type": "string" },
+        "role": { "type": "string", "enum": ["GF", "BF", "Companion"] },
+        "category": { "type": "string" },
+        "tier": { "type": "string", "enum": ["vip_16_9", "grid_9_16"] },
+        "bio": { "type": "string" },
+        "photoUrls": { "type": "array" },
+        "coverUrl": { "type": "string" },
+        "aspectRatio": { "type": "number" },
+        "hiddenTimed": { "type": "boolean" },
+        "refreshEpochMs": { "type": "number" },
+        "status": { "type": "string", "enum": ["published", "archived"] },
+        "ownerUid": { "type": "string" },
+        "staffVerified": { "type": "boolean" },
+        "createdByUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
-        "title",
-        "category",
-        "imageUrl",
-        "status",
-        "featured",
-        "uploadedBy",
-        "uploaderName",
-        "createdAt",
-        "updatedAt"
+        "name", "age", "price", "role", "category", "tier",
+        "photoUrls", "coverUrl", "aspectRatio", "hiddenTimed",
+        "refreshEpochMs", "status", "ownerUid", "staffVerified",
+        "createdByUid", "createdAt", "updatedAt"
       ]
+    },
+    "CompanionPrivateContact": {
+      "title": "CompanionPrivateContact",
+      "description": "Admin-only private contact record (phone & address) isolated from normal users.",
+      "type": "object",
+      "properties": {
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["phone", "address", "updatedAt"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "User profile, completion score, online presence, CRM lead tag, moderation status, and staff application state.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "galleryUrls": { "type": "array" },
+        "phone": { "type": "string" },
+        "age": { "type": "integer" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "bio": { "type": "string" },
+        "interests": { "type": "string" },
+        "genderPreference": { "type": "string" },
+        "completionPercent": { "type": "integer" },
+        "online": { "type": "boolean" },
+        "lastActiveEpochMs": { "type": "number" },
+        "hasInquiryNotification": { "type": "boolean" },
+        "leadTag": { "type": "string", "enum": ["none", "hot", "warm", "cold"] },
+        "moderationStatus": { "type": "string", "enum": ["active", "blocked", "suspended"] },
+        "staffStatus": { "type": "string", "enum": ["none", "pending", "approved", "rejected"] },
+        "staffRole": { "type": "string" },
+        "staffPrice": { "type": "string" },
+        "staffTier": { "type": "string" },
+        "staffProfileId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "name", "email", "photoUrl", "phone", "age", "address",
+        "completionPercent", "online", "lastActiveEpochMs", "hasInquiryNotification",
+        "leadTag", "moderationStatus", "staffStatus", "createdAt", "updatedAt"
+      ]
+    },
+    "ChatThread": {
+      "title": "ChatThread",
+      "description": "1-on-1 inquiry thread between a client and a companion/staff profile, accessible by client, approved staff owner, and admins.",
+      "type": "object",
+      "properties": {
+        "clientUid": { "type": "string" },
+        "clientName": { "type": "string" },
+        "clientPhotoUrl": { "type": "string" },
+        "profileId": { "type": "string" },
+        "profileName": { "type": "string" },
+        "profilePhotoUrl": { "type": "string" },
+        "profilePrice": { "type": "string" },
+        "staffOwnerUid": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastSenderRole": { "type": "string" },
+        "unreadForAdmin": { "type": "integer" },
+        "unreadForStaff": { "type": "integer" },
+        "unreadForClient": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "clientUid", "clientName", "profileId", "profileName",
+        "profilePhotoUrl", "profilePrice", "staffOwnerUid",
+        "lastMessage", "lastSenderRole", "unreadForAdmin",
+        "unreadForStaff", "unreadForClient", "createdAt", "updatedAt"
+      ]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Immutable chat message inside a ChatThread with anti-contact guard for staff.",
+      "type": "object",
+      "properties": {
+        "senderUid": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["client", "staff", "admin"] },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderUid", "senderRole", "senderName", "text", "createdAt"]
     }
   },
   "firestore": {
-    "/gallery_images/{imageId}": {
-      "schema": {
-        "$ref": "#/entities/GalleryImage"
-      },
-      "description": "Shared curated gallery images uploaded by admins and browsed in the User Panel without sign-up."
+    "/admin_emails/{emailId}": {
+      "schema": { "$ref": "#/entities/AdminEmail" },
+      "description": "Multi-admin email whitelist managed directly in-app by the Super Admin."
+    },
+    "/companion_profiles/{profileId}": {
+      "schema": { "$ref": "#/entities/CompanionProfile" },
+      "description": "Public companion profiles visible on Home (VIP 16:9 carousel and 2x2 9:16 grid)."
+    },
+    "/companion_profiles/{profileId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/CompanionPrivateContact" },
+      "description": "Isolated Admin-only private phone and address subcollection."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "User profile, lead tags, moderation flags, and staff verification records."
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/ChatThread" },
+      "description": "Inquiry chat metadata per client and companion profile."
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages inside an inquiry chat thread."
     }
   }
 }

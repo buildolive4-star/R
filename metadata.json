@@ -1,6 +1,6 @@
 {
-  "name": "Pixora",
-  "description": "A private virtual companion moments gallery with Velvet Rose design, 20s disappearing snaps, blurred residual previews, and screen protection.",
+  "name": "JustUs",
+  "description": "Private companion & verified staff connection platform with 16:9 VIP showcase, 9:16 40s moments, private chat onboarding, and multi-admin CRM.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

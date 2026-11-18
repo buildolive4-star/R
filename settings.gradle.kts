@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Pixora"
+rootProject.name = "JustUs"
 
 include(":app")

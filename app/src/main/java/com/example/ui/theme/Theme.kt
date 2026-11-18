@@ -10,7 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-private val PixoraDarkColorScheme = darkColorScheme(
+private val JustUsDarkColorScheme = darkColorScheme(
     primary = RoseQuartzPrimary,
     onPrimary = RoseQuartzOnPrimary,
     primaryContainer = RoseGlowContainer,
@@ -31,14 +31,14 @@ private val PixoraDarkColorScheme = darkColorScheme(
     surfaceContainerLow = VelvetMidnightSurface,
     surfaceContainer = VelvetMidnightSurfaceElevated,
     surfaceContainerHigh = VelvetMidnightSurfaceHighest,
-    surfaceContainerHighest = Color(0xFF3A2A40),
+    surfaceContainerHighest = Color(0xFF3B2A42),
     outline = SubtleOutlineDark,
     outlineVariant = Color(0xFF2C2030),
     error = ErrorCrimson,
     onError = Color(0xFF3E0614),
 )
 
-private val PixoraLightColorScheme = lightColorScheme(
+private val JustUsLightColorScheme = lightColorScheme(
     primary = DeepVelvetRose,
     onPrimary = Color.White,
     primaryContainer = DeepRoseContainer,
@@ -66,7 +66,63 @@ private val PixoraLightColorScheme = lightColorScheme(
     onError = Color.White,
 )
 
-val PixoraShapes = Shapes(
+private val StaffDarkColorScheme = darkColorScheme(
+    primary = StaffEmeraldPrimary,
+    onPrimary = StaffOnEmeraldPrimary,
+    primaryContainer = StaffEmeraldContainer,
+    onPrimaryContainer = StaffIvoryText,
+    secondary = StaffRoyalGoldSecondary,
+    onSecondary = Color(0xFF332404),
+    secondaryContainer = Color(0xFF4B370C),
+    onSecondaryContainer = StaffIvoryText,
+    tertiary = StaffTealTertiary,
+    onTertiary = Color(0xFF042B24),
+    background = StaffMidnightBackground,
+    onBackground = StaffIvoryText,
+    surface = StaffMidnightSurface,
+    onSurface = StaffIvoryText,
+    surfaceVariant = StaffMidnightSurfaceElevated,
+    onSurfaceVariant = StaffMutedSageText,
+    surfaceContainerLowest = StaffMidnightBackground,
+    surfaceContainerLow = StaffMidnightSurface,
+    surfaceContainer = StaffMidnightSurfaceElevated,
+    surfaceContainerHigh = StaffMidnightSurfaceHighest,
+    surfaceContainerHighest = Color(0xFF24473B),
+    outline = StaffOutlineDark,
+    outlineVariant = Color(0xFF19352C),
+    error = ErrorCrimson,
+    onError = Color(0xFF3E0614),
+)
+
+private val StaffLightColorScheme = lightColorScheme(
+    primary = StaffDeepEmerald,
+    onPrimary = Color.White,
+    primaryContainer = StaffDayContainer,
+    onPrimaryContainer = StaffDeepInk,
+    secondary = Color(0xFFA67016),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFFFE7BE),
+    onSecondaryContainer = Color(0xFF301F02),
+    tertiary = Color(0xFF0F766E),
+    onTertiary = Color.White,
+    background = StaffDayBackground,
+    onBackground = StaffDeepInk,
+    surface = StaffDaySurface,
+    onSurface = StaffDeepInk,
+    surfaceVariant = StaffDaySurfaceVariant,
+    onSurfaceVariant = StaffWarmSlateText,
+    surfaceContainerLowest = StaffDaySurface,
+    surfaceContainerLow = StaffDayBackground,
+    surfaceContainer = StaffDaySurfaceVariant,
+    surfaceContainerHigh = StaffDaySurfaceHighest,
+    surfaceContainerHighest = Color(0xFFC3E0D4),
+    outline = StaffOutlineLight,
+    outlineVariant = Color(0xFFD9EDE5),
+    error = ErrorCrimsonLight,
+    onError = Color.White,
+)
+
+val JustUsShapes = Shapes(
     small = RoundedCornerShape(12.dp),
     medium = RoundedCornerShape(18.dp),
     large = RoundedCornerShape(24.dp),
@@ -80,8 +136,9 @@ enum class ThemeMode {
 }
 
 @Composable
-fun PixoraTheme(
+fun JustUsTheme(
     themeMode: ThemeMode = ThemeMode.DARK,
+    isStaffTheme: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val isDark = when (themeMode) {
@@ -90,10 +147,17 @@ fun PixoraTheme(
         ThemeMode.LIGHT -> false
     }
 
+    val colorScheme = when {
+        isStaffTheme && isDark -> StaffDarkColorScheme
+        isStaffTheme && !isDark -> StaffLightColorScheme
+        isDark -> JustUsDarkColorScheme
+        else -> JustUsLightColorScheme
+    }
+
     MaterialTheme(
-        colorScheme = if (isDark) PixoraDarkColorScheme else PixoraLightColorScheme,
-        typography = PixoraTypography,
-        shapes = PixoraShapes,
+        colorScheme = colorScheme,
+        typography = JustUsTypography,
+        shapes = JustUsShapes,
         content = content,
     )
 }

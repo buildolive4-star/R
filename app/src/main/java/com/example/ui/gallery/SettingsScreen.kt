@@ -1,5 +1,6 @@
 package com.example.ui.gallery
 
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -24,9 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.DarkMode
-import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.DeleteSweep
-import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Palette
@@ -62,25 +61,43 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.model.UserAccount
 import com.example.ui.theme.ThemeMode
+import com.google.firebase.auth.FirebaseUser
 import java.text.DateFormat
 import java.util.Date
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
+    firebaseUser: FirebaseUser?,
+    userAccount: UserAccount?,
+    isProfileBusy: Boolean,
     galleryCount: Int,
     savedCount: Int,
     hasNotificationPermission: Boolean,
     backgroundSyncEnabled: Boolean,
     lastSyncCheckEpochMs: Long,
     themeMode: ThemeMode,
-    isStaggeredLayout: Boolean,
+    onSignInGoogle: () -> Unit,
+    onSignOut: () -> Unit,
+    onSaveProfile: (
+        name: String,
+        avatarUri: Uri?,
+        galleryUris: List<Uri>,
+        phone: String,
+        ageText: String,
+        address: String,
+        city: String,
+        bio: String,
+        interests: String,
+        genderPreference: String,
+    ) -> Unit,
+    onApplyForStaff: (staffRole: String, staffPrice: String) -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onToggleBackgroundSync: (Boolean) -> Unit,
     onCheckSyncNow: () -> Unit,
     onThemeModeChange: (ThemeMode) -> Unit,
-    onLayoutModeChange: (Boolean) -> Unit,
     onClearSaved: () -> Unit,
     onSecretAdminTrigger: () -> Unit,
     onSendTestAlert: () -> Unit = {},
@@ -102,17 +119,29 @@ fun SettingsScreen(
                 .widthIn(max = 600.dp)
         ) {
             Text(
-                text = stringResource(R.string.settings_title),
+                text = stringResource(R.string.profile_title),
                 style = MaterialTheme.typography.headlineLarge,
                 color = MaterialTheme.colorScheme.onBackground
             )
             Text(
-                text = stringResource(R.string.settings_subtitle),
+                text = stringResource(R.string.profile_subtitle),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            ProfileEditorSection(
+                firebaseUser = firebaseUser,
+                userAccount = userAccount,
+                isBusy = isProfileBusy,
+                onSignInGoogle = onSignInGoogle,
+                onSignOut = onSignOut,
+                onSaveProfile = onSaveProfile,
+                onApplyForStaff = onApplyForStaff,
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -207,7 +236,7 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // WorkManager Background Sync Card
+            // Background Sync Card
             Card(
                 shape = MaterialTheme.shapes.large,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -384,59 +413,6 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("theme_system_chip")
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Default Feed Layout selector
-            Card(
-                shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Rounded.Dashboard,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.layout_preference_title),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OptionChip(
-                            label = stringResource(R.string.layout_masonry),
-                            icon = Icons.Rounded.Dashboard,
-                            selected = isStaggeredLayout,
-                            onClick = { onLayoutModeChange(true) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("layout_masonry_chip")
-                        )
-                        OptionChip(
-                            label = stringResource(R.string.layout_grid),
-                            icon = Icons.Rounded.GridView,
-                            selected = !isStaggeredLayout,
-                            onClick = { onLayoutModeChange(false) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("layout_grid_chip")
                         )
                     }
                 }

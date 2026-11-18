@@ -4,14 +4,28 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.firebase.GoogleAuthHelper
+import com.example.data.model.AdminEmailEntry
+import com.example.data.model.AdminUserFilter
+import com.example.data.model.ChatThread
+import com.example.data.model.CompanionPrivateContact
+import com.example.data.model.CompanionProfile
 import com.example.data.model.GalleryImage
+import com.example.data.model.ProfileTier
+import com.example.data.model.StaffStatus
+import com.example.data.model.UserAccount
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.StoredTestUpload
 import com.example.data.remote.ImgBbApiService
 import com.example.data.remote.ImgBbUploadHelper
+import com.example.data.repository.ChatRepository
 import com.example.data.repository.GalleryRepository
+import com.example.data.repository.UserCrmRepository
 import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -19,25 +33,38 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.UUID
 
 sealed interface AdminPublishState {
     data object Idle : AdminPublishState
-    data object UploadingToImgBb : AdminPublishState
+    data object Uploading : AdminPublishState
     data class Success(val message: String, val imageUrl: String) : AdminPublishState
     data class Error(val message: String) : AdminPublishState
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AdminViewModel(
     private val uploadsRepository: LocalTestUploadsRepository,
-    private val galleryRepository: GalleryRepository? = null,
+    private val galleryRepository: GalleryRepository,
+    private val userCrmRepository: UserCrmRepository,
+    private val chatRepository: ChatRepository,
     private val imgBbApiService: ImgBbApiService = ImgBbApiService.create(),
 ) : ViewModel() {
+
+    private val _authUser = MutableStateFlow(Firebase.auth.currentUser)
+    val authUser: StateFlow<FirebaseUser?> = _authUser.asStateFlow()
+
+    private val _isVerifiedAdmin = MutableStateFlow(false)
+    val isVerifiedAdmin: StateFlow<Boolean> = _isVerifiedAdmin.asStateFlow()
+
+    private val _isSuperAdmin = MutableStateFlow(false)
+    val isSuperAdmin: StateFlow<Boolean> = _isSuperAdmin.asStateFlow()
 
     private val _publishState = MutableStateFlow<AdminPublishState>(AdminPublishState.Idle)
     val publishState: StateFlow<AdminPublishState> = _publishState.asStateFlow()
@@ -48,137 +75,306 @@ class AdminViewModel(
     private val _uploadedPreviewAlert = MutableSharedFlow<GalleryImage>(extraBufferCapacity = 8)
     val uploadedPreviewAlert: SharedFlow<GalleryImage> = _uploadedPreviewAlert.asSharedFlow()
 
-    val uploadedImages: StateFlow<List<GalleryImage>> = uploadsRepository.testUploads
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000L),
-            initialValue = emptyList(),
-        )
+    private val _selectedUserFilter = MutableStateFlow(AdminUserFilter.ALL)
+    val selectedUserFilter: StateFlow<AdminUserFilter> = _selectedUserFilter.asStateFlow()
 
-    fun uploadPicture(
+    private val _visibleUsersLimit = MutableStateFlow(PAGE_SIZE_USERS)
+    val visibleUsersLimit: StateFlow<Int> = _visibleUsersLimit.asStateFlow()
+
+    private val _selectedProfileContact = MutableStateFlow<Pair<String, CompanionPrivateContact>?>(null)
+    val selectedProfileContact: StateFlow<Pair<String, CompanionPrivateContact>?> = _selectedProfileContact.asStateFlow()
+
+    private val authListener = FirebaseAuth.AuthStateListener { auth ->
+        _authUser.value = auth.currentUser
+        refreshAdminAccess()
+    }
+
+    init {
+        Firebase.auth.addAuthStateListener(authListener)
+        refreshAdminAccess()
+    }
+
+    override fun onCleared() {
+        Firebase.auth.removeAuthStateListener(authListener)
+        super.onCleared()
+    }
+
+    fun refreshAdminAccess() {
+        val user = Firebase.auth.currentUser
+        _authUser.value = user
+        _isSuperAdmin.value = userCrmRepository.isSuperAdminEmail(user?.email)
+        if (user == null) {
+            _isVerifiedAdmin.value = false
+            return
+        }
+        viewModelScope.launch {
+            _isVerifiedAdmin.value = userCrmRepository.checkIsCurrentUserAdmin()
+        }
+    }
+
+    fun signInAdminWithGoogle(activityContext: Context) {
+        viewModelScope.launch {
+            val res = GoogleAuthHelper.signInWithGoogle(activityContext)
+            res.onSuccess { user ->
+                _authUser.value = user
+                val isAdmin = userCrmRepository.checkIsCurrentUserAdmin()
+                _isVerifiedAdmin.value = isAdmin
+                _isSuperAdmin.value = userCrmRepository.isSuperAdminEmail(user.email)
+                if (isAdmin) {
+                    _events.tryEmit("Signed in as Admin: ${user.email}")
+                } else {
+                    _events.tryEmit("${user.email} is not on the Admin whitelist yet.")
+                }
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Google sign-in cancelled")
+            }
+        }
+    }
+
+    fun signOutAdmin(context: Context) {
+        viewModelScope.launch {
+            GoogleAuthHelper.signOut(context)
+            _authUser.value = null
+            _isVerifiedAdmin.value = false
+            _isSuperAdmin.value = false
+            _events.tryEmit("Signed out from Admin Cloud")
+        }
+    }
+
+    val adminEmails: StateFlow<List<AdminEmailEntry>> = _isVerifiedAdmin
+        .flatMapLatest { isAdmin ->
+            if (isAdmin) userCrmRepository.observeAdminEmails() else flowOf(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val cloudCompanionProfiles: StateFlow<List<CompanionProfile>> = _isVerifiedAdmin
+        .flatMapLatest { isAdmin ->
+            if (isAdmin) galleryRepository.observeAllProfilesForAdmin() else flowOf(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val localDeviceUploads: StateFlow<List<GalleryImage>> = uploadsRepository.testUploads
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val combinedManagedImages: StateFlow<List<GalleryImage>> = combine(
+        cloudCompanionProfiles,
+        localDeviceUploads,
+    ) { cloud, local ->
+        (cloud.map { it.toGalleryImage() } + local).distinctBy { it.id }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    private val allCrmUsers: StateFlow<List<UserAccount>> = _isVerifiedAdmin
+        .flatMapLatest { isAdmin ->
+            if (isAdmin) userCrmRepository.observeUsersForAdmin() else flowOf(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val filteredUsers: StateFlow<List<UserAccount>> = combine(
+        allCrmUsers,
+        _selectedUserFilter,
+    ) { users, filter ->
+        val sevenDaysAgo = System.currentTimeMillis() - (7L * 24L * 3600_000L)
+        when (filter) {
+            AdminUserFilter.ALL -> users
+            AdminUserFilter.ONLINE -> users.filter { it.isRecentlyOnline }
+            AdminUserFilter.NOTIFIED -> users.filter { it.hasInquiryNotification }
+            AdminUserFilter.OLD_USERS -> users.filter {
+                val createdMs = it.createdAt?.toDate()?.time ?: it.lastActiveEpochMs
+                createdMs in 1..sevenDaysAgo
+            }
+            AdminUserFilter.HOT_LEAD -> users.filter { it.leadTag == "hot" }
+            AdminUserFilter.WARM_LEAD -> users.filter { it.leadTag == "warm" }
+            AdminUserFilter.COLD_LEAD -> users.filter { it.leadTag == "cold" }
+            AdminUserFilter.BLOCKED -> users.filter { it.moderationStatus == "blocked" }
+            AdminUserFilter.SUSPENDED -> users.filter { it.moderationStatus == "suspended" }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val pagedUsers: StateFlow<List<UserAccount>> = combine(
+        filteredUsers,
+        _visibleUsersLimit,
+    ) { users, limit ->
+        users.take(limit)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val hasMoreUsersToLoad: StateFlow<Boolean> = combine(
+        filteredUsers,
+        _visibleUsersLimit,
+    ) { users, limit ->
+        users.size > limit
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), false)
+
+    val pendingStaffUsers: StateFlow<List<UserAccount>> = allCrmUsers
+        .map { users -> users.filter { it.staffStatus == StaffStatus.PENDING } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val approvedStaffUsers: StateFlow<List<UserAccount>> = allCrmUsers
+        .map { users -> users.filter { it.staffStatus == StaffStatus.APPROVED } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val allChats: StateFlow<List<ChatThread>> = _isVerifiedAdmin
+        .flatMapLatest { isAdmin ->
+            if (isAdmin) chatRepository.observeAllChatsForAdmin() else flowOf(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    fun selectUserFilter(filter: AdminUserFilter) {
+        _selectedUserFilter.value = filter
+        _visibleUsersLimit.value = PAGE_SIZE_USERS
+    }
+
+    fun loadNextUsersPage() {
+        _visibleUsersLimit.value += PAGE_SIZE_USERS
+    }
+
+    fun addAdminEmail(email: String) {
+        viewModelScope.launch {
+            val res = userCrmRepository.addAdminEmail(email)
+            res.onSuccess {
+                _events.tryEmit("Added co-admin: ${email.trim().lowercase()}")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to add admin")
+            }
+        }
+    }
+
+    fun removeAdminEmail(email: String) {
+        viewModelScope.launch {
+            val res = userCrmRepository.removeAdminEmail(email)
+            res.onSuccess {
+                _events.tryEmit("Removed co-admin: $email")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to remove admin")
+            }
+        }
+    }
+
+    fun publishCompanionProfile(
         context: Context,
-        selectedUri: Uri?,
-        manualImageUrl: String,
-        title: String,
-        description: String,
-        category: String,
+        selectedUris: List<Uri>,
+        manualUrl: String,
+        name: String,
+        phone: String,
+        ageText: String,
         price: String,
-        tagsRaw: String,
-        featured: Boolean,
-        isHidden: Boolean,
+        address: String,
+        role: String,
+        tier: String,
+        category: String,
+        bio: String,
+        hiddenTimed: Boolean,
     ) {
-        val rawManual = manualImageUrl.trim()
-        if (selectedUri == null && rawManual.isEmpty()) {
-            _publishState.value = AdminPublishState.Error("Please select a photo from your device first")
+        val cleanName = name.trim()
+        val cleanAge = ageText.trim().toIntOrNull() ?: 21
+        val cleanPrice = price.trim().ifBlank { "₹499" }
+        val rawUrl = manualUrl.trim()
+        if (cleanName.isEmpty()) {
+            _publishState.value = AdminPublishState.Error("Companion name is required")
+            return
+        }
+        if (selectedUris.isEmpty() && rawUrl.isEmpty()) {
+            _publishState.value = AdminPublishState.Error("Select at least one photo or paste an HTTPS URL")
             return
         }
 
-        val cleanTitle = title.trim().ifBlank {
-            val stamp = SimpleDateFormat("MMM d, HH:mm", Locale.US).format(Date())
-            if (isHidden) "Secret Drop · $stamp" else "Aria · $stamp"
-        }
-        val cleanCategory = category.trim().ifBlank { "Date Night" }
-        val cleanPrice = price.trim().ifBlank { "₹299" }.take(32)
-        val cleanDescription = description.trim()
-        val parsedTags = tagsRaw.split(",")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .take(10)
-
         viewModelScope.launch {
-            val storedUpload: StoredTestUpload = if (selectedUri != null) {
-                _publishState.value = AdminPublishState.UploadingToImgBb
-                val uploadResult = if (ImgBbApiService.isApiKeyConfigured()) {
-                    ImgBbUploadHelper.uploadUriToImgBb(
-                        context = context.applicationContext,
-                        apiService = imgBbApiService,
-                        imageUri = selectedUri,
-                        title = cleanTitle,
-                        category = cleanCategory,
-                    )
+            _publishState.value = AdminPublishState.Uploading
+            val resolvedPhotoUrls = mutableListOf<String>()
+
+            for (uri in selectedUris.take(8)) {
+                val res = if (ImgBbApiService.isApiKeyConfigured()) {
+                    ImgBbUploadHelper.uploadUriToImgBb(context.applicationContext, imgBbApiService, uri, cleanName, category)
                 } else {
-                    ImgBbUploadHelper.saveUriLocallyForDeviceFeed(
-                        context = context.applicationContext,
-                        imageUri = selectedUri,
-                        title = cleanTitle,
-                        category = cleanCategory,
-                    )
+                    ImgBbUploadHelper.saveUriLocallyForDeviceFeed(context.applicationContext, uri, cleanName, category)
                 }
-                val uploaded = uploadResult.getOrElse { err ->
-                    _publishState.value = AdminPublishState.Error(
-                        err.localizedMessage ?: "Unable to upload selected photo."
-                    )
+                val uploaded = res.getOrElse { err ->
+                    _publishState.value = AdminPublishState.Error(err.localizedMessage ?: "Photo upload failed")
                     return@launch
                 }
-                uploaded.copy(
-                    description = cleanDescription,
+                resolvedPhotoUrls.add(uploaded.imageUrl)
+            }
+
+            if (rawUrl.isNotEmpty()) {
+                val normalized = if (rawUrl.startsWith("http://")) "https://" + rawUrl.removePrefix("http://") else rawUrl
+                if (normalized.startsWith("https://")) {
+                    resolvedPhotoUrls.add(normalized)
+                } else if (resolvedPhotoUrls.isEmpty()) {
+                    _publishState.value = AdminPublishState.Error("Enter a valid https:// photo URL")
+                    return@launch
+                }
+            }
+
+            val ratio = if (tier == ProfileTier.VIP_16_9) 16.0 / 9.0 else 9.0 / 16.0
+            val cover = resolvedPhotoUrls.first()
+
+            if (_isVerifiedAdmin.value && resolvedPhotoUrls.all { it.startsWith("https://") }) {
+                val cloudRes = galleryRepository.createCompanionProfile(
+                    name = cleanName,
+                    age = cleanAge,
                     price = cleanPrice,
-                    featured = featured,
-                    tags = parsedTags,
-                    isHidden = isHidden,
-                    revealExpiresAtEpochMs = 0L,
-                    isExpired = false,
-                    refreshEpochMs = System.currentTimeMillis(),
+                    role = role,
+                    category = category.ifBlank { if (tier == ProfileTier.VIP_16_9) "VIP" else "Companion" },
+                    tier = tier,
+                    bio = bio,
+                    photoUrls = resolvedPhotoUrls,
+                    hiddenTimed = hiddenTimed,
+                    phone = phone,
+                    address = address,
                 )
+                cloudRes.onSuccess { newId ->
+                    val previewImg = GalleryImage(
+                        id = newId,
+                        title = cleanName,
+                        description = bio,
+                        category = category,
+                        imageUrl = cover,
+                        thumbUrl = cover,
+                        photoUrls = resolvedPhotoUrls,
+                        aspectRatio = ratio,
+                        price = cleanPrice,
+                        age = cleanAge,
+                        role = role,
+                        tier = tier,
+                        isHidden = hiddenTimed,
+                    )
+                    _uploadedPreviewAlert.tryEmit(previewImg)
+                    _publishState.value = AdminPublishState.Success(
+                        message = "$cleanName ($cleanPrice) published to JustUs!",
+                        imageUrl = cover,
+                    )
+                    return@launch
+                }.onFailure { err ->
+                    _publishState.value = AdminPublishState.Error(err.localizedMessage ?: "Cloud publish failed")
+                    return@launch
+                }
             } else {
-                val normalized = if (rawManual.startsWith("http://")) {
-                    "https://" + rawManual.removePrefix("http://")
-                } else {
-                    rawManual
-                }
-                if (!normalized.startsWith("https://") || normalized.length < 10) {
-                    _publishState.value = AdminPublishState.Error("Enter a valid https:// image link or select a photo")
-                    return@launch
-                }
-                StoredTestUpload(
-                    id = "url_${UUID.randomUUID().toString().take(8)}",
-                    title = cleanTitle,
-                    category = cleanCategory,
-                    imageUrl = normalized,
-                    thumbUrl = normalized,
-                    aspectRatio = 9.0 / 16.0,
+                // Device-local fallback when Admin isn't signed in with Google yet or IMGBB key isn't set
+                val localId = "prof_${UUID.randomUUID().toString().take(8)}"
+                val upload = StoredTestUpload(
+                    id = localId,
+                    title = cleanName,
+                    category = category.ifBlank { if (tier == ProfileTier.VIP_16_9) "VIP" else "Companion" },
+                    imageUrl = cover,
+                    thumbUrl = cover,
+                    photoUrls = resolvedPhotoUrls,
+                    aspectRatio = ratio,
                     createdAtEpochMs = System.currentTimeMillis(),
-                    description = cleanDescription,
+                    description = bio,
                     price = cleanPrice,
-                    featured = featured,
-                    tags = parsedTags,
-                    isHidden = isHidden,
-                    revealExpiresAtEpochMs = 0L,
-                    isExpired = false,
+                    age = cleanAge,
+                    role = role,
+                    tier = tier,
+                    featured = tier == ProfileTier.VIP_16_9,
+                    isHidden = hiddenTimed,
                     refreshEpochMs = System.currentTimeMillis(),
                 )
-            }
-
-            uploadsRepository.addUpload(storedUpload)
-
-            // Best-effort cloud sync if an admin Firebase session is active
-            if (galleryRepository != null && Firebase.auth.currentUser != null) {
-                galleryRepository.createImage(
-                    title = storedUpload.title,
-                    description = storedUpload.description,
-                    category = storedUpload.category,
-                    imageUrl = storedUpload.imageUrl,
-                    thumbUrl = storedUpload.thumbUrl,
-                    aspectRatio = storedUpload.aspectRatio,
-                    featured = storedUpload.featured,
-                    status = "published",
-                    tags = storedUpload.tags,
-                    price = storedUpload.price,
-                    isHidden = storedUpload.isHidden,
-                    refreshEpochMs = storedUpload.refreshEpochMs,
+                uploadsRepository.addUpload(upload)
+                _uploadedPreviewAlert.tryEmit(upload.toGalleryImage())
+                _publishState.value = AdminPublishState.Success(
+                    message = "$cleanName ($cleanPrice) published on device!",
+                    imageUrl = cover,
                 )
             }
-
-            _uploadedPreviewAlert.tryEmit(storedUpload.toGalleryImage())
-            _publishState.value = AdminPublishState.Success(
-                message = if (isHidden) {
-                    "Secret 20s drop uploaded ($cleanPrice)! Blurs 20s after unlock."
-                } else {
-                    "Moment uploaded ($cleanPrice)! Live in gallery."
-                },
-                imageUrl = storedUpload.imageUrl,
-            )
         }
     }
 
@@ -186,83 +382,109 @@ class AdminViewModel(
         _publishState.value = AdminPublishState.Idle
     }
 
-    fun toggleFeatured(image: GalleryImage) {
+    fun loadPrivateContactForProfile(profileId: String) {
+        _selectedProfileContact.value = null
+        if (!_isVerifiedAdmin.value) return
         viewModelScope.launch {
-            val nowFeatured = uploadsRepository.toggleFeatured(image.id)
-            _events.tryEmit(if (nowFeatured) "Pinned to Featured Drop" else "Removed from Featured Drop")
+            galleryRepository.getPrivateContactForAdmin(profileId)
+                .onSuccess { contact ->
+                    _selectedProfileContact.value = profileId to contact
+                }
         }
     }
 
-    fun refreshBlurredUpload(imageId: String) {
+    fun refreshBlurredUpload(profileId: String) {
         viewModelScope.launch {
-            val refreshed = uploadsRepository.refreshUpload(imageId)
-            if (galleryRepository != null && Firebase.auth.currentUser != null) {
-                galleryRepository.refreshRemoteImage(imageId)
+            val refreshed = uploadsRepository.refreshUpload(profileId)
+            if (_isVerifiedAdmin.value) {
+                galleryRepository.refreshRemoteImage(profileId)
             }
             if (refreshed != null) {
                 _uploadedPreviewAlert.tryEmit(refreshed)
-                _events.tryEmit("Refreshed! Unlock option is back for users.")
             }
+            _events.tryEmit("Refreshed! Profile is unlockable again.")
         }
     }
 
     fun refreshAllBlurredUploads() {
         viewModelScope.launch {
-            val refreshedList = uploadsRepository.refreshAllExpiredUploads()
-            if (refreshedList.isEmpty()) {
-                _events.tryEmit("All secret photos are ready to open & unlock!")
-            } else {
-                if (galleryRepository != null && Firebase.auth.currentUser != null) {
-                    refreshedList.forEach { galleryRepository.refreshRemoteImage(it.id) }
+            val refreshedLocal = uploadsRepository.refreshAllExpiredUploads()
+            val cloudTimed = cloudCompanionProfiles.value.filter { it.hiddenTimed }
+            if (_isVerifiedAdmin.value) {
+                cloudTimed.forEach { galleryRepository.refreshRemoteImage(it.id) }
+            }
+            refreshedLocal.firstOrNull()?.let { _uploadedPreviewAlert.tryEmit(it) }
+            _events.tryEmit("Refreshed secret drops for users!")
+        }
+    }
+
+    fun setUserLeadTag(userId: String, leadTag: String) {
+        viewModelScope.launch {
+            userCrmRepository.updateUserLeadTag(userId, leadTag)
+                .onSuccess { _events.tryEmit("Lead updated: ${leadTag.uppercase()}") }
+                .onFailure { _events.tryEmit(it.localizedMessage ?: "Failed to update lead") }
+        }
+    }
+
+    fun setUserModerationStatus(userId: String, status: String) {
+        viewModelScope.launch {
+            userCrmRepository.updateUserModerationStatus(userId, status)
+                .onSuccess { _events.tryEmit("Account status: ${status.uppercase()}") }
+                .onFailure { _events.tryEmit(it.localizedMessage ?: "Failed to update moderation") }
+        }
+    }
+
+    fun approveStaffUser(user: UserAccount, tier: String) {
+        viewModelScope.launch {
+            userCrmRepository.approveStaffApplication(user, tier, galleryRepository)
+                .onSuccess {
+                    _events.tryEmit("${user.name} verified & approved as Staff!")
                 }
-                refreshedList.firstOrNull()?.let { _uploadedPreviewAlert.tryEmit(it) }
-                _events.tryEmit("Refreshed ${refreshedList.size} photo(s) — unlock is open again!")
+                .onFailure {
+                    _events.tryEmit(it.localizedMessage ?: "Could not verify staff")
+                }
+        }
+    }
+
+    fun rejectStaffUser(userId: String) {
+        viewModelScope.launch {
+            userCrmRepository.rejectStaffApplication(userId)
+                .onSuccess { _events.tryEmit("Staff application rejected") }
+                .onFailure { _events.tryEmit(it.localizedMessage ?: "Failed to update application") }
+        }
+    }
+
+    fun deleteProfile(profileId: String) {
+        viewModelScope.launch {
+            uploadsRepository.removeUpload(profileId)
+            if (_isVerifiedAdmin.value) {
+                galleryRepository.deleteCompanionProfile(profileId)
+            }
+            _events.tryEmit("Profile removed")
+        }
+    }
+
+    fun sendAdminReply(
+        chat: ChatThread,
+        text: String,
+        onSent: () -> Unit,
+    ) {
+        viewModelScope.launch {
+            val adminName = _authUser.value?.displayName?.takeIf { it.isNotBlank() } ?: "JustUs Admin"
+            chatRepository.sendMessage(
+                chat = chat,
+                senderRole = "admin",
+                senderName = adminName,
+                rawText = text,
+            ).onSuccess {
+                onSent()
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to send reply")
             }
         }
     }
 
-    fun updateMetadata(
-        imageId: String,
-        title: String,
-        description: String,
-        category: String,
-        price: String,
-        tagsRaw: String,
-        featured: Boolean,
-        isHidden: Boolean,
-    ) {
-        val parsedTags = tagsRaw.split(",")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .take(10)
-
-        viewModelScope.launch {
-            uploadsRepository.updateUpload(
-                imageId = imageId,
-                title = title,
-                description = description,
-                category = category,
-                price = price,
-                featured = featured,
-                tags = parsedTags,
-                isHidden = isHidden,
-            )
-            _events.tryEmit("Moment updated")
-        }
-    }
-
-    fun removeUpload(imageId: String) {
-        viewModelScope.launch {
-            uploadsRepository.removeUpload(imageId)
-            _events.tryEmit("Removed uploaded moment")
-        }
-    }
-
-    fun clearAllUploads() {
-        viewModelScope.launch {
-            uploadsRepository.clearAll()
-            _events.tryEmit("Cleared uploaded moments")
-        }
+    companion object {
+        const val PAGE_SIZE_USERS = 30
     }
 }

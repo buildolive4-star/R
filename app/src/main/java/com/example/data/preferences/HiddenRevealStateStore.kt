@@ -13,7 +13,7 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-private val Context.hiddenRevealDataStore: DataStore<Preferences> by preferencesDataStore(name = "pixora_hidden_reveals")
+private val Context.hiddenRevealDataStore: DataStore<Preferences> by preferencesDataStore(name = "justus_hidden_reveals")
 
 @JsonClass(generateAdapter = true)
 data class HiddenRevealRecord(
@@ -23,9 +23,9 @@ data class HiddenRevealRecord(
 )
 
 /**
- * Tracks per-device 20-second reveal timers for remote Firestore-synced hidden photos,
- * keyed by "${imageId}_${refreshEpochMs}". When an admin bumps refreshEpochMs on a
- * photo, every user's device sees a fresh key and automatically gets the Unlock option again.
+ * Tracks per-device 40-second reveal timers for remote Firestore-synced hidden photos,
+ * keyed by "${imageId}_${refreshEpochMs}". When an admin refreshes a profile,
+ * every device sees a fresh key and gets the reveal option again.
  */
 class HiddenRevealStateStore(private val context: Context) {
     private val key = stringPreferencesKey("reveal_records_json")
@@ -44,7 +44,7 @@ class HiddenRevealStateStore(private val context: Context) {
         decodeMap(prefs[key])
     }
 
-    suspend fun startCountdown(imageId: String, refreshEpochMs: Long, ttlMs: Long = 20_000L): Long {
+    suspend fun startCountdown(imageId: String, refreshEpochMs: Long, ttlMs: Long = 40_000L): Long {
         val stateKey = buildKey(imageId, refreshEpochMs)
         var resolvedExpiry = 0L
         context.hiddenRevealDataStore.edit { prefs ->

@@ -22,31 +22,125 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidEmailDocId(id) {
+      return id is string && id.size() >= 3 && id.size() <= 128 && id.matches('^[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}$');
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() &&
+             'email' in request.auth.token &&
+             request.auth.token.email_verified == true &&
+             request.auth.token.email.lower() == 'buildolive4@gmail.com';
+    }
+
     function isAdmin() {
-      return isSignedIn() && (
-        (request.auth.token.email_verified == true && request.auth.token.email == 'buildolive4@gmail.com') ||
+      return isSignedIn() &&
+             'email' in request.auth.token &&
+             request.auth.token.email_verified == true && (
+        request.auth.token.email.lower() == 'buildolive4@gmail.com' ||
+        exists(/databases/$(database)/documents/admin_emails/$(request.auth.token.email.lower())) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
-    function isValidGalleryImage(data) {
-      return data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
-             (!('description' in data) || (data.description is string && data.description.size() <= 600)) &&
+    function userDocExists(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function isUserBlockedOrSuspended() {
+      return userDocExists(request.auth.uid) &&
+             userDoc(request.auth.uid).moderationStatus in ['blocked', 'suspended'];
+    }
+
+    function isApprovedStaffUser() {
+      return userDocExists(request.auth.uid) &&
+             userDoc(request.auth.uid).staffStatus == 'approved' &&
+             userDoc(request.auth.uid).moderationStatus == 'active';
+    }
+
+    function hasValidHttpsUrl(url) {
+      return url is string && url.size() >= 8 && url.size() <= 1000 && url.matches('^https://.*');
+    }
+
+    function isValidCompanionProfile(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+             data.age is int && data.age >= 18 && data.age <= 80 &&
+             data.price is string && data.price.size() >= 1 && data.price.size() <= 32 &&
+             data.role is string && data.role in ['GF', 'BF', 'Companion'] &&
              data.category is string && data.category.size() >= 1 && data.category.size() <= 40 &&
-             data.imageUrl is string && data.imageUrl.size() >= 8 && data.imageUrl.size() <= 1000 &&
-             data.imageUrl.matches('^https://.*') &&
-             (!('thumbUrl' in data) || (data.thumbUrl is string && data.thumbUrl.size() <= 1000 && (data.thumbUrl.size() == 0 || data.thumbUrl.matches('^https://.*')))) &&
-             (!('aspectRatio' in data) || (data.aspectRatio is number && data.aspectRatio >= 0.3 && data.aspectRatio <= 3.5)) &&
-             (!('price' in data) || (data.price is string && data.price.size() <= 32)) &&
-             (!('isHidden' in data) || data.isHidden is bool) &&
-             (!('refreshEpochMs' in data) || (data.refreshEpochMs is number && data.refreshEpochMs >= 0)) &&
-             data.status is string && (data.status == 'published' || data.status == 'archived') &&
-             data.featured is bool &&
-             data.uploadedBy is string && data.uploadedBy.size() >= 1 && data.uploadedBy.size() <= 128 &&
-             data.uploaderName is string && data.uploaderName.size() >= 1 && data.uploaderName.size() <= 80 &&
-             (!('tags' in data) || (data.tags is list && data.tags.size() <= 10 && (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 32)))) &&
+             data.tier is string && data.tier in ['vip_16_9', 'grid_9_16'] &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() <= 600)) &&
+             data.photoUrls is list && data.photoUrls.size() >= 1 && data.photoUrls.size() <= 8 &&
+             hasValidHttpsUrl(data.photoUrls[0]) &&
+             hasValidHttpsUrl(data.coverUrl) &&
+             data.aspectRatio is number && data.aspectRatio >= 0.4 && data.aspectRatio <= 2.5 &&
+             data.hiddenTimed is bool &&
+             data.refreshEpochMs is number && data.refreshEpochMs >= 0 &&
+             data.status is string && data.status in ['published', 'archived'] &&
+             data.ownerUid is string && data.ownerUid.size() <= 128 &&
+             data.staffVerified is bool &&
+             data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128 &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPrivateContact(data) {
+      return data.phone is string && data.phone.size() <= 24 &&
+             data.address is string && data.address.size() <= 240 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidUserAccount(data) {
+      return data.name is string && data.name.size() <= 80 &&
+             data.email is string && data.email.size() <= 120 &&
+             data.photoUrl is string && data.photoUrl.size() <= 1000 &&
+             (!('galleryUrls' in data) || (data.galleryUrls is list && data.galleryUrls.size() <= 6)) &&
+             data.phone is string && data.phone.size() <= 24 &&
+             data.age is int && data.age >= 0 && data.age <= 99 &&
+             data.address is string && data.address.size() <= 240 &&
+             (!('city' in data) || (data.city is string && data.city.size() <= 60)) &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() <= 400)) &&
+             (!('interests' in data) || (data.interests is string && data.interests.size() <= 160)) &&
+             (!('genderPreference' in data) || (data.genderPreference is string && data.genderPreference.size() <= 32)) &&
+             data.completionPercent is int && data.completionPercent >= 0 && data.completionPercent <= 100 &&
+             data.online is bool &&
+             data.lastActiveEpochMs is number && data.lastActiveEpochMs >= 0 &&
+             data.hasInquiryNotification is bool &&
+             data.leadTag is string && data.leadTag in ['none', 'hot', 'warm', 'cold'] &&
+             data.moderationStatus is string && data.moderationStatus in ['active', 'blocked', 'suspended'] &&
+             data.staffStatus is string && data.staffStatus in ['none', 'pending', 'approved', 'rejected'] &&
+             (!('staffRole' in data) || (data.staffRole is string && data.staffRole.size() <= 20)) &&
+             (!('staffPrice' in data) || (data.staffPrice is string && data.staffPrice.size() <= 32)) &&
+             (!('staffTier' in data) || (data.staffTier is string && data.staffTier in ['grid_9_16', 'vip_16_9', ''])) &&
+             (!('staffProfileId' in data) || (data.staffProfileId is string && data.staffProfileId.size() <= 128)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidChatThread(data) {
+      return data.clientUid is string && data.clientUid.size() >= 1 && data.clientUid.size() <= 128 &&
+             data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 80 &&
+             (!('clientPhotoUrl' in data) || (data.clientPhotoUrl is string && data.clientPhotoUrl.size() <= 1000)) &&
+             data.profileId is string && data.profileId.size() >= 1 && data.profileId.size() <= 128 &&
+             data.profileName is string && data.profileName.size() >= 1 && data.profileName.size() <= 80 &&
+             data.profilePhotoUrl is string && data.profilePhotoUrl.size() <= 1000 &&
+             data.profilePrice is string && data.profilePrice.size() <= 32 &&
+             data.staffOwnerUid is string && data.staffOwnerUid.size() <= 128 &&
+             data.lastMessage is string && data.lastMessage.size() <= 500 &&
+             data.lastSenderRole is string && data.lastSenderRole in ['client', 'staff', 'admin', ''] &&
+             data.unreadForAdmin is int && data.unreadForAdmin >= 0 &&
+             data.unreadForStaff is int && data.unreadForStaff >= 0 &&
+             data.unreadForClient is int && data.unreadForClient >= 0 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function hasNoContactLeak(text) {
+      return !(text.lower().matches('.*([0-9][0-9\\s\\-\\.]{6,}[0-9]|@[a-z0-9_.]{2,}|instagram\\.com|insta\\s*id|whatsapp|telegram|snapchat|https?://).*'));
     }
 
     match /admins/{adminUid} {
@@ -54,41 +148,212 @@ service cloud.firestore {
       allow list, create, update, delete: if false;
     }
 
-    match /gallery_images/{imageId} {
-      // Published gallery items are visible in the User Panel without requiring sign-up;
-      // archived/draft items and all writes remain strictly Admin-only.
-      allow get: if isValidId(imageId) && (existing().status == 'published' || isAdmin());
+    match /admin_emails/{emailId} {
+      allow get: if isSignedIn() && isValidEmailDocId(emailId) && (
+        (request.auth.token.email_verified == true && request.auth.token.email.lower() == emailId) ||
+        isAdmin()
+      );
+      allow list: if isAdmin();
+      allow create: if isSuperAdmin() &&
+                       isValidEmailDocId(emailId) &&
+                       incoming().email is string &&
+                       incoming().email.lower() == emailId &&
+                       incoming().addedBy == request.auth.token.email.lower() &&
+                       incoming().createdAt is timestamp &&
+                       incoming().createdAt <= request.time &&
+                       incoming().keys().hasAll(['email', 'addedBy', 'createdAt']) &&
+                       incoming().keys().hasOnly(['email', 'addedBy', 'createdAt']);
+      allow delete: if isSuperAdmin() && isValidEmailDocId(emailId);
+      allow update: if false;
+    }
+
+    match /companion_profiles/{profileId} {
+      allow get: if isValidId(profileId) && (existing().status == 'published' || isAdmin());
       allow list: if resource.data.status == 'published' || isAdmin();
 
-      allow create: if isSignedIn() &&
-                       isValidId(imageId) &&
-                       isValidGalleryImage(incoming()) &&
-                       isAdmin() &&
-                       incoming().uploadedBy == request.auth.uid &&
+      allow create: if isAdmin() &&
+                       isValidId(profileId) &&
+                       isValidCompanionProfile(incoming()) &&
+                       incoming().createdByUid == request.auth.uid &&
                        incoming().keys().hasAll([
-                         'title', 'category', 'imageUrl', 'status', 'featured',
-                         'uploadedBy', 'uploaderName', 'createdAt', 'updatedAt'
+                         'name', 'age', 'price', 'role', 'category', 'tier',
+                         'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
+                         'refreshEpochMs', 'status', 'ownerUid', 'staffVerified',
+                         'createdByUid', 'createdAt', 'updatedAt'
                        ]) &&
                        incoming().keys().hasOnly([
-                         'title', 'description', 'category', 'imageUrl', 'thumbUrl',
-                         'aspectRatio', 'price', 'isHidden', 'refreshEpochMs',
-                         'status', 'featured', 'uploadedBy', 'uploaderName',
-                         'tags', 'createdAt', 'updatedAt'
+                         'name', 'age', 'price', 'role', 'category', 'tier', 'bio',
+                         'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
+                         'refreshEpochMs', 'status', 'ownerUid', 'staffVerified',
+                         'createdByUid', 'createdAt', 'updatedAt'
+                       ]);
+
+      allow update: if isAdmin() &&
+                       isValidId(profileId) &&
+                       isValidCompanionProfile(incoming()) &&
+                       incoming().createdByUid == existing().createdByUid &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'name', 'age', 'price', 'role', 'category', 'tier', 'bio',
+                         'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
+                         'refreshEpochMs', 'status', 'ownerUid', 'staffVerified', 'updatedAt'
+                       ]);
+
+      allow delete: if isAdmin() && isValidId(profileId);
+
+      match /private/{docId} {
+        allow get, list, create, update, delete: if isAdmin() && isValidId(profileId) && docId == 'contact' &&
+          (request.method == 'delete' || request.method == 'get' || request.method == 'list' || isValidPrivateContact(incoming()));
+      }
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       isValidUserAccount(incoming()) &&
+                       incoming().leadTag == 'none' &&
+                       incoming().moderationStatus == 'active' &&
+                       (incoming().staffStatus == 'none' || (incoming().staffStatus == 'pending' && incoming().completionPercent == 100)) &&
+                       (!('staffProfileId' in incoming()) || incoming().staffProfileId == '') &&
+                       incoming().keys().hasAll([
+                         'name', 'email', 'photoUrl', 'phone', 'age', 'address',
+                         'completionPercent', 'online', 'lastActiveEpochMs',
+                         'hasInquiryNotification', 'leadTag', 'moderationStatus',
+                         'staffStatus', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'name', 'email', 'photoUrl', 'galleryUrls', 'phone', 'age', 'address',
+                         'city', 'bio', 'interests', 'genderPreference', 'completionPercent',
+                         'online', 'lastActiveEpochMs', 'hasInquiryNotification',
+                         'leadTag', 'moderationStatus', 'staffStatus', 'staffRole',
+                         'staffPrice', 'staffTier', 'staffProfileId', 'createdAt', 'updatedAt'
                        ]);
 
       allow update: if isSignedIn() &&
-                       isValidId(imageId) &&
-                       isValidGalleryImage(incoming()) &&
-                       isAdmin() &&
-                       incoming().uploadedBy == existing().uploadedBy &&
+                       isValidId(userId) &&
+                       isValidUserAccount(incoming()) &&
                        incoming().createdAt == existing().createdAt &&
-                       incoming().diff(existing()).affectedKeys().hasOnly([
-                         'title', 'description', 'category', 'imageUrl', 'thumbUrl',
-                         'aspectRatio', 'price', 'isHidden', 'refreshEpochMs',
-                         'status', 'featured', 'tags', 'updatedAt'
+                       (
+                         isAdmin() ||
+                         (
+                           request.auth.uid == userId &&
+                           incoming().leadTag == existing().leadTag &&
+                           incoming().moderationStatus == existing().moderationStatus &&
+                           ((!('staffProfileId' in existing()) && !('staffProfileId' in incoming())) ||
+                            ('staffProfileId' in existing() && 'staffProfileId' in incoming() && incoming().staffProfileId == existing().staffProfileId)) &&
+                           (
+                             incoming().staffStatus == existing().staffStatus ||
+                             (existing().staffStatus != 'approved' && incoming().staffStatus == 'pending' && incoming().completionPercent == 100)
+                           ) &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'name', 'email', 'photoUrl', 'galleryUrls', 'phone', 'age', 'address',
+                             'city', 'bio', 'interests', 'genderPreference', 'completionPercent',
+                             'online', 'lastActiveEpochMs', 'hasInquiryNotification',
+                             'staffStatus', 'staffRole', 'staffPrice', 'updatedAt'
+                           ])
+                         )
+                       );
+
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    match /chats/{chatId} {
+      allow get: if isSignedIn() && isValidId(chatId) && (
+        existing().clientUid == request.auth.uid ||
+        (existing().staffOwnerUid != '' && existing().staffOwnerUid == request.auth.uid) ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.clientUid == request.auth.uid ||
+        (resource.data.staffOwnerUid != '' && resource.data.staffOwnerUid == request.auth.uid) ||
+        isAdmin()
+      );
+
+      allow create: if isSignedIn() &&
+                       isValidId(chatId) &&
+                       isValidChatThread(incoming()) &&
+                       (
+                         isAdmin() ||
+                         (incoming().clientUid == request.auth.uid && !isUserBlockedOrSuspended())
+                       ) &&
+                       incoming().keys().hasAll([
+                         'clientUid', 'clientName', 'profileId', 'profileName',
+                         'profilePhotoUrl', 'profilePrice', 'staffOwnerUid',
+                         'lastMessage', 'lastSenderRole', 'unreadForAdmin',
+                         'unreadForStaff', 'unreadForClient', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'clientUid', 'clientName', 'clientPhotoUrl', 'profileId', 'profileName',
+                         'profilePhotoUrl', 'profilePrice', 'staffOwnerUid',
+                         'lastMessage', 'lastSenderRole', 'unreadForAdmin',
+                         'unreadForStaff', 'unreadForClient', 'createdAt', 'updatedAt'
                        ]);
 
-      allow delete: if isSignedIn() && isValidId(imageId) && isAdmin();
+      allow update: if isSignedIn() &&
+                       isValidId(chatId) &&
+                       isValidChatThread(incoming()) &&
+                       incoming().clientUid == existing().clientUid &&
+                       incoming().profileId == existing().profileId &&
+                       incoming().staffOwnerUid == existing().staffOwnerUid &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         isAdmin() ||
+                         (existing().clientUid == request.auth.uid && !isUserBlockedOrSuspended()) ||
+                         (existing().staffOwnerUid != '' && existing().staffOwnerUid == request.auth.uid && isApprovedStaffUser())
+                       ) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'clientName', 'clientPhotoUrl', 'profileName', 'profilePhotoUrl', 'profilePrice',
+                         'lastMessage', 'lastSenderRole', 'unreadForAdmin', 'unreadForStaff', 'unreadForClient',
+                         'updatedAt'
+                       ]);
+
+      allow delete: if isAdmin() && isValidId(chatId);
+
+      match /messages/{messageId} {
+        function parentChat() {
+          return get(/databases/$(database)/documents/chats/$(chatId)).data;
+        }
+
+        allow get, list: if isSignedIn() && isValidId(chatId) && (
+          parentChat().clientUid == request.auth.uid ||
+          (parentChat().staffOwnerUid != '' && parentChat().staffOwnerUid == request.auth.uid) ||
+          isAdmin()
+        );
+
+        allow create: if isSignedIn() &&
+                         isValidId(chatId) &&
+                         isValidId(messageId) &&
+                         incoming().senderUid == request.auth.uid &&
+                         incoming().senderName is string && incoming().senderName.size() >= 1 && incoming().senderName.size() <= 80 &&
+                         incoming().text is string && incoming().text.size() >= 1 && incoming().text.size() <= 1000 &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().keys().hasAll(['senderUid', 'senderRole', 'senderName', 'text', 'createdAt']) &&
+                         incoming().keys().hasOnly(['senderUid', 'senderRole', 'senderName', 'text', 'createdAt']) &&
+                         (
+                           (incoming().senderRole == 'admin' && isAdmin()) ||
+                           (incoming().senderRole == 'staff' &&
+                            parentChat().staffOwnerUid != '' &&
+                            parentChat().staffOwnerUid == request.auth.uid &&
+                            isApprovedStaffUser() &&
+                            hasNoContactLeak(incoming().text)) ||
+                           (incoming().senderRole == 'client' &&
+                            parentChat().clientUid == request.auth.uid &&
+                            !isUserBlockedOrSuspended())
+                         );
+
+        allow update, delete: if false;
+      }
+    }
+
+    // Legacy gallery_images compatibility kept read-only for published docs & admin writes
+    match /gallery_images/{imageId} {
+      allow get: if isValidId(imageId) && (existing().status == 'published' || isAdmin());
+      allow list: if resource.data.status == 'published' || isAdmin();
+      allow create, update, delete: if isAdmin();
     }
   }
 }

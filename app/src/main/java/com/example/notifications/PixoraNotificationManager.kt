@@ -28,11 +28,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object PixoraNotificationManager {
-    const val CHANNEL_ID = "pixora_live_uploads_v1"
-    const val EXTRA_IMAGE_ID = "extra_pixora_image_id"
-    private const val TAG = "PixoraNotify"
+    const val CHANNEL_ID = "justus_live_profiles_v2"
+    const val EXTRA_IMAGE_ID = "extra_justus_profile_id"
+    private const val TAG = "JustUsNotify"
 
-    private val WHATSAPP_VIBRATION = longArrayOf(0L, 140L, 80L, 180L)
+    private val CHAT_VIBRATION = longArrayOf(0L, 140L, 80L, 180L)
 
     fun hasNotificationPermission(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
@@ -61,9 +61,9 @@ object PixoraNotificationManager {
             ).apply {
                 description = context.getString(R.string.notification_channel_desc)
                 enableLights(true)
-                lightColor = Color.parseColor("#FF7AA2")
+                lightColor = Color.parseColor("#FF6B9D")
                 enableVibration(true)
-                vibrationPattern = WHATSAPP_VIBRATION
+                vibrationPattern = CHAT_VIBRATION
                 setSound(soundUri, audioAttrs)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 setShowBadge(true)
@@ -103,9 +103,9 @@ object PixoraNotificationManager {
             context.getString(R.string.new_photo_banner_title, image.category)
         }
         val body = if (image.isHidden) {
-            "Tap to reveal · Auto-deletes after 20s"
+            "${image.title} · ${image.displayPrice} · Tap to view"
         } else {
-            "${image.uploaderName}: ${image.title}"
+            "${image.title} (${image.age}) · ${image.displayPrice}"
         }
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
@@ -119,7 +119,7 @@ object PixoraNotificationManager {
                 if (image.isHidden) NotificationCompat.VISIBILITY_PRIVATE else NotificationCompat.VISIBILITY_PUBLIC
             )
             .setSound(soundUri)
-            .setVibrate(WHATSAPP_VIBRATION)
+            .setVibrate(CHAT_VIBRATION)
             .setDefaults(NotificationCompat.DEFAULT_LIGHTS)
             .setAutoCancel(true)
             .setOnlyAlertOnce(false)

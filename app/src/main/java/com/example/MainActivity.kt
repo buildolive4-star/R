@@ -20,14 +20,14 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Chat
+import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.Collections
 import androidx.compose.material.icons.outlined.Explore
-import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.rounded.Bookmark
-import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.Explore
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -39,6 +39,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,7 +53,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -71,19 +75,24 @@ import com.example.data.preferences.LocalBookmarksRepository
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.preferences.ThemePreferencesRepository
+import com.example.data.repository.ChatRepository
 import com.example.data.repository.GalleryRepository
+import com.example.data.repository.UserCrmRepository
 import com.example.notifications.PixoraNotificationManager
 import com.example.ui.admin.AdminPasscodeSheet
 import com.example.ui.admin.AdminStudioScreen
 import com.example.ui.admin.AdminViewModel
+import com.example.ui.chat.ChatOnboardingSheet
+import com.example.ui.chat.ChatRoomScreen
+import com.example.ui.chat.ChatsScreen
+import com.example.ui.chat.SessionAndChatViewModel
 import com.example.ui.components.InAppNotificationBanner
 import com.example.ui.detail.ImageDetailScreen
-import com.example.ui.gallery.CollectionsScreen
 import com.example.ui.gallery.ExploreScreen
 import com.example.ui.gallery.GalleryViewModel
 import com.example.ui.gallery.SavedScreen
 import com.example.ui.gallery.SettingsScreen
-import com.example.ui.theme.PixoraTheme
+import com.example.ui.theme.JustUsTheme
 import com.example.ui.theme.ThemeMode
 import com.example.workers.BackgroundSyncScheduler
 import com.google.firebase.firestore.FirebaseFirestore
@@ -91,10 +100,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 const val ROUTE_EXPLORE = "explore"
-const val ROUTE_COLLECTIONS = "collections"
+const val ROUTE_CHATS = "chats"
 const val ROUTE_SAVED = "saved"
 const val ROUTE_SETTINGS = "settings"
 const val ROUTE_DETAIL = "detail/{imageId}"
+const val ROUTE_CHAT_ROOM = "chat/{chatId}/{senderRole}"
 const val ROUTE_ADMIN = "admin_studio"
 
 private data class NavTab(
@@ -114,11 +124,11 @@ private val TopTabs = listOf(
         testTag = "nav_tab_explore"
     ),
     NavTab(
-        route = ROUTE_COLLECTIONS,
-        labelRes = R.string.nav_collections,
-        selectedIcon = Icons.Rounded.Collections,
-        unselectedIcon = Icons.Outlined.Collections,
-        testTag = "nav_tab_collections"
+        route = ROUTE_CHATS,
+        labelRes = R.string.nav_chats,
+        selectedIcon = Icons.AutoMirrored.Rounded.Chat,
+        unselectedIcon = Icons.AutoMirrored.Outlined.Chat,
+        testTag = "nav_tab_chats"
     ),
     NavTab(
         route = ROUTE_SAVED,
@@ -130,8 +140,8 @@ private val TopTabs = listOf(
     NavTab(
         route = ROUTE_SETTINGS,
         labelRes = R.string.nav_settings,
-        selectedIcon = Icons.Rounded.Settings,
-        unselectedIcon = Icons.Outlined.Settings,
+        selectedIcon = Icons.Rounded.Person,
+        unselectedIcon = Icons.Outlined.Person,
         testTag = "nav_tab_settings"
     ),
 )
@@ -158,9 +168,28 @@ class MainActivity : ComponentActivity() {
             val prefsRepo = remember { ThemePreferencesRepository(applicationContext) }
             val themeMode by prefsRepo.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.DARK)
 
-            PixoraTheme(themeMode = themeMode) {
-                PixoraUserPanelApp(
+            val sessionViewModel: SessionAndChatViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        val app = checkNotNull(this[APPLICATION_KEY])
+                        val db = FirebaseFirestore.getInstance(app.getString(R.string.firestore_database_id))
+                        SessionAndChatViewModel(
+                            userCrmRepository = UserCrmRepository(db),
+                            chatRepository = ChatRepository(db),
+                        )
+                    }
+                }
+            )
+            val isStaffTheme by sessionViewModel.isApprovedStaffTheme.collectAsStateWithLifecycle()
+
+            JustUsTheme(
+                themeMode = themeMode,
+                isStaffTheme = isStaffTheme,
+            ) {
+                JustUsAppRoot(
                     prefsRepo = prefsRepo,
+                    sessionViewModel = sessionViewModel,
+                    isStaffTheme = isStaffTheme,
                     deepLinkImageId = pendingDeepLinkImageId.value,
                     onConsumeDeepLink = { pendingDeepLinkImageId.value = null },
                 )
@@ -179,22 +208,35 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun PixoraUserPanelApp(
+fun JustUsAppRoot(
     prefsRepo: ThemePreferencesRepository,
+    sessionViewModel: SessionAndChatViewModel,
+    isStaffTheme: Boolean,
     deepLinkImageId: String?,
     onConsumeDeepLink: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner, sessionViewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> sessionViewModel.setOnlineState(true)
+                Lifecycle.Event.ON_STOP -> sessionViewModel.setOnlineState(false)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     var hasNotificationPermission by remember {
         mutableStateOf(PixoraNotificationManager.hasNotificationPermission(context))
     }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-        onResult = { granted ->
-            hasNotificationPermission = granted
-        }
+        onResult = { granted -> hasNotificationPermission = granted }
     )
 
     LaunchedEffect(Unit) {
@@ -206,11 +248,8 @@ fun PixoraUserPanelApp(
     val viewModel: GalleryViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
-                val app = checkNotNull(this[APPLICATION_KEY]) {
-                    "APPLICATION_KEY missing from CreationExtras"
-                }
-                val databaseId = app.getString(R.string.firestore_database_id)
-                val db = FirebaseFirestore.getInstance(databaseId)
+                val app = checkNotNull(this[APPLICATION_KEY])
+                val db = FirebaseFirestore.getInstance(app.getString(R.string.firestore_database_id))
                 GalleryViewModel(
                     repository = GalleryRepository(db),
                     bookmarksRepository = LocalBookmarksRepository(app),
@@ -218,33 +257,50 @@ fun PixoraUserPanelApp(
                     prefsRepository = ThemePreferencesRepository(app),
                     notifiedImagesStore = NotifiedImagesStore(app),
                     hiddenRevealStateStore = HiddenRevealStateStore(app),
-                    appPackageName = app.packageName,
                 )
             }
         }
     )
 
     val galleryState by viewModel.galleryState.collectAsStateWithLifecycle()
-    val filteredImagesState by viewModel.filteredImages.collectAsStateWithLifecycle()
-    val featuredImages by viewModel.featuredImages.collectAsStateWithLifecycle()
-    val collections by viewModel.collections.collectAsStateWithLifecycle()
+    val filteredGridState by viewModel.filteredGridProfiles.collectAsStateWithLifecycle()
+    val vipProfiles by viewModel.vipProfiles.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     val bookmarkedIds by viewModel.bookmarkedIds.collectAsStateWithLifecycle()
-    val isStaggeredLayout by viewModel.isStaggeredLayout.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val backgroundSyncEnabled by viewModel.backgroundSyncEnabled.collectAsStateWithLifecycle()
     val lastSyncCheckEpochMs by viewModel.lastSyncCheckEpochMs.collectAsStateWithLifecycle()
 
+    val firebaseUser by sessionViewModel.firebaseUser.collectAsStateWithLifecycle()
+    val userAccount by sessionViewModel.userAccount.collectAsStateWithLifecycle()
+    val isProfileBusy by sessionViewModel.isBusy.collectAsStateWithLifecycle()
+    val clientChats by sessionViewModel.clientChats.collectAsStateWithLifecycle()
+    val staffInboxChats by sessionViewModel.staffInboxChats.collectAsStateWithLifecycle()
+    val pendingChatProfile by sessionViewModel.pendingChatProfile.collectAsStateWithLifecycle()
+
     var showAdminPasscodeSheet by remember { mutableStateOf(false) }
     var activeBannerImage by remember { mutableStateOf<GalleryImage?>(null) }
 
+    val navController = rememberNavController()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
+    val isTopLevelRoute = currentRoute in TopTabs.map { it.route }
+
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) {
-        viewModel.events.collect { msg ->
-            snackbarHostState.showSnackbar(msg)
+        viewModel.events.collect { msg -> snackbarHostState.showSnackbar(msg) }
+    }
+    LaunchedEffect(sessionViewModel) {
+        sessionViewModel.events.collect { msg -> snackbarHostState.showSnackbar(msg) }
+    }
+    LaunchedEffect(sessionViewModel) {
+        sessionViewModel.navigateToChatId.collect { chatId ->
+            navController.navigate("chat/$chatId/client") {
+                launchSingleTop = true
+            }
         }
     }
 
@@ -264,16 +320,9 @@ fun PixoraUserPanelApp(
         }
     }
 
-    val navController = rememberNavController()
-    val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route
-    val isTopLevelRoute = currentRoute in TopTabs.map { it.route }
-
     LaunchedEffect(deepLinkImageId) {
         if (!deepLinkImageId.isNullOrBlank()) {
-            navController.navigate("detail/$deepLinkImageId") {
-                launchSingleTop = true
-            }
+            navController.navigate("detail/$deepLinkImageId") { launchSingleTop = true }
             onConsumeDeepLink()
         }
     }
@@ -361,41 +410,47 @@ fun PixoraUserPanelApp(
                             composable(ROUTE_EXPLORE) {
                                 ExploreScreen(
                                     galleryState = galleryState,
-                                    filteredImagesState = filteredImagesState,
-                                    featuredImages = featuredImages,
+                                    filteredGridState = filteredGridState,
+                                    vipProfiles = vipProfiles,
                                     categories = categories,
                                     selectedCategory = selectedCategory,
                                     searchQuery = searchQuery,
                                     bookmarkedIds = bookmarkedIds,
-                                    isStaggeredLayout = isStaggeredLayout,
+                                    isStaffTheme = isStaffTheme,
                                     onSelectCategory = viewModel::selectCategory,
                                     onSearchQueryChange = viewModel::updateSearchQuery,
                                     onResetFilters = viewModel::resetFilters,
-                                    onToggleLayout = viewModel::toggleLayout,
                                     onCheckNow = { viewModel.triggerBackgroundCheckNow(context) },
                                     onSecretAdminTrigger = { showAdminPasscodeSheet = true },
-                                    onImageClick = { img ->
+                                    onProfileClick = { img ->
                                         if (img.isDeletedBlurred) {
                                             viewModel.notifyExpiredBlurredTap()
                                         } else {
                                             navController.navigate("detail/${img.id}")
                                         }
                                     },
-                                    onToggleBookmark = viewModel::toggleBookmark
+                                    onChatClick = sessionViewModel::requestChatWithProfile,
+                                    onToggleBookmark = viewModel::toggleBookmark,
                                 )
                             }
 
-                            composable(ROUTE_COLLECTIONS) {
-                                CollectionsScreen(
-                                    collections = collections,
-                                    onSelectCollection = { categoryName ->
-                                        viewModel.selectCategory(categoryName)
-                                        navController.navigate(ROUTE_EXPLORE) {
+                            composable(ROUTE_CHATS) {
+                                ChatsScreen(
+                                    clientChats = clientChats,
+                                    staffInboxChats = staffInboxChats,
+                                    userAccount = userAccount,
+                                    onOpenChat = { chatId, senderRole ->
+                                        navController.navigate("chat/$chatId/$senderRole") {
+                                            launchSingleTop = true
+                                        }
+                                    },
+                                    onGoToProfile = {
+                                        navController.navigate(ROUTE_SETTINGS) {
                                             popUpTo(ROUTE_EXPLORE) { saveState = true }
                                             launchSingleTop = true
                                             restoreState = true
                                         }
-                                    }
+                                    },
                                 )
                             }
 
@@ -405,20 +460,40 @@ fun PixoraUserPanelApp(
                                     onOpenImageId = { imageId ->
                                         navController.navigate("detail/$imageId")
                                     },
-                                    onRemoveBookmark = viewModel::removeBookmark
+                                    onRemoveBookmark = viewModel::removeBookmark,
                                 )
                             }
 
                             composable(ROUTE_SETTINGS) {
                                 val galleryCount = (galleryState as? UiState.Success)?.data?.size ?: 0
                                 SettingsScreen(
+                                    firebaseUser = firebaseUser,
+                                    userAccount = userAccount,
+                                    isProfileBusy = isProfileBusy,
                                     galleryCount = galleryCount,
                                     savedCount = bookmarks.size,
                                     hasNotificationPermission = hasNotificationPermission,
                                     backgroundSyncEnabled = backgroundSyncEnabled,
                                     lastSyncCheckEpochMs = lastSyncCheckEpochMs,
                                     themeMode = themeMode,
-                                    isStaggeredLayout = isStaggeredLayout,
+                                    onSignInGoogle = { sessionViewModel.signInWithGoogle(context) },
+                                    onSignOut = { sessionViewModel.signOut(context) },
+                                    onSaveProfile = { name, avatarUri, galleryUris, phone, ageText, address, city, bio, interests, genderPref ->
+                                        sessionViewModel.saveFullProfile(
+                                            context = context,
+                                            name = name,
+                                            selectedAvatarUri = avatarUri,
+                                            selectedGalleryUris = galleryUris,
+                                            phone = phone,
+                                            ageText = ageText,
+                                            address = address,
+                                            city = city,
+                                            bio = bio,
+                                            interests = interests,
+                                            genderPreference = genderPref,
+                                        )
+                                    },
+                                    onApplyForStaff = sessionViewModel::applyForStaff,
                                     onRequestNotificationPermission = {
                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -431,16 +506,15 @@ fun PixoraUserPanelApp(
                                     onThemeModeChange = { mode ->
                                         scope.launch { prefsRepo.setThemeMode(mode) }
                                     },
-                                    onLayoutModeChange = viewModel::setStaggeredLayout,
                                     onClearSaved = viewModel::clearAllBookmarks,
                                     onSecretAdminTrigger = { showAdminPasscodeSheet = true },
                                     onSendTestAlert = {
                                         val sample = (galleryState as? UiState.Success)?.data?.firstOrNull()
                                             ?: GalleryImage(
                                                 id = "test_alert_preview",
-                                                title = "New Companion Moment",
-                                                category = "Date Night",
-                                                price = "₹299",
+                                                title = "Verified Companion",
+                                                category = "VIP",
+                                                price = "₹499",
                                             )
                                         viewModel.emitInAppAlertPreview(sample)
                                     }
@@ -452,18 +526,50 @@ fun PixoraUserPanelApp(
                                 arguments = listOf(navArgument("imageId") { type = NavType.StringType })
                             ) { entry ->
                                 val imageId = entry.arguments?.getString("imageId").orEmpty()
-                                val pagerImages = remember(galleryState, bookmarks, imageId) {
+                                val profile = remember(galleryState, bookmarks, imageId) {
                                     viewModel.resolvePagerImagesFromState(galleryState, bookmarks, imageId)
+                                        .firstOrNull { it.id == imageId }
                                 }
 
                                 ImageDetailScreen(
-                                    images = pagerImages,
-                                    initialImageId = imageId,
+                                    profile = profile,
                                     bookmarkedIds = bookmarkedIds,
                                     onToggleBookmark = viewModel::toggleBookmark,
                                     onRevealHiddenImage = { img -> viewModel.revealHiddenImage(img) },
-                                    onShowMessage = { msg ->
-                                        scope.launch { snackbarHostState.showSnackbar(msg) }
+                                    onChatClick = sessionViewModel::requestChatWithProfile,
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
+
+                            composable(
+                                route = ROUTE_CHAT_ROOM,
+                                arguments = listOf(
+                                    navArgument("chatId") { type = NavType.StringType },
+                                    navArgument("senderRole") { type = NavType.StringType },
+                                )
+                            ) { entry ->
+                                val chatId = entry.arguments?.getString("chatId").orEmpty()
+                                val senderRole = entry.arguments?.getString("senderRole") ?: "client"
+                                val chatThread by remember(chatId) {
+                                    sessionViewModel.observeChatThread(chatId)
+                                }.collectAsStateWithLifecycle(initialValue = sessionViewModel.findChatById(chatId))
+                                val messages by remember(chatId) {
+                                    sessionViewModel.observeMessages(chatId)
+                                }.collectAsStateWithLifecycle(initialValue = emptyList())
+
+                                ChatRoomScreen(
+                                    chat = chatThread,
+                                    messages = messages,
+                                    senderRole = senderRole,
+                                    onSendMessage = { text, onError, onSent ->
+                                        val active = chatThread ?: return@ChatRoomScreen
+                                        sessionViewModel.sendChatMessage(
+                                            chat = active,
+                                            senderRole = senderRole,
+                                            text = text,
+                                            onBlockedOrError = onError,
+                                            onSent = onSent,
+                                        )
                                     },
                                     onBack = { navController.popBackStack() }
                                 )
@@ -473,26 +579,35 @@ fun PixoraUserPanelApp(
                                 val adminViewModel: AdminViewModel = viewModel(
                                     factory = viewModelFactory {
                                         initializer {
-                                            val app = checkNotNull(this[APPLICATION_KEY]) {
-                                                "APPLICATION_KEY missing from CreationExtras"
-                                            }
-                                            val databaseId = app.getString(R.string.firestore_database_id)
+                                            val app = checkNotNull(this[APPLICATION_KEY])
+                                            val db = FirebaseFirestore.getInstance(app.getString(R.string.firestore_database_id))
                                             AdminViewModel(
                                                 uploadsRepository = LocalTestUploadsRepository(app),
-                                                galleryRepository = GalleryRepository(FirebaseFirestore.getInstance(databaseId)),
+                                                galleryRepository = GalleryRepository(db),
+                                                userCrmRepository = UserCrmRepository(db),
+                                                chatRepository = ChatRepository(db),
                                             )
                                         }
                                     }
                                 )
+                                val authUser by adminViewModel.authUser.collectAsStateWithLifecycle()
+                                val isVerifiedAdmin by adminViewModel.isVerifiedAdmin.collectAsStateWithLifecycle()
+                                val isSuperAdmin by adminViewModel.isSuperAdmin.collectAsStateWithLifecycle()
+                                val adminEmails by adminViewModel.adminEmails.collectAsStateWithLifecycle()
                                 val publishState by adminViewModel.publishState.collectAsStateWithLifecycle()
-                                val uploadedImages by adminViewModel.uploadedImages.collectAsStateWithLifecycle()
+                                val managedProfiles by adminViewModel.combinedManagedImages.collectAsStateWithLifecycle()
+                                val filteredUsers by adminViewModel.filteredUsers.collectAsStateWithLifecycle()
+                                val pagedUsers by adminViewModel.pagedUsers.collectAsStateWithLifecycle()
+                                val hasMoreUsers by adminViewModel.hasMoreUsersToLoad.collectAsStateWithLifecycle()
+                                val selectedFilter by adminViewModel.selectedUserFilter.collectAsStateWithLifecycle()
+                                val pendingStaffUsers by adminViewModel.pendingStaffUsers.collectAsStateWithLifecycle()
+                                val allChats by adminViewModel.allChats.collectAsStateWithLifecycle()
+                                val selectedContact by adminViewModel.selectedProfileContact.collectAsStateWithLifecycle()
 
                                 val adminSnackbar = remember { SnackbarHostState() }
 
                                 LaunchedEffect(adminViewModel) {
-                                    adminViewModel.events.collect { msg ->
-                                        adminSnackbar.showSnackbar(msg)
-                                    }
+                                    adminViewModel.events.collect { msg -> adminSnackbar.showSnackbar(msg) }
                                 }
                                 LaunchedEffect(adminViewModel) {
                                     adminViewModel.uploadedPreviewAlert.collect { previewImg ->
@@ -504,29 +619,56 @@ fun PixoraUserPanelApp(
                                 }
 
                                 AdminStudioScreen(
+                                    authUser = authUser,
+                                    isVerifiedAdmin = isVerifiedAdmin,
+                                    isSuperAdmin = isSuperAdmin,
+                                    adminEmails = adminEmails,
                                     publishState = publishState,
-                                    uploadedImages = uploadedImages,
-                                    onUploadPicture = { uri, manualUrl, title, desc, cat, price, tags, featured, isHidden ->
-                                        adminViewModel.uploadPicture(
+                                    managedProfiles = managedProfiles,
+                                    pagedUsers = pagedUsers,
+                                    totalFilteredUsers = filteredUsers.size,
+                                    hasMoreUsers = hasMoreUsers,
+                                    selectedUserFilter = selectedFilter,
+                                    pendingStaffUsers = pendingStaffUsers,
+                                    allChats = allChats,
+                                    selectedProfileContact = selectedContact,
+                                    onSignInAdminGoogle = { adminViewModel.signInAdminWithGoogle(context) },
+                                    onSignOutAdmin = { adminViewModel.signOutAdmin(context) },
+                                    onAddAdminEmail = adminViewModel::addAdminEmail,
+                                    onRemoveAdminEmail = adminViewModel::removeAdminEmail,
+                                    onPublishCompanionProfile = { uris, manualUrl, name, phone, ageText, price, address, role, tier, cat, bio, hiddenTimed ->
+                                        adminViewModel.publishCompanionProfile(
                                             context = context,
-                                            selectedUri = uri,
-                                            manualImageUrl = manualUrl,
-                                            title = title,
-                                            description = desc,
-                                            category = cat,
+                                            selectedUris = uris,
+                                            manualUrl = manualUrl,
+                                            name = name,
+                                            phone = phone,
+                                            ageText = ageText,
                                             price = price,
-                                            tagsRaw = tags,
-                                            featured = featured,
-                                            isHidden = isHidden,
+                                            address = address,
+                                            role = role,
+                                            tier = tier,
+                                            category = cat,
+                                            bio = bio,
+                                            hiddenTimed = hiddenTimed,
                                         )
                                     },
                                     onResetPublishState = adminViewModel::resetPublishState,
-                                    onToggleFeatured = adminViewModel::toggleFeatured,
-                                    onRefreshBlurredUpload = adminViewModel::refreshBlurredUpload,
                                     onRefreshAllBlurred = adminViewModel::refreshAllBlurredUploads,
-                                    onUpdateMetadata = adminViewModel::updateMetadata,
-                                    onRemoveUpload = adminViewModel::removeUpload,
-                                    onClearAllUploads = adminViewModel::clearAllUploads,
+                                    onRefreshProfile = adminViewModel::refreshBlurredUpload,
+                                    onDeleteProfile = adminViewModel::deleteProfile,
+                                    onSelectUserFilter = adminViewModel::selectUserFilter,
+                                    onLoadNextUsersPage = adminViewModel::loadNextUsersPage,
+                                    onSetUserLeadTag = adminViewModel::setUserLeadTag,
+                                    onSetUserModeration = adminViewModel::setUserModerationStatus,
+                                    onApproveStaff = adminViewModel::approveStaffUser,
+                                    onRejectStaff = adminViewModel::rejectStaffUser,
+                                    onLoadPrivateContact = adminViewModel::loadPrivateContactForProfile,
+                                    onOpenChatAsAdmin = { chatId ->
+                                        navController.navigate("chat/$chatId/admin") {
+                                            launchSingleTop = true
+                                        }
+                                    },
                                     onBack = { navController.popBackStack() },
                                     snackbarHostState = adminSnackbar,
                                 )
@@ -536,7 +678,6 @@ fun PixoraUserPanelApp(
                 }
             }
 
-            // WhatsApp-style floating top notification banner
             InAppNotificationBanner(
                 image = activeBannerImage,
                 onViewClick = { img ->
@@ -553,6 +694,27 @@ fun PixoraUserPanelApp(
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         }
+    }
+
+    val targetChatProfile = pendingChatProfile
+    if (targetChatProfile != null) {
+        ChatOnboardingSheet(
+            targetProfile = targetChatProfile,
+            existingAccount = userAccount,
+            defaultDisplayName = firebaseUser?.displayName.orEmpty(),
+            isBusy = isProfileBusy,
+            isSignedIn = firebaseUser != null,
+            onSubmit = { name, phone, ageText, address ->
+                sessionViewModel.completeOnboardingAndOpenChat(
+                    activityContext = context,
+                    name = name,
+                    phone = phone,
+                    ageText = ageText,
+                    address = address,
+                )
+            },
+            onDismiss = sessionViewModel::dismissChatOnboarding,
+        )
     }
 
     if (showAdminPasscodeSheet) {

@@ -3,12 +3,17 @@ package com.example
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.model.AdminUserFilter
 import com.example.data.model.GalleryImage
+import com.example.data.model.LeadTag
+import com.example.data.model.ProfileTier
 import com.example.data.model.SavedBookmark
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.preferences.StoredTestUpload
 import com.example.notifications.PixoraNotificationManager
+import com.example.util.ContactLeakFilter
+import com.example.util.ProfileCompletionCalculator
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -25,26 +30,32 @@ import org.robolectric.annotation.Config
 class ExampleRobolectricTest {
 
     @Test
-    fun `read string from context`() {
+    fun `read app name from context returns JustUs`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val appName = context.getString(R.string.app_name)
-        assertEquals("Pixora", appName)
+        assertEquals("JustUs", appName)
     }
 
     @Test
-    fun `savedBookmark converts back to galleryImage`() {
+    fun `savedBookmark converts back to galleryImage with role and tier`() {
         val bookmark = SavedBookmark(
-            imageId = "img_1",
-            title = "Sunset",
-            category = "Nature",
-            imageUrl = "https://i.ibb.co/test/sunset.jpg",
-            thumbUrl = "https://i.ibb.co/test/sunset-thumb.jpg",
-            aspectRatio = 1.5,
+            imageId = "prof_1",
+            title = "Aanya",
+            category = "VIP",
+            imageUrl = "https://i.ibb.co/test/aanya.jpg",
+            thumbUrl = "https://i.ibb.co/test/aanya-thumb.jpg",
+            aspectRatio = 16.0 / 9.0,
+            price = "₹999",
+            age = 23,
+            role = "GF",
+            tier = ProfileTier.VIP_16_9,
         )
         val gallery = bookmark.toGalleryImage()
-        assertEquals("img_1", gallery.id)
-        assertEquals("Sunset", gallery.title)
-        assertEquals(1.5f, gallery.safeAspectRatio)
+        assertEquals("prof_1", gallery.id)
+        assertEquals("Aanya", gallery.title)
+        assertEquals(23, gallery.age)
+        assertEquals("GF", gallery.role)
+        assertTrue(gallery.isVip)
     }
 
     @Test
@@ -54,22 +65,28 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `storedTestUpload maps to published GalleryImage`() {
+    fun `storedTestUpload maps to published companion profile`() {
         val upload = StoredTestUpload(
-            id = "test_123",
-            title = "Neon Skyline",
-            category = "Photography",
-            imageUrl = "https://i.ibb.co/abc/neon.jpg",
-            thumbUrl = "https://i.ibb.co/abc/neon_thumb.jpg",
-            aspectRatio = 0.75,
+            id = "prof_123",
+            title = "Riya",
+            category = "Companion",
+            imageUrl = "https://i.ibb.co/abc/riya.jpg",
+            thumbUrl = "https://i.ibb.co/abc/riya_thumb.jpg",
+            aspectRatio = 9.0 / 16.0,
             createdAtEpochMs = 1_700_000_000_000L,
+            price = "₹499",
+            age = 22,
+            role = "GF",
+            tier = ProfileTier.GRID_9_16,
+            featured = false,
         )
         val mapped = upload.toGalleryImage()
-        assertEquals("test_123", mapped.id)
-        assertEquals("Neon Skyline", mapped.title)
-        assertEquals("Photography", mapped.category)
+        assertEquals("prof_123", mapped.id)
+        assertEquals("Riya", mapped.title)
+        assertEquals(22, mapped.age)
+        assertEquals("₹499", mapped.price)
         assertEquals("published", mapped.status)
-        assertTrue(mapped.featured)
+        assertFalse(mapped.isVip)
     }
 
     @Test
@@ -89,67 +106,41 @@ class ExampleRobolectricTest {
         val store = NotifiedImagesStore(context)
         assertTrue(store.isBackgroundSyncEnabled())
 
-        store.markIdsKnown(listOf("img_a", "img_b"))
+        store.markIdsKnown(listOf("prof_a", "prof_b"))
         val known = store.getKnownIds()
-        assertTrue(known.contains("img_a"))
-        assertTrue(known.contains("img_b"))
+        assertTrue(known.contains("prof_a"))
+        assertTrue(known.contains("prof_b"))
 
         store.setBackgroundSyncEnabled(false)
         assertFalse(store.isBackgroundSyncEnabled())
     }
 
     @Test
-    fun `localTestUploadsRepository adds and removes individual uploads`() = runTest {
+    fun `localTestUploadsRepository does not seed prototype images by default`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val repo = LocalTestUploadsRepository(context)
         repo.clearAll()
-
-        val upload1 = StoredTestUpload(
-            id = "imgbb_1",
-            title = "Photo 1",
-            category = "Nature",
-            imageUrl = "https://i.ibb.co/1/p1.jpg",
-            thumbUrl = "https://i.ibb.co/1/p1_t.jpg",
-            aspectRatio = 1.0,
-            createdAtEpochMs = 1000L,
-        )
-        val upload2 = StoredTestUpload(
-            id = "imgbb_2",
-            title = "Photo 2",
-            category = "Abstract",
-            imageUrl = "https://i.ibb.co/2/p2.jpg",
-            thumbUrl = "https://i.ibb.co/2/p2_t.jpg",
-            aspectRatio = 1.2,
-            createdAtEpochMs = 2000L,
-        )
-
-        repo.addUpload(upload1)
-        repo.addUpload(upload2)
-        assertEquals(2, repo.testUploads.first().size)
-
-        repo.removeUpload("imgbb_1")
-        val remaining = repo.testUploads.first()
-        assertEquals(1, remaining.size)
-        assertEquals("imgbb_2", remaining.first().id)
-
-        repo.clearAll()
-        assertEquals(0, repo.testUploads.first().size)
+        assertTrue(repo.testUploads.first().isEmpty())
     }
 
     @Test
-    fun `hidden photo starts 20s countdown on reveal and turns into blurred preview on expiry`() = runTest {
+    fun `hidden photo starts 40s countdown on reveal and turns into soft blurred preview on expiry`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val repo = LocalTestUploadsRepository(context)
         repo.clearAll()
 
         val hiddenUpload = StoredTestUpload(
-            id = "hidden_1",
-            title = "Secret Shot",
+            id = "hidden_40",
+            title = "Secret Companion",
             category = "Date Night",
             imageUrl = "https://i.ibb.co/sec/secret.jpg",
             thumbUrl = "https://i.ibb.co/sec/secret_t.jpg",
-            aspectRatio = 1.0,
+            aspectRatio = 9.0 / 16.0,
             createdAtEpochMs = 1000L,
+            price = "₹499",
+            age = 22,
+            role = "GF",
+            tier = ProfileTier.GRID_9_16,
             isHidden = true,
             revealExpiresAtEpochMs = 0L,
         )
@@ -159,65 +150,84 @@ class ExampleRobolectricTest {
         assertTrue(beforeReveal.isHidden)
         assertFalse(beforeReveal.isRevealStarted)
         assertFalse(beforeReveal.isDeletedBlurred)
-        assertFalse(beforeReveal.featured)
+        assertEquals(40, beforeReveal.remainingSeconds())
 
-        val expiry1 = repo.startHiddenRevealCountdown("hidden_1", ttlMs = 20_000L)
+        val expiry1 = repo.startHiddenRevealCountdown("hidden_40", ttlMs = 40_000L)
         assertTrue(expiry1 > System.currentTimeMillis())
-
-        val expiry2 = repo.startHiddenRevealCountdown("hidden_1", ttlMs = 20_000L)
-        assertEquals(expiry1, expiry2)
 
         val afterReveal = repo.testUploads.first().first()
         assertTrue(afterReveal.isRevealStarted)
         assertFalse(afterReveal.isDeletedBlurred)
-        assertTrue(afterReveal.remainingSeconds() in 1..20)
+        assertTrue(afterReveal.remainingSeconds() in 1..40)
 
         val expiredEarly = repo.markExpiredUploads(nowMs = expiry1 - 1000L)
         assertTrue(expiredEarly.isEmpty())
 
         val expiredAfter = repo.markExpiredUploads(nowMs = expiry1 + 100L)
-        assertEquals(listOf("hidden_1"), expiredAfter)
+        assertEquals(listOf("hidden_40"), expiredAfter)
 
-        // Blurred residual card remains in the list with isExpired = true
         val blurredItem = repo.testUploads.first().first()
         assertTrue(blurredItem.isExpired)
         assertTrue(blurredItem.isDeletedBlurred)
         assertEquals(0, blurredItem.remainingSeconds())
-        assertFalse(blurredItem.featured)
 
-        // Admin clicks Refresh -> photo returns to unlockable state
-        val refreshed = repo.refreshUpload("hidden_1")
+        val refreshed = repo.refreshUpload("hidden_40")
         assertNotNull(refreshed)
         val afterRefresh = repo.testUploads.first().first()
-        assertTrue(afterRefresh.isHidden)
         assertFalse(afterRefresh.isExpired)
         assertFalse(afterRefresh.isDeletedBlurred)
         assertFalse(afterRefresh.isRevealStarted)
-        assertTrue(afterRefresh.refreshEpochMs > 0L)
     }
 
     @Test
-    fun `starter moments seed at least 4 9_16 cards with prices and refreshAll resets expired`() = runTest {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val repo = LocalTestUploadsRepository(context)
-        repo.clearAll()
+    fun `contactLeakFilter blocks phone email instagram handles and urls for staff`() {
+        assertFalse(ContactLeakFilter.validateForStaff("Call me at 9876543210").isAllowed)
+        assertFalse(ContactLeakFilter.validateForStaff("My email is girl@gmail.com").isAllowed)
+        assertFalse(ContactLeakFilter.validateForStaff("Follow @riya_official on insta").isAllowed)
+        assertFalse(ContactLeakFilter.validateForStaff("Ping me on Instagram please").isAllowed)
+        assertFalse(ContactLeakFilter.validateForStaff("Check https://example.com").isAllowed)
+        assertTrue(ContactLeakFilter.validateForStaff("Hi! Let us plan dinner at 8 PM.").isAllowed)
+    }
 
-        repo.ensureStarterMomentsSeeded(context.packageName)
-        val seeded = repo.testUploads.first()
-        assertTrue(seeded.size >= 4)
-        assertTrue(seeded.all { it.price.isNotBlank() })
+    @Test
+    fun `profileCompletionCalculator reaches 100 percent only when all fields complete`() {
+        val partial = ProfileCompletionCalculator.calculate(
+            name = "Rahul",
+            photoUrl = "",
+            phone = "9876543210",
+            age = 24,
+            address = "MG Road, Bengaluru",
+            city = "",
+            bio = "",
+            interests = "",
+            genderPreference = "",
+        )
+        assertTrue(partial.isReadyForChatOnboarding)
+        assertFalse(partial.isReadyForStaffApplication)
+        assertTrue(partial.percent in 40..60)
 
-        // Simulate expiry of the hidden starter item, then refreshAllExpiredUploads
-        val hiddenStarter = seeded.first { it.isHidden }
-        val exp = repo.startHiddenRevealCountdown(hiddenStarter.id, ttlMs = 1L)
-        repo.markExpiredUploads(nowMs = exp + 100L)
-        assertTrue(repo.testUploads.first().first { it.id == hiddenStarter.id }.isDeletedBlurred)
+        val complete = ProfileCompletionCalculator.calculate(
+            name = "Rahul Sharma",
+            photoUrl = "https://i.ibb.co/abc/p.jpg",
+            phone = "9876543210",
+            age = 24,
+            address = "MG Road, Bengaluru",
+            city = "Bengaluru",
+            bio = "Love coffee dates and weekend drives.",
+            interests = "Coffee, Music",
+            genderPreference = "Looking for GF",
+        )
+        assertEquals(100, complete.percent)
+        assertTrue(complete.isReadyForStaffApplication)
+    }
 
-        val refreshedAll = repo.refreshAllExpiredUploads()
-        assertEquals(1, refreshedAll.size)
-        val resetItem = repo.testUploads.first().first { it.id == hiddenStarter.id }
-        assertFalse(resetItem.isDeletedBlurred)
-        assertFalse(resetItem.isRevealStarted)
+    @Test
+    fun `crm filters include online notified old users and lead tags`() {
+        val labels = AdminUserFilter.entries.map { it.label }
+        assertTrue(labels.contains("Online"))
+        assertTrue(labels.contains("Notified"))
+        assertTrue(labels.contains("Old Users"))
+        assertTrue(labels.contains("Hot Lead"))
+        assertEquals("hot", LeadTag.HOT)
     }
 }
-

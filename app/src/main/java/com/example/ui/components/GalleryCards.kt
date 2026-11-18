@@ -8,12 +8,13 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -29,16 +30,19 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BrokenImage
+import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Timer
-import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,6 +54,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -61,7 +66,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -70,8 +74,10 @@ import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.R
-import com.example.data.model.CategoryCollection
 import com.example.data.model.GalleryImage
+import com.example.ui.theme.WhatsAppDarkGreen
+import com.example.ui.theme.WhatsAppGreen
+import kotlinx.coroutines.delay
 
 @Composable
 fun ShimmerBox(modifier: Modifier = Modifier) {
@@ -92,44 +98,62 @@ fun ShimmerBox(modifier: Modifier = Modifier) {
     )
 }
 
+/**
+ * Top 16:9 VIP Staff Showcase Carousel — auto-cycles every 3 seconds.
+ */
 @Composable
-fun FeaturedSpotlightCarousel(
-    images: List<GalleryImage>,
+fun VipShowcaseCarousel(
+    profiles: List<GalleryImage>,
     bookmarkedIds: Set<String>,
-    onImageClick: (GalleryImage) -> Unit,
+    onProfileClick: (GalleryImage) -> Unit,
+    onChatClick: (GalleryImage) -> Unit,
     onToggleBookmark: (GalleryImage) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (images.isEmpty()) return
-    val pagerState = rememberPagerState(pageCount = { images.size })
+    if (profiles.isEmpty()) return
+    val pagerState = rememberPagerState(pageCount = { profiles.size })
+    val isDragged by pagerState.interactionSource.collectIsDraggedAsState()
+
+    LaunchedEffect(profiles.size, isDragged) {
+        if (profiles.size > 1 && !isDragged) {
+            while (true) {
+                delay(3000L)
+                val nextPage = (pagerState.currentPage + 1) % profiles.size
+                pagerState.animateScrollToPage(nextPage)
+            }
+        }
+    }
 
     Column(modifier = modifier.fillMaxWidth()) {
         HorizontalPager(
             state = pagerState,
             pageSpacing = 12.dp,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("vip_16_9_carousel")
         ) { page ->
-            val image = images[page]
-            FeaturedSpotlightCard(
-                image = image,
-                isBookmarked = bookmarkedIds.contains(image.id),
-                onClick = { onImageClick(image) },
-                onToggleBookmark = { onToggleBookmark(image) },
+            val profile = profiles[page]
+            VipShowcaseCard(
+                profile = profile,
+                isBookmarked = bookmarkedIds.contains(profile.id),
+                onClick = { onProfileClick(profile) },
+                onChatClick = { onChatClick(profile) },
+                onToggleBookmark = { onToggleBookmark(profile) },
             )
         }
 
-        if (images.size > 1) {
-            Spacer(modifier = Modifier.height(10.dp))
+        if (profiles.size > 1) {
+            Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                repeat(images.size) { idx ->
+                repeat(profiles.size) { idx ->
                     val selected = pagerState.currentPage == idx
                     val dotWidth by animateDpAsState(
-                        targetValue = if (selected) 20.dp else 6.dp,
-                        label = "dot_width"
+                        targetValue = if (selected) 22.dp else 6.dp,
+                        label = "vip_dot_width"
                     )
                     Box(
                         modifier = Modifier
@@ -149,42 +173,123 @@ fun FeaturedSpotlightCarousel(
 }
 
 @Composable
-fun FeaturedSpotlightCard(
-    image: GalleryImage,
+fun VipShowcaseCard(
+    profile: GalleryImage,
     isBookmarked: Boolean,
     onClick: () -> Unit,
+    onChatClick: () -> Unit,
     onToggleBookmark: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isBlurredExpired = profile.isDeletedBlurred
+
     Card(
         shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f)),
         modifier = modifier
             .fillMaxWidth()
-            .testTag("featured_spotlight_card_${image.id}")
+            .testTag("vip_card_${profile.id}")
             .clickable(onClick = onClick)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(228.dp)
+                .aspectRatio(16f / 9f)
         ) {
-            PixoraNetworkImage(
-                imageUrl = image.imageUrl,
-                contentDescription = image.title,
-                modifier = Modifier.fillMaxSize()
-            )
+            when {
+                isBlurredExpired -> {
+                    PixoraBlurredImage(
+                        imageUrl = profile.displayThumbnailUrl,
+                        contentDescription = profile.title,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0x28120914)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color(0xBB1E1220),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.BlurOn,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = stringResource(R.string.expired_blurred_badge),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
 
+                profile.isHidden && !profile.isRevealStarted -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFF1F1123), Color(0xFF331834), Color(0xFF150D17))
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Lock,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = stringResource(R.string.hidden_card_badge),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+
+                else -> {
+                    PixoraNetworkImage(
+                        imageUrl = profile.displayThumbnailUrl,
+                        contentDescription = profile.title,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+
+            // Soft bottom gradient so VIP details & WhatsApp Chat button pop crisply
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0.0f to Color(0x44100810),
-                                0.45f to Color(0x22100810),
-                                1.0f to Color(0xEC110912),
+                                0.0f to Color(0x36100810),
+                                0.5f to Color.Transparent,
+                                1.0f to Color(0xEA120814),
                             )
                         )
                     )
@@ -193,93 +298,143 @@ fun FeaturedSpotlightCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(14.dp),
+                    .padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
                     shape = RoundedCornerShape(50),
                     color = Color(0xCC1B101D),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f))
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Favorite,
+                            imageVector = Icons.Rounded.AutoAwesome,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp)
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(13.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
-                            text = stringResource(R.string.featured_spotlight),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color(0xFFFDF6FA)
+                            text = "VIP · ${profile.role}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary
                         )
                     }
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    PriceBadgePill(price = image.displayPrice)
+                if (!profile.isHidden && !isBlurredExpired) {
                     IconButton(
                         onClick = onToggleBookmark,
                         modifier = Modifier
                             .minimumInteractiveComponentSize()
+                            .size(38.dp)
                             .clip(CircleShape)
-                            .background(Color(0xAA1B101D))
-                            .testTag("featured_bookmark_button_${image.id}")
+                            .background(Color(0x9E1B101D))
                     ) {
                         Icon(
                             imageVector = if (isBookmarked) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
                             contentDescription = stringResource(
                                 if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
                             ),
-                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White
+                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
             }
 
-            Column(
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
-                    .padding(18.dp)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
             ) {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
-                ) {
-                    Text(
-                        text = image.category,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${profile.title}, ${profile.age}",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Icon(
+                            imageVector = Icons.Rounded.Verified,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    PriceBadgePill(price = profile.displayPrice)
                 }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = image.title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                WhatsAppChatPillButton(
+                    onClick = onChatClick,
+                    compact = false,
+                    modifier = Modifier.testTag("vip_chat_btn_${profile.id}")
                 )
-                if (image.description.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = image.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFE6D8E4),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+            }
+        }
+    }
+}
+
+@Composable
+fun WhatsAppChatPillButton(
+    onClick: () -> Unit,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = WhatsAppGreen,
+        contentColor = Color.White,
+        shadowElevation = 4.dp,
+        border = BorderStroke(1.dp, Color(0x55FFFFFF)),
+        modifier = modifier.minimumInteractiveComponentSize()
+    ) {
+        if (compact) {
+            Box(
+                modifier = Modifier.size(40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.Chat,
+                    contentDescription = stringResource(R.string.chat_now),
+                    tint = Color.White,
+                    modifier = Modifier.size(19.dp)
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.Chat,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(17.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.chat_now),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
             }
         }
     }
@@ -293,7 +448,7 @@ fun PriceBadgePill(
     Surface(
         shape = RoundedCornerShape(50),
         color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.22f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.65f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f)),
         modifier = modifier
     ) {
         Text(
@@ -307,12 +462,16 @@ fun PriceBadgePill(
     }
 }
 
+/**
+ * 2-by-2 Grid 9:16 Companion Card.
+ * Displays ONLY Name, Age, Price, Photo(s), and WhatsApp Chat button (never Phone or Address).
+ */
 @Composable
 fun GalleryGridCard(
     image: GalleryImage,
     isBookmarked: Boolean,
-    useAspectRatio: Boolean,
     onClick: () -> Unit,
+    onChatClick: () -> Unit,
     onToggleBookmark: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -324,7 +483,7 @@ fun GalleryGridCard(
         border = BorderStroke(
             width = 1.dp,
             color = if (isBlurredExpired) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
             } else {
                 MaterialTheme.colorScheme.outlineVariant
             }
@@ -335,76 +494,52 @@ fun GalleryGridCard(
             .clickable(onClick = onClick)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // 9:16 portrait media container (or natural ratio in editorial staggered mode)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(
-                        if (useAspectRatio) {
-                            Modifier.aspectRatio(image.safeAspectRatio)
-                        } else {
-                            Modifier.aspectRatio(9f / 16f)
-                        }
-                    )
+                    .aspectRatio(9f / 16f)
             ) {
                 when {
                     isBlurredExpired -> {
                         PixoraBlurredImage(
                             imageUrl = image.displayThumbnailUrl,
-                            contentDescription = "${image.title} (blurred memory)",
+                            contentDescription = image.title,
                             modifier = Modifier.fillMaxSize()
                         )
-
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color(0x4A140A14)),
+                                .background(Color(0x22140A14)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.padding(10.dp)
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = Color(0xBA1E1220),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
                             ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color(0x9E1E1220),
-                                    border = BorderStroke(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-                                    ),
-                                    modifier = Modifier.size(42.dp)
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.BlurOn,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(50),
-                                    color = Color(0xC21E1220),
-                                    border = BorderStroke(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                    Icon(
+                                        imageVector = Icons.Rounded.BlurOn,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(13.dp)
                                     )
-                                ) {
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text(
                                         text = stringResource(R.string.expired_blurred_badge),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = Color(0xFFFDF6FA),
-                                        maxLines = 1,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        maxLines = 1
                                     )
                                 }
                             }
                         }
                     }
 
-                    image.isHidden -> {
+                    image.isHidden && !image.isRevealStarted -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -423,45 +558,30 @@ fun GalleryGridCard(
                                     shape = CircleShape,
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
-                                    modifier = Modifier.size(48.dp)
+                                    modifier = Modifier.size(46.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             imageVector = Icons.Rounded.Lock,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(22.dp)
+                                            modifier = Modifier.size(21.dp)
                                         )
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(10.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
                                 Surface(
                                     shape = RoundedCornerShape(50),
                                     color = Color(0xCC211424),
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Timer,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = if (image.isRevealStarted) {
-                                                "${image.remainingSeconds()}s LEFT"
-                                            } else {
-                                                stringResource(R.string.hidden_card_badge)
-                                            },
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White,
-                                            maxLines = 1
-                                        )
-                                    }
+                                    Text(
+                                        text = stringResource(R.string.hidden_card_badge),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                                    )
                                 }
                             }
                         }
@@ -476,6 +596,35 @@ fun GalleryGridCard(
                     }
                 }
 
+                // Multi-photo count badge if profile has > 1 photo
+                if (image.allPhotoUrls.size > 1 && !image.isHidden && !isBlurredExpired) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = Color(0x9E1C101E),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Collections,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "${image.allPhotoUrls.size}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+
                 if (!image.isHidden && !isBlurredExpired) {
                     IconButton(
                         onClick = onToggleBookmark,
@@ -483,7 +632,7 @@ fun GalleryGridCard(
                             .align(Alignment.TopEnd)
                             .padding(6.dp)
                             .minimumInteractiveComponentSize()
-                            .size(38.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
                             .background(Color(0x9E1C101E))
                             .testTag("card_bookmark_${image.id}")
@@ -494,131 +643,58 @@ fun GalleryGridCard(
                                 if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
                             ),
                             tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White,
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
             }
 
-            // Footer cleanly below the 9:16 image showing Title, Mood, and Price
+            // Footer: Name, Age, Price + WhatsApp Chat Icon Button beside Price
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 9.dp)
             ) {
-                Text(
-                    text = image.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(5.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "${image.title}, ${image.age}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                    ) {
+                        Text(
+                            text = image.role,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = image.category,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
                     PriceBadgePill(
                         price = image.displayPrice,
                         modifier = Modifier.testTag("card_price_${image.id}")
                     )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun CollectionCard(
-    collection: CategoryCollection,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("collection_card_${collection.name}")
-            .clickable(onClick = onClick)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1.08f)
-        ) {
-            if (collection.coverUrl.isNotBlank()) {
-                PixoraNetworkImage(
-                    imageUrl = collection.coverUrl,
-                    contentDescription = collection.name,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.linearGradient(
-                                listOf(Color(0xFF1F1221), Color(0xFF2D192E))
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.VisibilityOff,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0.0f to Color.Transparent,
-                                0.4f to Color(0x33110912),
-                                1.0f to Color(0xE8110912)
-                            )
-                        )
-                    )
-            )
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = collection.name,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
-                ) {
-                    Text(
-                        text = stringResource(R.string.collection_items_count, collection.count),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    WhatsAppChatPillButton(
+                        onClick = onChatClick,
+                        compact = true,
+                        modifier = Modifier.testTag("card_chat_btn_${image.id}")
                     )
                 }
             }
@@ -678,6 +754,10 @@ fun PixoraNetworkImage(
     )
 }
 
+/**
+ * Soft predictable blur after 40s expiry — intentionally lighter so the person
+ * in the photo remains gently recognizable while preserving privacy.
+ */
 @Composable
 fun PixoraBlurredImage(
     imageUrl: String,
@@ -686,9 +766,9 @@ fun PixoraBlurredImage(
     contentScale: ContentScale = ContentScale.Crop,
 ) {
     val context = LocalContext.current
-    val blurTransform = remember { LowResBlurTransformation(maxGridDim = 28, blurPasses = 3, outputScale = 4) }
+    val blurTransform = remember { LowResBlurTransformation(maxGridDim = 96, blurPasses = 1, outputScale = 4) }
     val blurModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        modifier.blur(14.dp)
+        modifier.blur(6.dp)
     } else {
         modifier
     }
@@ -743,16 +823,21 @@ fun EmptyGalleryState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Image(
-            painter = painterResource(id = R.drawable.img_companion_banner),
-            contentDescription = title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .widthIn(max = 300.dp)
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .clip(MaterialTheme.shapes.extraLarge)
-        )
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+            modifier = Modifier.size(86.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Rounded.Favorite,
+                    contentDescription = title,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(20.dp))
         Text(
             text = title,
@@ -818,6 +903,7 @@ fun ErrorStateCard(
                 Spacer(modifier = Modifier.height(14.dp))
                 Button(
                     onClick = onRetry,
+                    colors = ButtonDefaults.buttonColors(containerColor = WhatsAppDarkGreen),
                     modifier = Modifier.minimumInteractiveComponentSize()
                 ) {
                     Text(text = stringResource(R.string.error_retry))

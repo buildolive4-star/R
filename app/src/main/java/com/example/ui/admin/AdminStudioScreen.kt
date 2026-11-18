@@ -1,6 +1,7 @@
 package com.example.ui.admin
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,43 +23,36 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
-import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudUpload
-import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
-import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -67,123 +60,365 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.R
+import com.example.data.model.AdminEmailEntry
+import com.example.data.model.AdminUserFilter
+import com.example.data.model.ChatThread
+import com.example.data.model.CompanionPrivateContact
 import com.example.data.model.GalleryImage
-import com.example.ui.components.PixoraBlurredImage
-import com.example.ui.components.PixoraNetworkImage
-import com.example.ui.components.PriceBadgePill
-import kotlinx.coroutines.launch
+import com.example.data.model.ProfileTier
+import com.example.data.model.UserAccount
+import com.google.firebase.auth.FirebaseUser
 
-private val STUDIO_CATEGORIES = listOf(
+private val COMPANION_CATEGORIES = listOf(
+    "Companion",
     "Date Night",
-    "Candid",
-    "Selfies",
-    "Morning",
-    "Outfits",
+    "Dinner",
     "Travel",
-    "Exclusive",
+    "VIP",
+    "Verified Staff",
 )
 
-private val QUICK_PRICE_PRESETS = listOf(
-    "Free",
-    "₹199",
-    "₹299",
-    "₹499",
-    "₹999",
-)
+private val QUICK_PRICES = listOf("₹299", "₹499", "₹799", "₹1,499", "₹2,999")
 
-private enum class StudioFilter(val label: String) {
-    ALL("All"),
-    BLURRED("Blurred"),
-    FEATURED("Featured"),
-}
-
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun AdminStudioScreen(
+    authUser: FirebaseUser?,
+    isVerifiedAdmin: Boolean,
+    isSuperAdmin: Boolean,
+    adminEmails: List<AdminEmailEntry>,
     publishState: AdminPublishState,
-    uploadedImages: List<GalleryImage>,
-    onUploadPicture: (
-        uri: Uri?,
+    managedProfiles: List<GalleryImage>,
+    pagedUsers: List<UserAccount>,
+    totalFilteredUsers: Int,
+    hasMoreUsers: Boolean,
+    selectedUserFilter: AdminUserFilter,
+    pendingStaffUsers: List<UserAccount>,
+    allChats: List<ChatThread>,
+    selectedProfileContact: Pair<String, CompanionPrivateContact>?,
+    onSignInAdminGoogle: () -> Unit,
+    onSignOutAdmin: () -> Unit,
+    onAddAdminEmail: (String) -> Unit,
+    onRemoveAdminEmail: (String) -> Unit,
+    onPublishCompanionProfile: (
+        selectedUris: List<Uri>,
         manualUrl: String,
-        title: String,
-        description: String,
-        category: String,
+        name: String,
+        phone: String,
+        ageText: String,
         price: String,
-        tagsRaw: String,
-        featured: Boolean,
-        isHidden: Boolean,
+        address: String,
+        role: String,
+        tier: String,
+        category: String,
+        bio: String,
+        hiddenTimed: Boolean,
     ) -> Unit,
     onResetPublishState: () -> Unit,
-    onToggleFeatured: (GalleryImage) -> Unit,
-    onRefreshBlurredUpload: (String) -> Unit,
     onRefreshAllBlurred: () -> Unit,
-    onUpdateMetadata: (
-        imageId: String,
-        title: String,
-        description: String,
-        category: String,
-        price: String,
-        tagsRaw: String,
-        featured: Boolean,
-        isHidden: Boolean,
-    ) -> Unit,
-    onRemoveUpload: (String) -> Unit,
-    onClearAllUploads: () -> Unit,
+    onRefreshProfile: (String) -> Unit,
+    onDeleteProfile: (String) -> Unit,
+    onSelectUserFilter: (AdminUserFilter) -> Unit,
+    onLoadNextUsersPage: () -> Unit,
+    onSetUserLeadTag: (String, String) -> Unit,
+    onSetUserModeration: (String, String) -> Unit,
+    onApproveStaff: (UserAccount, String) -> Unit,
+    onRejectStaff: (String) -> Unit,
+    onLoadPrivateContact: (String) -> Unit,
+    onOpenChatAsAdmin: (String) -> Unit,
     onBack: () -> Unit,
     snackbarHostState: SnackbarHostState,
 ) {
+    BackHandler(onBack = onBack)
+
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var showMultiAdminDialog by remember { mutableStateOf(false) }
+
+    val blurredCount = remember(managedProfiles) {
+        managedProfiles.count { it.isDeletedBlurred || it.isRevealStarted }
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        containerColor = MaterialTheme.colorScheme.background,
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            // Top Admin Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("admin_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = stringResource(R.string.back)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = stringResource(R.string.admin_studio_title),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = authUser?.email?.takeIf { it.isNotBlank() }
+                                ?: stringResource(R.string.admin_studio_subtitle),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (isSuperAdmin) {
+                        FilledTonalButton(
+                            onClick = { showMultiAdminDialog = true },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("admin_multi_admin_button")
+                        ) {
+                            Icon(Icons.Rounded.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Admins", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+
+                    if (authUser == null) {
+                        Button(
+                            onClick = onSignInAdminGoogle,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("admin_google_signin_button")
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.Login, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Cloud Sign-In", style = MaterialTheme.typography.labelMedium)
+                        }
+                    } else if (!isVerifiedAdmin) {
+                        OutlinedButton(
+                            onClick = onSignOutAdmin,
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        ) {
+                            Text("Switch", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+
+            // Admin Auth Notice if signed in with non-whitelisted email or signed out
+            if (!isVerifiedAdmin) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = if (authUser == null) {
+                            "Sign in with Super Admin Gmail or an approved co-admin Gmail to unlock cloud CRM, Chats & Multi-Admin sync."
+                        } else {
+                            "${authUser.email} is not added by Super Admin yet. Ask Super Admin to whitelist your Gmail in Admins."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+            }
+
+            // Top Refresh Secret Photos bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = onRefreshAllBlurred,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .testTag("admin_refresh_all_button")
+                ) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (blurredCount > 0) {
+                            stringResource(R.string.admin_refresh_all_blurred, blurredCount)
+                        } else {
+                            stringResource(R.string.admin_refresh_top_ready)
+                        }
+                    )
+                }
+            }
+
+            // 3 Top Tabs: Create / Chats (CRM) / Staff
+            TabRow(selectedTabIndex = selectedTabIndex) {
+                Tab(
+                    selected = selectedTabIndex == 0,
+                    onClick = { selectedTabIndex = 0 },
+                    text = { Text("Create") },
+                    icon = { Icon(Icons.Rounded.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    modifier = Modifier.testTag("admin_tab_create")
+                )
+                Tab(
+                    selected = selectedTabIndex == 1,
+                    onClick = { selectedTabIndex = 1 },
+                    text = { Text("Chats (${totalFilteredUsers})") },
+                    icon = { Icon(Icons.AutoMirrored.Rounded.Chat, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    modifier = Modifier.testTag("admin_tab_chats")
+                )
+                Tab(
+                    selected = selectedTabIndex == 2,
+                    onClick = { selectedTabIndex = 2 },
+                    text = {
+                        Text(
+                            if (pendingStaffUsers.isNotEmpty()) "Staff (${pendingStaffUsers.size})"
+                            else "Staff"
+                        )
+                    },
+                    icon = { Icon(Icons.Rounded.Badge, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    modifier = Modifier.testTag("admin_tab_staff")
+                )
+            }
+
+            when (selectedTabIndex) {
+                0 -> AdminCreateProfileTab(
+                    publishState = publishState,
+                    onPublishProfile = onPublishCompanionProfile,
+                    onResetPublishState = onResetPublishState,
+                    modifier = Modifier.weight(1f)
+                )
+
+                1 -> AdminUsersCrmTab(
+                    pagedUsers = pagedUsers,
+                    totalFilteredCount = totalFilteredUsers,
+                    hasMoreUsers = hasMoreUsers,
+                    selectedFilter = selectedUserFilter,
+                    allChats = allChats,
+                    onSelectFilter = onSelectUserFilter,
+                    onLoadNextPage = onLoadNextUsersPage,
+                    onSetLeadTag = onSetUserLeadTag,
+                    onSetModeration = onSetUserModeration,
+                    onOpenChatAsAdmin = onOpenChatAsAdmin,
+                    modifier = Modifier.weight(1f)
+                )
+
+                else -> AdminStaffTab(
+                    pendingStaffUsers = pendingStaffUsers,
+                    managedProfiles = managedProfiles,
+                    allChats = allChats,
+                    selectedProfileContact = selectedProfileContact,
+                    onApproveStaff = onApproveStaff,
+                    onRejectStaff = onRejectStaff,
+                    onLoadPrivateContact = onLoadPrivateContact,
+                    onRefreshProfile = onRefreshProfile,
+                    onDeleteProfile = onDeleteProfile,
+                    onOpenChatAsAdmin = onOpenChatAsAdmin,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+
+    if (showMultiAdminDialog) {
+        MultiAdminEmailsDialog(
+            adminEmails = adminEmails,
+            onAddEmail = onAddAdminEmail,
+            onRemoveEmail = onRemoveAdminEmail,
+            onDismiss = { showMultiAdminDialog = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AdminCreateProfileTab(
+    publishState: AdminPublishState,
+    onPublishProfile: (
+        selectedUris: List<Uri>,
+        manualUrl: String,
+        name: String,
+        phone: String,
+        ageText: String,
+        price: String,
+        address: String,
+        role: String,
+        tier: String,
+        category: String,
+        bio: String,
+        hiddenTimed: Boolean,
+    ) -> Unit,
+    onResetPublishState: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val scope = rememberCoroutineScope()
-
-    var selectedUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var manualUrl by remember { mutableStateOf("") }
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf(STUDIO_CATEGORIES.first()) }
-    var customCategory by remember { mutableStateOf("") }
-    var price by remember { mutableStateOf("₹299") }
-    var tagsRaw by remember { mutableStateOf("") }
-    var featured by remember { mutableStateOf(true) }
-    var isHidden by remember { mutableStateOf(false) }
-    var showMoreOptions by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
+    var ageText by remember { mutableStateOf("22") }
+    var price by remember { mutableStateOf("₹499") }
+    var address by remember { mutableStateOf("") }
+    var role by remember { mutableStateOf("GF") }
+    var tier by remember { mutableStateOf(ProfileTier.GRID_9_16) }
+    var category by remember { mutableStateOf(COMPANION_CATEGORIES.first()) }
+    var bio by remember { mutableStateOf("") }
+    var hiddenTimed by remember { mutableStateOf(false) }
 
-    var selectedFilter by remember { mutableStateOf(StudioFilter.ALL) }
-    var editingImage by remember { mutableStateOf<GalleryImage?>(null) }
-    var deletingImage by remember { mutableStateOf<GalleryImage?>(null) }
-
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-        onResult = { uri ->
-            if (uri != null) {
-                selectedUri = uri
-                manualUrl = ""
+    val multiPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 8),
+        onResult = { uris ->
+            if (uris.isNotEmpty()) {
+                selectedUris = uris
                 onResetPublishState()
             }
         }
@@ -191,1065 +426,415 @@ fun AdminStudioScreen(
 
     LaunchedEffect(publishState) {
         if (publishState is AdminPublishState.Success) {
-            selectedUri = null
+            selectedUris = emptyList()
             manualUrl = ""
-            title = ""
-            description = ""
-            tagsRaw = ""
-            featured = true
-            isHidden = false
+            name = ""
+            phone = ""
+            address = ""
+            bio = ""
+            hiddenTimed = false
         }
     }
 
-    val blurredCount = remember(uploadedImages) {
-        uploadedImages.count { it.isDeletedBlurred || it.isRevealStarted }
-    }
+    LazyColumn(
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .testTag("admin_create_profile_list")
+    ) {
+        item(key = "composer_card") {
+            Card(
+                shape = MaterialTheme.shapes.extraLarge,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Create Companion Profile",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Upload multiple photos + full details. Phone & Address stay private to Admin only.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
-    val filteredUploads = remember(uploadedImages, selectedFilter) {
-        when (selectedFilter) {
-            StudioFilter.ALL -> uploadedImages
-            StudioFilter.BLURRED -> uploadedImages.filter { it.isDeletedBlurred || it.isRevealStarted }
-            StudioFilter.FEATURED -> uploadedImages.filter { it.featured }
-        }
-    }
+                    Spacer(modifier = Modifier.height(12.dp))
 
-    val copiedText = stringResource(R.string.link_copied)
+                    OutlinedButton(
+                        onClick = {
+                            multiPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("admin_pick_multi_photos")
+                    ) {
+                        Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            if (selectedUris.isEmpty()) "Select Multiple Photos (up to 8)"
+                            else "Selected ${selectedUris.size} Photo(s) · Tap to Change"
+                        )
+                    }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .statusBarsPadding()
-                .navigationBarsPadding(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            item(key = "admin_header") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 680.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .testTag("admin_back_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = stringResource(R.string.back)
-                            )
+                    if (selectedUris.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(selectedUris) { uri ->
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context).data(uri).crossfade(true).build(),
+                                    contentDescription = "Selected photo",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(width = 76.dp, height = 104.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Column {
-                            Text(
-                                text = stringResource(R.string.admin_studio_title),
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                            Text(
-                                text = stringResource(R.string.admin_studio_subtitle),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(text = "Home Placement Ratio", style = MaterialTheme.typography.labelLarge)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        FilterChip(
+                            selected = tier == ProfileTier.VIP_16_9,
+                            onClick = { tier = ProfileTier.VIP_16_9 },
+                            label = { Text("Top VIP (16:9 · 3s Slide)") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.secondary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onSecondary,
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("tier_vip_chip")
+                        )
+                        FilterChip(
+                            selected = tier == ProfileTier.GRID_9_16,
+                            onClick = { tier = ProfileTier.GRID_9_16 },
+                            label = { Text("2×2 Grid (9:16)") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("tier_grid_chip")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("GF", "BF").forEach { r ->
+                            FilterChip(
+                                selected = role == r,
+                                onClick = { role = r },
+                                label = { Text(if (r == "GF") "GF Companion" else "BF Companion") },
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            singleLine = true,
+                            label = { Text("Companion Name *") },
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1.4f)
+                                .testTag("admin_profile_name_input")
+                        )
+                        OutlinedTextField(
+                            value = ageText,
+                            onValueChange = { ageText = it.filter { ch -> ch.isDigit() }.take(2) },
+                            singleLine = true,
+                            label = { Text("Age *") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(0.75f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = phone,
+                            onValueChange = { phone = it },
+                            singleLine = true,
+                            label = { Text("Mobile No. (Private)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1.3f)
+                        )
+                        OutlinedTextField(
+                            value = price,
+                            onValueChange = { price = it },
+                            singleLine = true,
+                            label = { Text("Price *") },
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(0.9f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        QUICK_PRICES.forEach { preset ->
+                            FilterChip(
+                                selected = price == preset,
+                                onClick = { price = preset },
+                                label = { Text(preset) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = address,
+                        onValueChange = { address = it },
+                        singleLine = true,
+                        label = { Text("Address (Private to Admin)") },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        COMPANION_CATEGORIES.forEach { cat ->
+                            FilterChip(
+                                selected = category == cat,
+                                onClick = { category = cat },
+                                label = { Text(cat) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = bio,
+                        onValueChange = { bio = it },
+                        minLines = 2,
+                        maxLines = 4,
+                        label = { Text("Profile Bio / Vibes") },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = manualUrl,
+                        onValueChange = { manualUrl = it },
+                        singleLine = true,
+                        label = { Text("Optional Direct HTTPS Photo URL") },
+                        placeholder = { Text("https://i.ibb.co/...") },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
                     Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Lock,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "ADMIN",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Primary Top Refresh Action Bar — always visible at the top
-            item(key = "admin_top_refresh_bar") {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 680.dp)
-                ) {
-                    if (blurredCount > 0) {
-                        Button(
-                            onClick = onRefreshAllBlurred,
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(52.dp)
-                                .minimumInteractiveComponentSize()
-                                .testTag("admin_refresh_all_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = stringResource(R.string.admin_refresh_all_blurred, blurredCount),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    } else {
-                        FilledTonalButton(
-                            onClick = onRefreshAllBlurred,
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .minimumInteractiveComponentSize()
-                                .testTag("admin_refresh_all_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = stringResource(R.string.admin_refresh_top_ready),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Quick Upload Composer
-            item(key = "admin_upload_composer") {
-                Card(
-                    shape = MaterialTheme.shapes.extraLarge,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 680.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = stringResource(R.string.admin_upload_section_title),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = stringResource(R.string.admin_upload_section_subtitle),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Surface(
-                            onClick = {
-                                photoPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
-                            shape = MaterialTheme.shapes.large,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            border = BorderStroke(
-                                width = 1.dp,
-                                color = if (selectedUri != null) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
-                                } else {
-                                    MaterialTheme.colorScheme.outlineVariant
-                                }
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(16f / 9f)
-                                .testTag("admin_pick_photo_surface")
-                        ) {
-                            if (selectedUri != null) {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(selectedUri)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = title.ifBlank { "Selected moment" },
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                    OutlinedButton(
-                                        onClick = {
-                                            photoPickerLauncher.launch(
-                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                            )
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier
-                                            .align(Alignment.BottomEnd)
-                                            .padding(10.dp)
-                                            .minimumInteractiveComponentSize()
-                                            .testTag("admin_change_photo_button")
-                                    ) {
-                                        Text(text = stringResource(R.string.change_photo_button))
-                                    }
-                                }
-                            } else {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(16.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.AddPhotoAlternate,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(38.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Button(
-                                        onClick = {
-                                            photoPickerLauncher.launch(
-                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                            )
-                                        },
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier
-                                            .minimumInteractiveComponentSize()
-                                            .testTag("admin_pick_photo_button")
-                                    ) {
-                                        Text(text = stringResource(R.string.pick_photo_button))
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Text(
-                            text = stringResource(R.string.upload_category_label),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            STUDIO_CATEGORIES.forEach { cat ->
-                                FilterChip(
-                                    selected = selectedCategory == cat && customCategory.isBlank(),
-                                    onClick = {
-                                        selectedCategory = cat
-                                        customCategory = ""
-                                    },
-                                    label = { Text(text = cat) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                                    ),
-                                    modifier = Modifier.minimumInteractiveComponentSize()
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Text(
-                            text = stringResource(R.string.admin_price_label),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            QUICK_PRICE_PRESETS.forEach { preset ->
-                                FilterChip(
-                                    selected = price.trim() == preset,
-                                    onClick = { price = preset },
-                                    label = { Text(text = preset) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.secondary,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onSecondary
-                                    ),
-                                    modifier = Modifier.minimumInteractiveComponentSize()
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = title,
-                                onValueChange = { title = it },
-                                singleLine = true,
-                                label = { Text(text = stringResource(R.string.admin_title_optional_label)) },
-                                placeholder = { Text(text = stringResource(R.string.admin_title_optional_hint)) },
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .weight(1.3f)
-                                    .testTag("admin_title_input")
-                            )
-                            OutlinedTextField(
-                                value = price,
-                                onValueChange = { price = it },
-                                singleLine = true,
-                                label = { Text(text = stringResource(R.string.admin_price_input_label)) },
-                                placeholder = { Text(text = "₹299") },
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("admin_price_input")
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (isHidden) {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHigh
-                            },
-                            border = BorderStroke(
-                                1.dp,
-                                if (isHidden) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                } else {
-                                    MaterialTheme.colorScheme.outlineVariant
-                                }
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.VisibilityOff,
-                                        contentDescription = null,
-                                        tint = if (isHidden) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            text = stringResource(R.string.admin_hide_on_switch),
-                                            style = MaterialTheme.typography.titleSmall,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = stringResource(R.string.admin_hide_on_subtitle),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Rounded.VisibilityOff, contentDescription = null, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Switch(
-                                    checked = isHidden,
-                                    onCheckedChange = { isHidden = it },
-                                    modifier = Modifier.testTag("admin_hide_on_switch")
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        TextButton(
-                            onClick = { showMoreOptions = !showMoreOptions },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .minimumInteractiveComponentSize()
-                                .testTag("admin_more_options_toggle")
-                        ) {
-                            Icon(
-                                imageVector = if (showMoreOptions) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = stringResource(
-                                    if (showMoreOptions) R.string.admin_hide_options else R.string.admin_more_options
-                                )
-                            )
-                        }
-
-                        AnimatedVisibility(visible = showMoreOptions) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 4.dp, bottom = 8.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                OutlinedTextField(
-                                    value = manualUrl,
-                                    onValueChange = {
-                                        manualUrl = it
-                                        if (it.isNotBlank()) selectedUri = null
-                                    },
-                                    singleLine = true,
-                                    label = { Text(text = stringResource(R.string.admin_direct_url_label)) },
-                                    placeholder = { Text(text = "https://i.ibb.co/...") },
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("admin_url_input")
-                                )
-
-                                OutlinedTextField(
-                                    value = description,
-                                    onValueChange = { description = it },
-                                    minLines = 2,
-                                    maxLines = 4,
-                                    label = { Text(text = stringResource(R.string.admin_description_label)) },
-                                    placeholder = { Text(text = stringResource(R.string.admin_description_hint)) },
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("admin_description_input")
-                                )
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    OutlinedTextField(
-                                        value = customCategory,
-                                        onValueChange = { customCategory = it },
-                                        singleLine = true,
-                                        label = { Text(text = stringResource(R.string.admin_custom_category)) },
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    OutlinedTextField(
-                                        value = tagsRaw,
-                                        onValueChange = { tagsRaw = it },
-                                        singleLine = true,
-                                        label = { Text(text = stringResource(R.string.admin_tags_label)) },
-                                        placeholder = { Text(text = "date, cozy") },
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier.weight(1f)
+                                Column {
+                                    Text("40-Sec Disappearing Photo", style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        "No timer pre-warning shown. Soft memory blur after 40s.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                            }
+                            Switch(checked = hiddenTimed, onCheckedChange = { hiddenTimed = it })
+                        }
+                    }
 
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    AnimatedVisibility(visible = publishState is AdminPublishState.Error) {
+                        val msg = (publishState as? AdminPublishState.Error)?.message.orEmpty()
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp)
+                        ) {
+                            Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(visible = publishState is AdminPublishState.Success) {
+                        val msg = (publishState as? AdminPublishState.Success)?.message.orEmpty()
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp)
+                        ) {
+                            Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(msg, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+
+                    val busy = publishState is AdminPublishState.Uploading
+                    Button(
+                        onClick = {
+                            onPublishProfile(
+                                selectedUris,
+                                manualUrl,
+                                name,
+                                phone,
+                                ageText,
+                                price,
+                                address,
+                                role,
+                                tier,
+                                category,
+                                bio,
+                                hiddenTimed,
+                            )
+                        },
+                        enabled = !busy,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("admin_publish_profile_button")
+                    ) {
+                        if (busy) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Publishing Companion…")
+                        } else {
+                            Icon(Icons.Rounded.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.admin_upload_cta), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MultiAdminEmailsDialog(
+    adminEmails: List<AdminEmailEntry>,
+    onAddEmail: (String) -> Unit,
+    onRemoveEmail: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var emailDraft by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.AdminPanelSettings, contentDescription = null) },
+        title = { Text("Multi-Admin Access") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Add partner Gmail addresses directly here — no Firebase Console needed. They just tap Cloud Sign-In inside Admin Studio.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = emailDraft,
+                        onValueChange = { emailDraft = it },
+                        singleLine = true,
+                        label = { Text("Co-Admin Gmail") },
+                        placeholder = { Text("partner@gmail.com") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("co_admin_email_input")
+                    )
+                    Button(
+                        onClick = {
+                            if (emailDraft.isNotBlank()) {
+                                onAddEmail(emailDraft)
+                                emailDraft = ""
+                            }
+                        },
+                        modifier = Modifier.testTag("add_co_admin_button")
+                    ) {
+                        Text("Add")
+                    }
+                }
+
+                if (adminEmails.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        adminEmails.forEach { entry ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainer,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = entry.email,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(onClick = { onRemoveEmail(entry.email) }) {
                                         Icon(
-                                            imageVector = Icons.Rounded.AutoAwesome,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
+                                            imageVector = Icons.Rounded.DeleteOutline,
+                                            contentDescription = "Remove co-admin",
+                                            tint = MaterialTheme.colorScheme.error,
                                             modifier = Modifier.size(18.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = stringResource(R.string.admin_featured_switch),
-                                            style = MaterialTheme.typography.bodyMedium
-                                        )
-                                    }
-                                    Switch(
-                                        checked = featured,
-                                        onCheckedChange = { featured = it },
-                                        modifier = Modifier.testTag("admin_featured_switch")
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        AnimatedVisibility(visible = publishState is AdminPublishState.Error) {
-                            val msg = (publishState as? AdminPublishState.Error)?.message.orEmpty()
-                            Surface(
-                                shape = MaterialTheme.shapes.medium,
-                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 10.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.ErrorOutline,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(text = msg, style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-
-                        AnimatedVisibility(visible = publishState is AdminPublishState.Success) {
-                            val success = publishState as? AdminPublishState.Success
-                            if (success != null) {
-                                Surface(
-                                    shape = MaterialTheme.shapes.medium,
-                                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.14f),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.45f)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = 10.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.CheckCircle,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.tertiary
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = success.message,
-                                                style = MaterialTheme.typography.labelLarge
-                                            )
-                                            Text(
-                                                text = success.imageUrl,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                clipboard.setText(AnnotatedString(success.imageUrl))
-                                                scope.launch { snackbarHostState.showSnackbar(copiedText) }
-                                            },
-                                            modifier = Modifier.minimumInteractiveComponentSize()
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.ContentCopy,
-                                                contentDescription = copiedText
-                                            )
-                                        }
                                     }
                                 }
                             }
                         }
-
-                        val isBusy = publishState is AdminPublishState.UploadingToImgBb
-
-                        Button(
-                            onClick = {
-                                val effectiveCategory = customCategory.trim().ifBlank { selectedCategory }
-                                onUploadPicture(
-                                    selectedUri,
-                                    manualUrl,
-                                    title,
-                                    description,
-                                    effectiveCategory,
-                                    price,
-                                    tagsRaw,
-                                    featured,
-                                    isHidden,
-                                )
-                            },
-                            enabled = !isBusy,
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(54.dp)
-                                .minimumInteractiveComponentSize()
-                                .testTag("admin_publish_submit_button")
-                        ) {
-                            if (isBusy) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(text = stringResource(R.string.uploading_to_imgbb))
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Rounded.CloudUpload,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = stringResource(R.string.admin_upload_cta))
-                            }
-                        }
                     }
                 }
             }
-
-            // Uploaded Pictures Management
-            if (uploadedImages.isNotEmpty()) {
-                item(key = "admin_uploads_header") {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = 680.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = stringResource(R.string.admin_device_previews_title, uploadedImages.size),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                                Text(
-                                    text = stringResource(R.string.admin_device_previews_subtitle),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            TextButton(
-                                onClick = onClearAllUploads,
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            ) {
-                                Text(text = stringResource(R.string.clear))
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StudioFilter.entries.forEach { filter ->
-                                val labelText = if (filter == StudioFilter.BLURRED && blurredCount > 0) {
-                                    "${filter.label} ($blurredCount)"
-                                } else {
-                                    filter.label
-                                }
-                                FilterChip(
-                                    selected = selectedFilter == filter,
-                                    onClick = { selectedFilter = filter },
-                                    label = { Text(text = labelText) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                                    ),
-                                    modifier = Modifier.minimumInteractiveComponentSize()
-                                )
-                            }
-                        }
-                    }
-                }
-
-                items(filteredUploads, key = { "upload_${it.id}" }) { upload ->
-                    StudioUploadCard(
-                        image = upload,
-                        onToggleFeatured = { onToggleFeatured(upload) },
-                        onRefreshBlurred = { onRefreshBlurredUpload(upload.id) },
-                        onEdit = { editingImage = upload },
-                        onCopyLink = {
-                            clipboard.setText(AnnotatedString(upload.imageUrl))
-                            scope.launch { snackbarHostState.showSnackbar(copiedText) }
-                        },
-                        onDelete = { deletingImage = upload },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = 680.dp)
-                    )
-                }
-            }
-
-            item(key = "admin_bottom_spacer") {
-                Spacer(modifier = Modifier.height(24.dp))
-            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
         }
-    }
-
-    if (editingImage != null) {
-        val current = editingImage!!
-        AdminEditArtworkSheet(
-            image = current,
-            onDismiss = { editingImage = null },
-            onSave = { newTitle, newDesc, newCat, newPrice, newTags, newFeat, newHidden ->
-                onUpdateMetadata(
-                    current.id,
-                    newTitle,
-                    newDesc,
-                    newCat,
-                    newPrice,
-                    newTags,
-                    newFeat,
-                    newHidden,
-                )
-                editingImage = null
-            }
-        )
-    }
-
-    if (deletingImage != null) {
-        val target = deletingImage!!
-        AlertDialog(
-            onDismissRequest = { deletingImage = null },
-            title = { Text(text = stringResource(R.string.admin_delete_confirm_title)) },
-            text = { Text(text = stringResource(R.string.admin_delete_confirm_body, target.title)) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onRemoveUpload(target.id)
-                        deletingImage = null
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError
-                    )
-                ) {
-                    Text(text = stringResource(R.string.admin_delete_button))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { deletingImage = null }) {
-                    Text(text = stringResource(R.string.cancel))
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun StudioUploadCard(
-    image: GalleryImage,
-    onToggleFeatured: () -> Unit,
-    onRefreshBlurred: () -> Unit,
-    onEdit: () -> Unit,
-    onCopyLink: () -> Unit,
-    onDelete: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val canRefresh = image.isDeletedBlurred || image.isRevealStarted
-
-    Card(
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier.testTag("admin_artwork_card_${image.id}")
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (image.isDeletedBlurred) {
-                    PixoraBlurredImage(
-                        imageUrl = image.displayThumbnailUrl,
-                        contentDescription = image.title,
-                        modifier = Modifier
-                            .size(68.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                    )
-                } else {
-                    PixoraNetworkImage(
-                        imageUrl = image.displayThumbnailUrl,
-                        contentDescription = image.title,
-                        modifier = Modifier
-                            .size(68.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = image.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val statusLabel = when {
-                            image.isDeletedBlurred -> "BLURRED"
-                            image.isHidden -> "SECRET · 20s"
-                            else -> "LIVE"
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = when {
-                                image.isDeletedBlurred -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)
-                                image.isHidden -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-                                else -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
-                            }
-                        ) {
-                            Text(
-                                text = statusLabel,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = when {
-                                    image.isDeletedBlurred -> MaterialTheme.colorScheme.secondary
-                                    image.isHidden -> MaterialTheme.colorScheme.primary
-                                    else -> MaterialTheme.colorScheme.tertiary
-                                },
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
-                        }
-                        PriceBadgePill(price = image.displayPrice)
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = image.category,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (canRefresh) {
-                    Button(
-                        onClick = onRefreshBlurred,
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                        modifier = Modifier
-                            .height(40.dp)
-                            .minimumInteractiveComponentSize()
-                            .testTag("admin_refresh_button_${image.id}")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.admin_refresh_single),
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-                } else {
-                    IconButton(
-                        onClick = onToggleFeatured,
-                        modifier = Modifier.minimumInteractiveComponentSize()
-                    ) {
-                        Icon(
-                            imageVector = if (image.featured) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                            contentDescription = "Toggle featured",
-                            tint = if (image.featured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onCopyLink,
-                        modifier = Modifier.minimumInteractiveComponentSize()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.ContentCopy,
-                            contentDescription = stringResource(R.string.copy_link)
-                        )
-                    }
-                    IconButton(
-                        onClick = onEdit,
-                        modifier = Modifier.minimumInteractiveComponentSize()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Edit,
-                            contentDescription = "Edit moment"
-                        )
-                    }
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.minimumInteractiveComponentSize()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.DeleteOutline,
-                            contentDescription = stringResource(R.string.admin_delete_button),
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AdminEditArtworkSheet(
-    image: GalleryImage,
-    onDismiss: () -> Unit,
-    onSave: (
-        title: String,
-        description: String,
-        category: String,
-        price: String,
-        tagsRaw: String,
-        featured: Boolean,
-        isHidden: Boolean,
-    ) -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var title by remember { mutableStateOf(image.title) }
-    var description by remember { mutableStateOf(image.description) }
-    var category by remember { mutableStateOf(image.category) }
-    var price by remember { mutableStateOf(image.price.ifBlank { "₹299" }) }
-    var tagsRaw by remember { mutableStateOf(image.tags.joinToString(", ")) }
-    var featured by remember { mutableStateOf(image.featured) }
-    var isHidden by remember { mutableStateOf(image.isHidden) }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.admin_edit_title),
-                style = MaterialTheme.typography.headlineSmall
-            )
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                singleLine = true,
-                label = { Text(text = stringResource(R.string.upload_title_label)) },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = category,
-                    onValueChange = { category = it },
-                    singleLine = true,
-                    label = { Text(text = stringResource(R.string.upload_category_label)) },
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                    value = price,
-                    onValueChange = { price = it },
-                    singleLine = true,
-                    label = { Text(text = stringResource(R.string.admin_price_input_label)) },
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            OutlinedTextField(
-                value = description,
-                onValueChange = { description = it },
-                minLines = 2,
-                maxLines = 4,
-                label = { Text(text = stringResource(R.string.admin_description_label)) },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = tagsRaw,
-                onValueChange = { tagsRaw = it },
-                singleLine = true,
-                label = { Text(text = stringResource(R.string.admin_tags_label)) },
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(text = stringResource(R.string.admin_hide_on_switch))
-                Switch(checked = isHidden, onCheckedChange = { isHidden = it })
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(text = stringResource(R.string.admin_featured_switch))
-                Switch(checked = featured, onCheckedChange = { featured = it })
-            }
-            Button(
-                onClick = {
-                    onSave(
-                        title,
-                        description,
-                        category,
-                        price,
-                        tagsRaw,
-                        featured,
-                        isHidden,
-                    )
-                },
-                enabled = title.isNotBlank(),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .minimumInteractiveComponentSize()
-            ) {
-                Text(text = stringResource(R.string.admin_save_changes))
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-    }
+    )
 }

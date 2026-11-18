@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.CategoryCollection
 import com.example.data.model.GalleryImage
+import com.example.data.model.ProfileTier
 import com.example.data.model.SavedBookmark
 import com.example.data.model.UiState
 import com.example.data.preferences.HiddenRevealRecord
@@ -45,7 +46,6 @@ class GalleryViewModel(
     private val prefsRepository: ThemePreferencesRepository,
     private val notifiedImagesStore: NotifiedImagesStore,
     private val hiddenRevealStateStore: HiddenRevealStateStore? = null,
-    private val appPackageName: String = "",
 ) : ViewModel() {
 
     private val _selectedCategory = MutableStateFlow(CATEGORY_ALL)
@@ -60,18 +60,13 @@ class GalleryViewModel(
     private val _newArrivalEvents = MutableSharedFlow<GalleryImage>(extraBufferCapacity = 8)
     val newArrivalEvents: SharedFlow<GalleryImage> = _newArrivalEvents.asSharedFlow()
 
-    // Instant in-memory reveal expiry overlay so Unlock responds in 0ms
     private val optimisticRevealExpiries = MutableStateFlow<Map<String, Pair<Long, Long>>>(emptyMap())
-
     private val knownFirestoreIds = mutableSetOf<String>()
     private var initialFirestoreSnapshotHandled = false
     private val activeExpirationJobs = mutableMapOf<String, Job>()
 
     init {
         viewModelScope.launch {
-            if (appPackageName.isNotBlank()) {
-                testUploadsRepository.ensureStarterMomentsSeeded(appPackageName)
-            }
             val expiredIds = testUploadsRepository.markExpiredUploads()
             expiredIds.forEach { bookmarksRepository.removeBookmark(it) }
         }
@@ -82,13 +77,6 @@ class GalleryViewModel(
             }
         }
     }
-
-    val isStaggeredLayout: StateFlow<Boolean> = prefsRepository.isStaggeredLayout
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = false,
-        )
 
     val themeMode: StateFlow<ThemeMode> = prefsRepository.themeMode
         .stateIn(
@@ -109,14 +97,6 @@ class GalleryViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
             initialValue = 0L,
-        )
-
-    val testUploadsCount: StateFlow<Int> = testUploadsRepository.testUploads
-        .map { it.size }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = 0,
         )
 
     private val remoteGalleryFlow = repository.observePublishedImages()
@@ -152,7 +132,7 @@ class GalleryViewModel(
                 .firstOrNull()
             if (firestoreError == null && error is CancellationException) throw error
             val rootError = firestoreError ?: error
-            Log.w(TAG, "Error observing gallery images", rootError)
+            Log.w(TAG, "Error observing companion profiles", rootError)
             emit(UiState.Error(rootError.message ?: "Unable to sync companion feed"))
         }
 
@@ -218,7 +198,7 @@ class GalleryViewModel(
                     applyOptimistic(withReveal)
                 }
 
-                val merged = (mappedLocal + mappedRemote)
+                val merged = (mappedRemote + mappedLocal)
                     .distinctBy { it.id }
                     .sortedByDescending { it.createdAt ?: Timestamp(0, 0) }
                 UiState.Success(merged)
@@ -251,28 +231,20 @@ class GalleryViewModel(
                 ?.mapNotNull { it.category.trim().takeIf(String::isNotBlank) }
                 ?.distinct()
                 ?: emptyList()
-            listOf(CATEGORY_ALL) + dynamic
+            listOf(CATEGORY_ALL, "GF", "BF") + dynamic.filterNot {
+                it.equals("GF", true) || it.equals("BF", true)
+            }
         }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = listOf(CATEGORY_ALL),
+            initialValue = listOf(CATEGORY_ALL, "GF", "BF"),
         )
 
-    val collections: StateFlow<List<CategoryCollection>> = galleryState
+    val vipProfiles: StateFlow<List<GalleryImage>> = galleryState
         .map { state ->
-            val images = (state as? UiState.Success)?.data ?: return@map emptyList()
-            images.groupBy { it.category.trim().ifBlank { "Date Night" } }
-                .entries
-                .sortedByDescending { it.value.size }
-                .map { (name, items) ->
-                    CategoryCollection(
-                        name = name,
-                        count = items.size,
-                        coverUrl = items.firstOrNull { !it.isHidden && !it.isDeletedBlurred }
-                            ?.displayThumbnailUrl.orEmpty()
-                    )
-                }
+            val items = (state as? UiState.Success)?.data ?: return@map emptyList()
+            items.filter { it.tier == ProfileTier.VIP_16_9 }
         }
         .stateIn(
             scope = viewModelScope,
@@ -280,20 +252,7 @@ class GalleryViewModel(
             initialValue = emptyList(),
         )
 
-    val featuredImages: StateFlow<List<GalleryImage>> = galleryState
-        .map { state ->
-            val images = (state as? UiState.Success)?.data ?: return@map emptyList()
-            val visibleImages = images.filterNot { it.isHidden || it.isDeletedBlurred }
-            val explicitFeatured = visibleImages.filter { it.featured }
-            (explicitFeatured.ifEmpty { visibleImages }).take(5)
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = emptyList(),
-        )
-
-    val filteredImages: StateFlow<UiState<List<GalleryImage>>> = combine(
+    val filteredGridProfiles: StateFlow<UiState<List<GalleryImage>>> = combine(
         galleryState,
         _selectedCategory,
         _searchQuery,
@@ -303,15 +262,24 @@ class GalleryViewModel(
             is UiState.Error -> state
             is UiState.Success -> {
                 val trimmedQuery = query.trim().lowercase()
-                val filtered = state.data.filter { img ->
-                    val matchesCategory = category == CATEGORY_ALL ||
-                        img.category.equals(category, ignoreCase = true)
+                val baseList = if (category == CATEGORY_ALL && trimmedQuery.isEmpty()) {
+                    state.data.filter { it.tier != ProfileTier.VIP_16_9 }
+                } else {
+                    state.data
+                }
+                val filtered = baseList.filter { item ->
+                    val matchesCategory = when {
+                        category == CATEGORY_ALL -> true
+                        category.equals("GF", true) || category.equals("BF", true) ->
+                            item.role.equals(category, ignoreCase = true)
+                        else -> item.category.equals(category, ignoreCase = true)
+                    }
                     val matchesQuery = trimmedQuery.isEmpty() ||
-                        img.title.lowercase().contains(trimmedQuery) ||
-                        img.description.lowercase().contains(trimmedQuery) ||
-                        img.category.lowercase().contains(trimmedQuery) ||
-                        img.price.lowercase().contains(trimmedQuery) ||
-                        img.tags.any { it.lowercase().contains(trimmedQuery) }
+                        item.title.lowercase().contains(trimmedQuery) ||
+                        item.description.lowercase().contains(trimmedQuery) ||
+                        item.category.lowercase().contains(trimmedQuery) ||
+                        item.role.lowercase().contains(trimmedQuery) ||
+                        item.price.lowercase().contains(trimmedQuery)
                     matchesCategory && matchesQuery
                 }
                 UiState.Success(filtered)
@@ -336,18 +304,6 @@ class GalleryViewModel(
         _searchQuery.value = ""
     }
 
-    fun toggleLayout() {
-        viewModelScope.launch {
-            prefsRepository.setStaggeredLayout(!isStaggeredLayout.value)
-        }
-    }
-
-    fun setStaggeredLayout(staggered: Boolean) {
-        viewModelScope.launch {
-            prefsRepository.setStaggeredLayout(staggered)
-        }
-    }
-
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch {
             prefsRepository.setThemeMode(mode)
@@ -359,7 +315,7 @@ class GalleryViewModel(
             notifiedImagesStore.setBackgroundSyncEnabled(enabled)
             if (enabled) {
                 BackgroundSyncScheduler.schedulePeriodicSync(context)
-                _events.tryEmit("Background sync enabled (every 15 min)")
+                _events.tryEmit("Background sync enabled")
             } else {
                 BackgroundSyncScheduler.cancelPeriodicSync(context)
                 _events.tryEmit("Background sync paused")
@@ -369,11 +325,11 @@ class GalleryViewModel(
 
     fun triggerBackgroundCheckNow(context: Context) {
         BackgroundSyncScheduler.triggerImmediateCheck(context)
-        _events.tryEmit("Checking for new companion drops…")
+        _events.tryEmit("Checking for new live profiles…")
     }
 
     fun notifyExpiredBlurredTap() {
-        _events.tryEmit("This moment expired after 20s — only a blurred memory remains.")
+        _events.tryEmit("This photo has faded into a memory.")
     }
 
     fun emitInAppAlertPreview(image: GalleryImage) {
@@ -426,20 +382,17 @@ class GalleryViewModel(
             optimisticRevealExpiries.update { it - imageId }
             bookmarksRepository.removeBookmark(imageId)
             activeExpirationJobs.remove(jobKey)
-            _events.tryEmit("Moment deleted · Blurred memory kept")
         }
     }
 
     fun toggleBookmark(image: GalleryImage) {
         viewModelScope.launch {
             if (image.isHidden || image.isDeletedBlurred) {
-                _events.tryEmit("Private 20s & expired moments cannot be saved")
+                _events.tryEmit("Private moments cannot be bookmarked")
                 return@launch
             }
             val nowSaved = bookmarksRepository.toggleBookmark(image)
-            _events.tryEmit(
-                if (nowSaved) "Saved to favorites" else "Removed from favorites"
-            )
+            _events.tryEmit(if (nowSaved) "Saved to favorites" else "Removed from favorites")
         }
     }
 
@@ -453,7 +406,7 @@ class GalleryViewModel(
     fun clearAllBookmarks() {
         viewModelScope.launch {
             bookmarksRepository.clearAll()
-            _events.tryEmit("Cleared favorite moments")
+            _events.tryEmit("Cleared favorite profiles")
         }
     }
 
@@ -472,7 +425,7 @@ class GalleryViewModel(
 
     companion object {
         const val CATEGORY_ALL = "All"
-        const val HIDDEN_REVEAL_TTL_MS = 20_000L
+        const val HIDDEN_REVEAL_TTL_MS = 40_000L
         private const val TAG = "GalleryVM"
         private const val STOP_TIMEOUT_MILLIS = 5000L
     }

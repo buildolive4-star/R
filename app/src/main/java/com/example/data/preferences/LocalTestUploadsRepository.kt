@@ -3,11 +3,11 @@ package com.example.data.preferences
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.data.model.GalleryImage
+import com.example.data.model.ProfileTier
 import com.google.firebase.Timestamp
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
@@ -16,7 +16,7 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-private val Context.testUploadsDataStore: DataStore<Preferences> by preferencesDataStore(name = "pixora_test_uploads")
+private val Context.testUploadsDataStore: DataStore<Preferences> by preferencesDataStore(name = "justus_device_uploads")
 
 @JsonClass(generateAdapter = true)
 data class StoredTestUpload(
@@ -25,11 +25,15 @@ data class StoredTestUpload(
     val category: String,
     val imageUrl: String,
     val thumbUrl: String,
+    val photoUrls: List<String> = emptyList(),
     val aspectRatio: Double,
     val createdAtEpochMs: Long,
     val description: String = "",
-    val price: String = "",
-    val featured: Boolean = true,
+    val price: String = "₹299",
+    val age: Int = 21,
+    val role: String = "GF",
+    val tier: String = ProfileTier.GRID_9_16,
+    val featured: Boolean = false,
     val tags: List<String> = emptyList(),
     val isHidden: Boolean = false,
     val revealExpiresAtEpochMs: Long = 0L,
@@ -38,26 +42,25 @@ data class StoredTestUpload(
 ) {
     fun toGalleryImage(nowMs: Long = System.currentTimeMillis()): GalleryImage {
         val expiredNow = isExpired || (isHidden && revealExpiresAtEpochMs > 0L && nowMs >= revealExpiresAtEpochMs)
+        val photos = if (photoUrls.isNotEmpty()) photoUrls else listOf(imageUrl)
         return GalleryImage(
             id = id,
             title = title,
-            description = description.ifBlank {
-                when {
-                    expiredNow -> "Expired after 20s · Blurred memory"
-                    isHidden -> "Private 20s disappearing drop"
-                    else -> "Shared by Aria · Companion"
-                }
-            },
+            description = description,
             category = category,
             imageUrl = imageUrl,
             thumbUrl = thumbUrl,
+            photoUrls = photos,
             aspectRatio = aspectRatio,
             price = price,
+            age = age,
+            role = role,
+            tier = tier,
             status = "published",
-            featured = if (isHidden || expiredNow) false else featured,
-            uploadedBy = "pixora_admin",
-            uploaderName = "Aria · Companion",
-            tags = tags.ifEmpty { listOf("companion", category.lowercase()) },
+            featured = if (isHidden || expiredNow) false else (featured || tier == ProfileTier.VIP_16_9),
+            uploadedBy = "justus_admin",
+            uploaderName = title,
+            tags = tags,
             isHidden = isHidden,
             revealExpiresAtEpochMs = revealExpiresAtEpochMs,
             isExpired = expiredNow,
@@ -69,8 +72,7 @@ data class StoredTestUpload(
 }
 
 class LocalTestUploadsRepository(private val context: Context) {
-    private val key = stringPreferencesKey("test_uploads_json")
-    private val starterSeededKey = booleanPreferencesKey("starter_seeded_v2")
+    private val key = stringPreferencesKey("device_profiles_json")
 
     private val moshi: Moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
@@ -83,77 +85,6 @@ class LocalTestUploadsRepository(private val context: Context) {
         decodeList(prefs[key])
             .sortedByDescending { it.createdAtEpochMs }
             .map { it.toGalleryImage(now) }
-    }
-
-    suspend fun ensureStarterMomentsSeeded(packageName: String) {
-        context.testUploadsDataStore.edit { prefs ->
-            if (prefs[starterSeededKey] == true) return@edit
-            val current = decodeList(prefs[key])
-            if (current.size >= 4) {
-                prefs[starterSeededKey] = true
-                return@edit
-            }
-            val baseTime = System.currentTimeMillis()
-            val starters = listOf(
-                StoredTestUpload(
-                    id = "starter_date_night",
-                    title = "Candlelit Rooftop Date",
-                    category = "Date Night",
-                    imageUrl = "android.resource://$packageName/drawable/img_moment_date",
-                    thumbUrl = "android.resource://$packageName/drawable/img_moment_date",
-                    aspectRatio = 9.0 / 16.0,
-                    createdAtEpochMs = baseTime - 1000L,
-                    description = "Warm twilight dinner lights just for us tonight.",
-                    price = "₹299",
-                    featured = true,
-                    tags = listOf("datenight", "rooftop", "evening"),
-                ),
-                StoredTestUpload(
-                    id = "starter_morning_latte",
-                    title = "Golden Hour Latte",
-                    category = "Morning",
-                    imageUrl = "android.resource://$packageName/drawable/img_moment_selfie",
-                    thumbUrl = "android.resource://$packageName/drawable/img_moment_selfie",
-                    aspectRatio = 9.0 / 16.0,
-                    createdAtEpochMs = baseTime - 2000L,
-                    description = "Morning coffee mood by the sunlit window.",
-                    price = "₹199",
-                    featured = true,
-                    tags = listOf("morning", "coffee", "candid"),
-                ),
-                StoredTestUpload(
-                    id = "starter_twilight_balcony",
-                    title = "Twilight Balcony Mood",
-                    category = "Outfits",
-                    imageUrl = "android.resource://$packageName/drawable/img_moment_velvet",
-                    thumbUrl = "android.resource://$packageName/drawable/img_moment_velvet",
-                    aspectRatio = 9.0 / 16.0,
-                    createdAtEpochMs = baseTime - 3000L,
-                    description = "City skyline lights in my favorite lavender coat.",
-                    price = "₹399",
-                    featured = false,
-                    tags = listOf("outfits", "twilight", "balcony"),
-                ),
-                StoredTestUpload(
-                    id = "starter_secret_whisper",
-                    title = "Secret 20s Snap",
-                    category = "Exclusive",
-                    imageUrl = "android.resource://$packageName/drawable/img_companion_avatar",
-                    thumbUrl = "android.resource://$packageName/drawable/img_companion_avatar",
-                    aspectRatio = 9.0 / 16.0,
-                    createdAtEpochMs = baseTime - 4000L,
-                    description = "Tap to unlock — blurs automatically after 20 seconds.",
-                    price = "₹499",
-                    featured = false,
-                    tags = listOf("exclusive", "secret", "20s"),
-                    isHidden = true,
-                ),
-            )
-            val existingIds = current.map { it.id }.toSet()
-            val merged = current + starters.filterNot { existingIds.contains(it.id) }
-            prefs[key] = adapter.toJson(merged)
-            prefs[starterSeededKey] = true
-        }
     }
 
     suspend fun addUpload(upload: StoredTestUpload) {
@@ -169,20 +100,28 @@ class LocalTestUploadsRepository(private val context: Context) {
         description: String,
         category: String,
         price: String,
-        featured: Boolean,
         tags: List<String>,
+        featured: Boolean? = null,
         isHidden: Boolean? = null,
+        age: Int? = null,
+        role: String? = null,
+        tier: String? = null,
     ) {
         context.testUploadsDataStore.edit { prefs ->
             val updated = decodeList(prefs[key]).map { item ->
                 if (item.id == imageId) {
                     val nextHidden = isHidden ?: item.isHidden
+                    val nextTier = tier ?: item.tier
                     item.copy(
-                        title = title.trim().ifBlank { item.title }.take(120),
+                        title = title.trim().ifBlank { item.title }.take(80),
                         description = description.trim().take(600),
-                        category = category.trim().ifBlank { "Date Night" }.take(40),
+                        category = category.trim().ifBlank { "Companion" }.take(40),
                         price = price.trim().take(32),
-                        featured = featured,
+                        age = age?.coerceIn(18, 80) ?: item.age,
+                        role = role ?: item.role,
+                        tier = nextTier,
+                        aspectRatio = if (nextTier == ProfileTier.VIP_16_9) 16.0 / 9.0 else 9.0 / 16.0,
+                        featured = featured ?: (nextTier == ProfileTier.VIP_16_9),
                         tags = tags.map { it.trim().take(32) }.filter { it.isNotEmpty() }.distinct().take(10),
                         isHidden = nextHidden,
                         revealExpiresAtEpochMs = if (!nextHidden) 0L else item.revealExpiresAtEpochMs,
@@ -196,7 +135,7 @@ class LocalTestUploadsRepository(private val context: Context) {
         }
     }
 
-    suspend fun startHiddenRevealCountdown(imageId: String, ttlMs: Long = 20_000L): Long {
+    suspend fun startHiddenRevealCountdown(imageId: String, ttlMs: Long = 40_000L): Long {
         var expiresAt = 0L
         context.testUploadsDataStore.edit { prefs ->
             val now = System.currentTimeMillis()
