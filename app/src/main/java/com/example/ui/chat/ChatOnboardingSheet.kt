@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
@@ -44,12 +45,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.firebase.GoogleAuthHelper
 import com.example.data.model.GalleryImage
 import com.example.data.model.UserAccount
 import com.example.ui.components.PixoraNetworkImage
@@ -64,6 +67,7 @@ fun ChatOnboardingSheet(
     defaultDisplayName: String,
     isBusy: Boolean,
     isSignedIn: Boolean,
+    errorMessage: String? = null,
     onSubmit: (name: String, phone: String, ageText: String, address: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -220,7 +224,28 @@ fun ChatOnboardingSheet(
                     .testTag("onboarding_address_input")
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            if (!errorMessage.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("onboarding_error_banner")
+                ) {
+                    SelectionContainer {
+                        Text(
+                            text = errorMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             Button(
                 onClick = { onSubmit(name, phone, ageText, address) },
@@ -260,6 +285,25 @@ fun ChatOnboardingSheet(
                         color = Color.White
                     )
                 }
+            }
+
+            if (!isSignedIn) {
+                val context = LocalContext.current
+                val diagInfo = remember(context) { GoogleAuthHelper.getAuthDiagnosticInfo(context) }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (diagInfo.isSha1Matched && diagInfo.hasWebClientId) {
+                        "Build Key: Verified (${diagInfo.packageName})"
+                    } else {
+                        "Build Key Warning: SHA-1 ${diagInfo.runtimeSha1Colon ?: "unknown"}"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (diagInfo.isSha1Matched && diagInfo.hasWebClientId) {
+                        MaterialTheme.colorScheme.tertiary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.height(18.dp))

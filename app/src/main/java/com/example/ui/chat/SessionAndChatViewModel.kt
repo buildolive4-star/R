@@ -172,11 +172,13 @@ class SessionAndChatViewModel(
         if (currentUser != null && account != null && account.hasInquiryReadyDetails) {
             openChatDirectly(account, profile)
         } else {
+            _authErrorMessage.value = null
             _pendingChatProfile.value = profile
         }
     }
 
     fun dismissChatOnboarding() {
+        _authErrorMessage.value = null
         _pendingChatProfile.value = null
     }
 
@@ -188,21 +190,30 @@ class SessionAndChatViewModel(
         address: String,
     ) {
         val profile = _pendingChatProfile.value ?: return
+        _authErrorMessage.value = null
         val age = ageText.trim().toIntOrNull() ?: 0
         if (name.trim().length < 2) {
-            _events.tryEmit("Please enter your full name")
+            val msg = "Please enter your full name (minimum 2 characters)."
+            _authErrorMessage.value = msg
+            _events.tryEmit(msg)
             return
         }
         if (phone.count { it.isDigit() } < 8) {
-            _events.tryEmit("Please enter a valid mobile number")
+            val msg = "Please enter a valid mobile number (at least 8 digits)."
+            _authErrorMessage.value = msg
+            _events.tryEmit(msg)
             return
         }
         if (age !in 18..99) {
-            _events.tryEmit("Please enter a valid age (18+)")
+            val msg = "Please enter a valid age (18 to 99)."
+            _authErrorMessage.value = msg
+            _events.tryEmit(msg)
             return
         }
         if (address.trim().length < 4) {
-            _events.tryEmit("Please enter your city / address")
+            val msg = "Please enter your full city / address."
+            _authErrorMessage.value = msg
+            _events.tryEmit(msg)
             return
         }
 
@@ -241,14 +252,19 @@ class SessionAndChatViewModel(
                 val chatRes = chatRepository.openOrCreateChat(savedAccount, profile)
                 _isBusy.value = false
                 chatRes.onSuccess { thread ->
+                    _authErrorMessage.value = null
                     _pendingChatProfile.value = null
                     _navigateToChatId.tryEmit(thread.id)
                 }.onFailure { err ->
-                    _events.tryEmit(err.localizedMessage ?: "Unable to start chat")
+                    val msg = "Chat Error: ${err.localizedMessage ?: "Unable to start chat"}"
+                    _authErrorMessage.value = msg
+                    _events.tryEmit(msg)
                 }
             }.onFailure { err ->
                 _isBusy.value = false
-                _events.tryEmit(err.localizedMessage ?: "Unable to save inquiry profile")
+                val msg = "Profile Save Error: ${err.localizedMessage ?: "Unable to save inquiry profile"}"
+                _authErrorMessage.value = msg
+                _events.tryEmit(msg)
             }
         }
     }

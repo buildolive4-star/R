@@ -721,6 +721,7 @@ fun JustUsAppRoot(
             defaultDisplayName = firebaseUser?.displayName.orEmpty(),
             isBusy = isProfileBusy,
             isSignedIn = firebaseUser != null,
+            errorMessage = authErrorMessage,
             onSubmit = { name, phone, ageText, address ->
                 sessionViewModel.completeOnboardingAndOpenChat(
                     activityContext = context,
