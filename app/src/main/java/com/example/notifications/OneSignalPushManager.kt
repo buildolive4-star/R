@@ -1,8 +1,14 @@
 package com.example.notifications
 
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
 import com.example.BuildConfig
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
 import com.onesignal.OneSignal
 import com.onesignal.debug.LogLevel
 import com.onesignal.notifications.INotificationClickEvent
@@ -16,6 +22,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -23,6 +32,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
 
 object OneSignalPushManager {
     private const val TAG = "JustUsOneSignal"
@@ -41,6 +52,12 @@ object OneSignalPushManager {
             .build()
     }
 
+    private data class PendingIdentity(
+        val uid: String?,
+        val isAdmin: Boolean,
+        val isApprovedStaff: Boolean,
+    )
+
     @Volatile
     var isAppInForeground: Boolean = false
 
@@ -52,6 +69,17 @@ object OneSignalPushManager {
 
     @Volatile
     private var lastSyncedRoleKey: String? = null
+
+    @Volatile
+    private var pendingIdentity: PendingIdentity? = null
+
+    @Volatile
+    private var appContextRef: Context? = null
+
+    private val probeInFlight = AtomicBoolean(false)
+
+    @Volatile
+    private var fcmProbeSkippedOrFailed: Boolean = false
 
     private val _deepLinkChat = MutableStateFlow<Pair<String, String>?>(null)
     val deepLinkChat: StateFlow<Pair<String, String>?> = _deepLinkChat.asStateFlow()
@@ -77,6 +105,9 @@ object OneSignalPushManager {
 
     fun isFullyConfigured(): Boolean = isAppIdConfigured() && isRestKeyConfigured()
 
+    val isInitialized: Boolean
+        get() = initializedAppId != null
+
     fun consumeDeepLinkChat() {
         _deepLinkChat.value = null
     }
@@ -86,6 +117,9 @@ object OneSignalPushManager {
     }
 
     fun init(applicationContext: Context) {
+        val appCtx = applicationContext.applicationContext ?: applicationContext
+        appContextRef = appCtx
+
         if (!isAppIdConfigured()) {
             Log.i(TAG, "OneSignal App ID not configured yet; using local + WorkManager alerts.")
             return
@@ -93,9 +127,58 @@ object OneSignalPushManager {
         val currentId = appId
         if (initializedAppId == currentId) return
 
+        // Robolectric / environments without FirebaseApp initialized cannot use FCM
+        val hasFirebase = runCatching { FirebaseApp.getApps(appCtx).isNotEmpty() }.getOrDefault(false)
+        if (!hasFirebase) {
+            Log.i(TAG, "FirebaseApp unavailable in this runtime; skipping OneSignal FCM init.")
+            return
+        }
+
+        val gmsAvailable = runCatching {
+            GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(appCtx) == ConnectionResult.SUCCESS
+        }.getOrDefault(false)
+        if (!gmsAvailable) {
+            Log.i(TAG, "Google Play Services unavailable; using live Firestore + WorkManager alerts.")
+            return
+        }
+
+        val hasPlayStore = isPlayStoreInstalled(appCtx)
+        val emulator = isLikelyEmulator()
+
+        // On physical devices with Google Play Services + Play Store, initialize OneSignal immediately
+        // so cold-start notification clicks are never missed.
+        if (!emulator && hasPlayStore) {
+            initializeSdkNow(appCtx, currentId)
+            return
+        }
+
+        // On emulators or non-Play-Store devices (e.g. cloud/AOSP emulators where FCM check-in is absent),
+        // pre-flight probe FCM token retrieval safely first so OneSignal does not spam E/OneSignal errors.
+        if (fcmProbeSkippedOrFailed || !probeInFlight.compareAndSet(false, true)) {
+            return
+        }
+        pushScope.launch {
+            try {
+                val fcmReady = probeFcmTokenAvailable()
+                if (fcmReady) {
+                    withContext(Dispatchers.Main) {
+                        initializeSdkNow(appCtx, currentId)
+                    }
+                } else {
+                    fcmProbeSkippedOrFailed = true
+                    Log.i(TAG, "FCM registration unavailable in this emulator/device; using live Firestore + WorkManager alerts.")
+                }
+            } finally {
+                probeInFlight.set(false)
+            }
+        }
+    }
+
+    private fun initializeSdkNow(appCtx: Context, currentId: String) {
+        if (initializedAppId == currentId) return
         runCatching {
             OneSignal.Debug.logLevel = LogLevel.WARN
-            OneSignal.initWithContext(applicationContext, currentId)
+            OneSignal.initWithContext(appCtx, currentId)
             initializedAppId = currentId
 
             OneSignal.Notifications.addClickListener(object : INotificationClickListener {
@@ -129,9 +212,62 @@ object OneSignalPushManager {
                     }
                 }
             })
+
+            pendingIdentity?.let { queued ->
+                syncUserIdentity(queued.uid, queued.isAdmin, queued.isApprovedStaff)
+            }
         }.onFailure { err ->
             Log.w(TAG, "OneSignal initialization skipped/failed safely", err)
         }
+    }
+
+    private suspend fun probeFcmTokenAvailable(): Boolean {
+        return withTimeoutOrNull(6_000L) {
+            suspendCancellableCoroutine { cont ->
+                runCatching {
+                    FirebaseMessaging.getInstance().getToken().addOnCompleteListener { task ->
+                        if (cont.isActive) {
+                            val ok = task.isSuccessful && !task.result.isNullOrBlank()
+                            cont.resume(ok)
+                        }
+                    }
+                }.onFailure {
+                    if (cont.isActive) cont.resume(false)
+                }
+            }
+        } ?: false
+    }
+
+    private fun isPlayStoreInstalled(context: Context): Boolean {
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getPackageInfo("com.android.vending", PackageManager.PackageInfoFlags.of(0L))
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo("com.android.vending", 0)
+            }
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun isLikelyEmulator(): Boolean {
+        return (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic")) ||
+            Build.FINGERPRINT.startsWith("generic") ||
+            Build.FINGERPRINT.startsWith("unknown") ||
+            Build.FINGERPRINT.contains("robolectric") ||
+            Build.HARDWARE.contains("goldfish") ||
+            Build.HARDWARE.contains("ranchu") ||
+            Build.MODEL.contains("google_sdk") ||
+            Build.MODEL.contains("Emulator") ||
+            Build.MODEL.contains("Android SDK built for x86") ||
+            Build.MANUFACTURER.contains("Genymotion") ||
+            Build.PRODUCT.contains("sdk_gphone") ||
+            Build.PRODUCT.contains("sdk_google") ||
+            Build.PRODUCT.contains("google_sdk") ||
+            Build.PRODUCT.contains("sdk") ||
+            Build.PRODUCT.contains("emulator") ||
+            Build.PRODUCT.contains("simulator") ||
+            Build.PRODUCT.contains("vbox86")
     }
 
     fun syncUserIdentity(
@@ -139,7 +275,15 @@ object OneSignalPushManager {
         isAdmin: Boolean,
         isApprovedStaff: Boolean,
     ) {
-        if (initializedAppId == null) return
+        pendingIdentity = PendingIdentity(uid, isAdmin, isApprovedStaff)
+        if (initializedAppId == null) {
+            appContextRef?.let { ctx ->
+                if (!fcmProbeSkippedOrFailed) {
+                    init(ctx)
+                }
+            }
+            return
+        }
         val cleanUid = uid?.trim().orEmpty()
         if (cleanUid.isEmpty()) {
             clearIdentity()

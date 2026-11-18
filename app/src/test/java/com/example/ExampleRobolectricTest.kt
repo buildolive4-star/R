@@ -325,11 +325,15 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `oneSignalPushManager safely skips initialization when placeholder secrets are active`() {
+    fun `oneSignalPushManager safely skips initialization in robolectric without crashing`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         OneSignalPushManager.init(context)
         OneSignalPushManager.syncUserIdentity("uid_test", isAdmin = true, isApprovedStaff = false)
-        assertFalse(OneSignalPushManager.isFullyConfigured())
+        assertFalse(OneSignalPushManager.isInitialized)
+        assertEquals(
+            OneSignalPushManager.isAppIdConfigured() && OneSignalPushManager.isRestKeyConfigured(),
+            OneSignalPushManager.isFullyConfigured()
+        )
         OneSignalPushManager.consumeDeepLinkChat()
         OneSignalPushManager.consumeDeepLinkImage()
     }
