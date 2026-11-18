@@ -487,13 +487,21 @@ fun ChatRoomScreen(
                     )
                 },
                 shape = CircleShape,
-                color = WhatsAppGreen,
+                color = MaterialTheme.colorScheme.primary,
+                shadowElevation = 6.dp,
                 modifier = Modifier
                     .size(48.dp)
                     .minimumInteractiveComponentSize()
                     .testTag("chat_send_button")
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.background(
+                        androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            listOf(Color(0xFFE91E63), Color(0xFFFF6F9C))
+                        )
+                    )
+                ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Rounded.Send,
                         contentDescription = "Send",
@@ -594,14 +602,14 @@ private fun MessageBubble(
     onLongPress: () -> Unit,
 ) {
     val containerColor = when {
-        message.senderRole == "admin" -> MaterialTheme.colorScheme.secondaryContainer
-        isMine -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.surfaceContainerHigh
+        message.senderRole == "admin" -> Color(0xFFFFE4EE)
+        isMine -> Color(0xFFE91E63)
+        else -> Color(0xFFFFF0F5)
     }
     val textColor = when {
-        message.senderRole == "admin" -> MaterialTheme.colorScheme.onSecondaryContainer
-        isMine -> MaterialTheme.colorScheme.onPrimary
-        else -> MaterialTheme.colorScheme.onSurface
+        message.senderRole == "admin" -> Color(0xFF25212A)
+        isMine -> Color.White
+        else -> Color(0xFF25212A)
     }
     val tagText = when (message.senderRole) {
         "admin" -> "${message.senderName.ifBlank { "Admin" }} · Concierge"
@@ -616,7 +624,7 @@ private fun MessageBubble(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(
                 if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                 else Color.Transparent
@@ -630,16 +638,33 @@ private fun MessageBubble(
     ) {
         Surface(
             shape = RoundedCornerShape(
-                topStart = 18.dp,
-                topEnd = 18.dp,
-                bottomStart = if (isMine) 18.dp else 4.dp,
-                bottomEnd = if (isMine) 4.dp else 18.dp,
+                topStart = 20.dp,
+                topEnd = 20.dp,
+                bottomStart = if (isMine) 20.dp else 5.dp,
+                bottomEnd = if (isMine) 5.dp else 20.dp,
             ),
             color = containerColor,
-            border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.secondary) else null,
+            shadowElevation = if (isMine) 4.dp else 1.dp,
+            border = if (isSelected) {
+                BorderStroke(1.5.dp, MaterialTheme.colorScheme.secondary)
+            } else if (!isMine) {
+                BorderStroke(1.dp, Color(0xFFF6DCE6))
+            } else null,
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
-            Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp)) {
+            Column(
+                modifier = Modifier
+                    .then(
+                        if (isMine && message.senderRole != "admin") {
+                            Modifier.background(
+                                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                    listOf(Color(0xFFE91E63), Color(0xFFFF6F9C))
+                                )
+                            )
+                        } else Modifier
+                    )
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
                 Text(
                     text = tagText,
                     style = MaterialTheme.typography.labelSmall,

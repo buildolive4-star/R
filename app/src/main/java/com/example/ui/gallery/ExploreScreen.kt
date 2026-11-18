@@ -1,5 +1,6 @@
 package com.example.ui.gallery
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -7,7 +8,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -34,8 +37,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Verified
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -56,11 +62,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.model.GalleryImage
 import com.example.data.model.UiState
@@ -69,6 +81,16 @@ import com.example.ui.components.ErrorStateCard
 import com.example.ui.components.GalleryGridCard
 import com.example.ui.components.ShimmerBox
 import com.example.ui.components.VipShowcaseCarousel
+import com.example.ui.datemate.Floating3DHeartsBackground
+import com.example.ui.theme.DateMateBackground
+import com.example.ui.theme.DateMateDarkText
+import com.example.ui.theme.DateMatePrimaryPink
+import com.example.ui.theme.DateMateSecondaryPink
+import com.example.ui.theme.DateMateSecondaryText
+import com.example.ui.theme.DateMateSoftBlush
+import com.example.ui.theme.DateMateSoftBorder
+import com.example.ui.theme.DateMateSuccessGreen
+import com.example.ui.theme.DateMateWhite
 
 @Composable
 fun ExploreScreen(
@@ -93,94 +115,88 @@ fun ExploreScreen(
     val allProfiles = (galleryState as? UiState.Success)?.data.orEmpty()
     val totalCount = allProfiles.size
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                        MaterialTheme.colorScheme.background,
-                        MaterialTheme.colorScheme.background,
+                        DateMateWhite,
+                        DateMateBackground,
+                        DateMateSoftBlush.copy(alpha = 0.55f),
                     )
                 )
             )
     ) {
-        JustUsHomeHeader(
-            totalCount = totalCount,
-            isStaffTheme = isStaffTheme,
-            onSecretAdminTrigger = onSecretAdminTrigger,
-            searchQuery = searchQuery,
-            onSearchQueryChange = onSearchQueryChange,
-            categories = categories,
-            selectedCategory = selectedCategory,
-            onSelectCategory = onSelectCategory,
-        )
+        // Subtle 3D floating hearts in background
+        Floating3DHeartsBackground(heartCount = 7)
 
-        when (filteredGridState) {
-            is UiState.Loading -> {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(4) {
-                        ShimmerBox(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(9f / 16f)
-                                .clip(MaterialTheme.shapes.large)
-                        )
-                    }
-                }
-            }
+        Column(modifier = Modifier.fillMaxSize()) {
+            DateMateLuxuryHomeHeader(
+                totalCount = totalCount,
+                isStaffTheme = isStaffTheme,
+                onSecretAdminTrigger = onSecretAdminTrigger,
+                searchQuery = searchQuery,
+                onSearchQueryChange = onSearchQueryChange,
+                categories = categories,
+                selectedCategory = selectedCategory,
+                onSelectCategory = onSelectCategory,
+            )
 
-            is UiState.Error -> {
-                ErrorStateCard(
-                    message = filteredGridState.message,
-                    modifier = Modifier.padding(top = 16.dp)
-                )
-            }
-
-            is UiState.Success -> {
-                val gridProfiles = filteredGridState.data
-                val showVipCarousel = vipProfiles.isNotEmpty() &&
-                    selectedCategory == GalleryViewModel.CATEGORY_ALL &&
-                    searchQuery.isBlank()
-
-                if (gridProfiles.isEmpty() && !showVipCarousel) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+            when (filteredGridState) {
+                is UiState.Loading -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        contentPadding = PaddingValues(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        if (totalCount == 0) {
-                            EmptyGalleryState(
-                                title = stringResource(R.string.empty_gallery_title),
-                                subtitle = stringResource(R.string.empty_gallery_subtitle),
-                                actionLabel = stringResource(R.string.check_now_button),
-                                onAction = onCheckNow
-                            )
-                        } else {
-                            EmptyGalleryState(
-                                title = stringResource(R.string.empty_search_title),
-                                subtitle = stringResource(R.string.empty_search_subtitle),
-                                actionLabel = stringResource(R.string.reset_filters),
-                                onAction = onResetFilters
+                        items(4) {
+                            ShimmerBox(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(9f / 16f)
+                                    .clip(RoundedCornerShape(26.dp))
                             )
                         }
                     }
-                } else {
+                }
+
+                is UiState.Error -> {
+                    ErrorStateCard(
+                        message = filteredGridState.message,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                }
+
+                is UiState.Success -> {
+                    val gridProfiles = filteredGridState.data
+                    val showVipCarousel = vipProfiles.isNotEmpty() &&
+                        selectedCategory == GalleryViewModel.CATEGORY_ALL &&
+                        searchQuery.isBlank()
+
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 8.dp,
+                            bottom = 110.dp
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier
                             .fillMaxSize()
                             .testTag("explore_uniform_grid")
                     ) {
+                        // Luxury DateMate Hero Banner at top of Home
+                        if (searchQuery.isBlank() && selectedCategory == GalleryViewModel.CATEGORY_ALL) {
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "datemate_luxury_hero") {
+                                DateMateExploreHeroCard()
+                            }
+                        }
+
                         if (showVipCarousel) {
                             item(span = { GridItemSpan(maxLineSpan) }, key = "vip_section_header") {
                                 Row(
@@ -188,34 +204,49 @@ fun ExploreScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(top = 4.dp, bottom = 4.dp)
+                                        .padding(top = 6.dp, bottom = 2.dp)
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.AutoAwesome,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.secondary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = stringResource(R.string.vip_showcase_title),
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onBackground
-                                        )
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = DateMateSoftBlush,
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.AutoAwesome,
+                                                    contentDescription = null,
+                                                    tint = DateMatePrimaryPink,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text(
+                                                text = stringResource(R.string.vip_showcase_title),
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = DateMateDarkText
+                                            )
+                                            Text(
+                                                text = "16:9 Exclusive Verified Spotlights",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = DateMateSecondaryText
+                                            )
+                                        }
                                     }
                                     Surface(
-                                        shape = RoundedCornerShape(50),
-                                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f),
-                                        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f)),
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = DateMateSoftBlush,
+                                        border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.35f)),
                                     ) {
                                         Text(
                                             text = "${vipProfiles.size} EXCLUSIVE",
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.secondary,
-                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                                            color = DateMatePrimaryPink,
+                                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
                                         )
                                     }
                                 }
@@ -227,20 +258,52 @@ fun ExploreScreen(
                                     onProfileClick = onProfileClick,
                                     onChatClick = onChatClick,
                                     onToggleBookmark = onToggleBookmark,
-                                    modifier = Modifier.padding(bottom = 8.dp)
+                                    modifier = Modifier.padding(bottom = 6.dp)
                                 )
                             }
                         }
 
-                        if (gridProfiles.isNotEmpty()) {
+                        if (gridProfiles.isEmpty() && !showVipCarousel) {
+                            item(span = { GridItemSpan(maxLineSpan) }, key = "empty_gallery_card") {
+                                if (totalCount == 0) {
+                                    EmptyGalleryState(
+                                        title = stringResource(R.string.empty_gallery_title),
+                                        subtitle = stringResource(R.string.empty_gallery_subtitle),
+                                        actionLabel = stringResource(R.string.check_now_button),
+                                        onAction = onCheckNow
+                                    )
+                                } else {
+                                    EmptyGalleryState(
+                                        title = stringResource(R.string.empty_search_title),
+                                        subtitle = stringResource(R.string.empty_search_subtitle),
+                                        actionLabel = stringResource(R.string.reset_filters),
+                                        onAction = onResetFilters
+                                    )
+                                }
+                            }
+                        } else if (gridProfiles.isNotEmpty()) {
                             item(span = { GridItemSpan(maxLineSpan) }, key = "grid_section_header") {
-                                Text(
-                                    text = stringResource(R.string.grid_companions_title),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    modifier = Modifier.padding(top = 2.dp, bottom = 2.dp)
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp, bottom = 2.dp)
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = stringResource(R.string.grid_companions_title),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = DateMateDarkText
+                                        )
+                                        Text(
+                                            text = "Tap any profile to view moments or start a private chat",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = DateMateSecondaryText
+                                        )
+                                    }
+                                }
                             }
                             items(gridProfiles, key = { it.id }) { profile ->
                                 GalleryGridCard(
@@ -259,9 +322,94 @@ fun ExploreScreen(
     }
 }
 
+@Composable
+private fun DateMateExploreHeroCard() {
+    Card(
+        shape = RoundedCornerShape(28.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+        colors = CardDefaults.cardColors(containerColor = DateMateWhite),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(172.dp)
+            .border(1.2.dp, DateMateSoftBorder, RoundedCornerShape(28.dp))
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Image(
+                painter = painterResource(id = R.drawable.img_datemate_hero_banner_1795008182368),
+                contentDescription = stringResource(R.string.hero_headline),
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color(0xFF25212A).copy(alpha = 0.80f),
+                                Color(0xFF25212A).copy(alpha = 0.42f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+            Column(
+                verticalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(18.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = DateMateWhite.copy(alpha = 0.94f)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Favorite,
+                            contentDescription = null,
+                            tint = DateMatePrimaryPink,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = stringResource(R.string.hero_subtitle),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = DateMatePrimaryPink,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                    }
+                }
+
+                Column {
+                    Text(
+                        text = stringResource(R.string.hero_headline),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            color = DateMateWhite,
+                            fontWeight = FontWeight.ExtraBold,
+                            lineHeight = 25.sp
+                        ),
+                        modifier = Modifier.fillMaxWidth(0.75f)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Verified Companions • Private Chat • Instant Voice Call",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = DateMateWhite.copy(alpha = 0.9f)
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun JustUsHomeHeader(
+private fun DateMateLuxuryHomeHeader(
     totalCount: Int,
     isStaffTheme: Boolean,
     onSecretAdminTrigger: () -> Unit,
@@ -272,8 +420,17 @@ private fun JustUsHomeHeader(
     onSelectCategory: (String) -> Unit,
 ) {
     val pulseTransition = rememberInfiniteTransition(label = "live_pulse")
+    val pulseScale by pulseTransition.animateFloat(
+        initialValue = 0.93f,
+        targetValue = 1.07f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1150, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
     val pulseAlpha by pulseTransition.animateFloat(
-        initialValue = 0.45f,
+        initialValue = 0.55f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
             animation = tween(1100),
@@ -288,7 +445,7 @@ private fun JustUsHomeHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 10.dp)
+            .padding(top = 12.dp)
     ) {
         Row(
             modifier = Modifier
@@ -297,7 +454,9 @@ private fun JustUsHomeHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
+            // 3D Pulsing DateMate Heart Emblem + Brand Title (5-tap opens Admin Studio!)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .combinedClickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -311,58 +470,107 @@ private fun JustUsHomeHeader(
                                 onSecretAdminTrigger()
                             }
                         },
-                        onLongClick = {}
+                        onLongClick = onSecretAdminTrigger
                     )
                     .testTag("explore_brand_header")
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    if (isStaffTheme) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = DateMateWhite,
+                    shadowElevation = 10.dp,
+                    modifier = Modifier
+                        .size(46.dp)
+                        .graphicsLayer {
+                            scaleX = pulseScale
+                            scaleY = pulseScale
+                        }
+                        .border(1.2.dp, DateMateSoftBorder, RoundedCornerShape(16.dp))
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.radialGradient(
+                                    listOf(DateMateWhite, DateMateSoftBlush)
+                                )
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Favorite,
+                            contentDescription = "DateMate 3D Heart",
+                            tint = DateMatePrimaryPink,
+                            modifier = Modifier.size(26.dp)
+                        )
+                        Text(
+                            text = "DM",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = DateMateWhite,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 8.sp
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = stringResource(R.string.app_name),
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = DateMateDarkText
+                            )
+                        )
+                        if (isStaffTheme) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = DateMateSoftBlush,
+                                border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.45f))
                             ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Verified,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "STAFF MODE",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Verified,
+                                        contentDescription = null,
+                                        tint = DateMatePrimaryPink,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "STAFF MODE",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DateMatePrimaryPink
+                                    )
+                                }
                             }
                         }
                     }
+                    Text(
+                        text = stringResource(R.string.brand_tagline),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = DateMatePrimaryPink,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    )
                 }
-                Text(
-                    text = stringResource(R.string.brand_tagline),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
 
+            // Live Verified Pill
             Surface(
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                shape = RoundedCornerShape(999.dp),
+                color = DateMateWhite,
+                shadowElevation = 6.dp,
+                border = BorderStroke(1.dp, DateMateSoftBorder)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
@@ -370,7 +578,7 @@ private fun JustUsHomeHeader(
                             .size(8.dp)
                             .alpha(pulseAlpha)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.secondary)
+                            .background(DateMateSuccessGreen)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
@@ -380,15 +588,16 @@ private fun JustUsHomeHeader(
                             stringResource(R.string.live_sync_badge)
                         },
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        fontWeight = FontWeight.Bold,
+                        color = DateMateDarkText
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
+        // Luxury Rounded White & Rose-Pink Search Bar
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
@@ -396,14 +605,14 @@ private fun JustUsHomeHeader(
             placeholder = {
                 Text(
                     text = stringResource(R.string.search_placeholder),
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium.copy(color = DateMateSecondaryText)
                 )
             },
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Rounded.Search,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = DateMatePrimaryPink
                 )
             },
             trailingIcon = {
@@ -416,25 +625,35 @@ private fun JustUsHomeHeader(
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Close,
-                            contentDescription = stringResource(R.string.clear_search)
+                            contentDescription = stringResource(R.string.clear_search),
+                            tint = DateMateSecondaryText
                         )
                     }
                 }
             },
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(22.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                focusedContainerColor = DateMateWhite,
+                unfocusedContainerColor = DateMateWhite,
+                focusedBorderColor = DateMatePrimaryPink,
+                unfocusedBorderColor = DateMateSoftBorder,
+                focusedTextColor = DateMateDarkText,
+                unfocusedTextColor = DateMateDarkText,
+                cursorColor = DateMatePrimaryPink,
             ),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
+                .shadow(
+                    elevation = 6.dp,
+                    shape = RoundedCornerShape(22.dp),
+                    ambientColor = DateMatePrimaryPink.copy(alpha = 0.12f),
+                    spotColor = DateMatePrimaryPink.copy(alpha = 0.16f)
+                )
                 .testTag("search_input")
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
@@ -449,21 +668,23 @@ private fun JustUsHomeHeader(
                     label = {
                         Text(
                             text = category,
-                            style = MaterialTheme.typography.labelLarge
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                            )
                         )
                     },
-                    shape = RoundedCornerShape(50),
+                    shape = RoundedCornerShape(999.dp),
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        selectedContainerColor = DateMatePrimaryPink,
+                        selectedLabelColor = DateMateWhite,
+                        containerColor = DateMateWhite,
+                        labelColor = DateMateDarkText,
                     ),
                     border = FilterChipDefaults.filterChipBorder(
                         enabled = true,
                         selected = selected,
-                        borderColor = MaterialTheme.colorScheme.outlineVariant,
-                        selectedBorderColor = MaterialTheme.colorScheme.primary
+                        borderColor = DateMateSoftBorder,
+                        selectedBorderColor = DateMatePrimaryPink
                     ),
                     modifier = Modifier
                         .minimumInteractiveComponentSize()

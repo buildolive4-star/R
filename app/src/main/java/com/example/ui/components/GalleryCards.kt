@@ -461,15 +461,21 @@ fun WhatsAppChatPillButton(
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = WhatsAppGreen,
+        color = Color(0xFFE91E63),
         contentColor = Color.White,
-        shadowElevation = 4.dp,
-        border = BorderStroke(1.dp, Color(0x55FFFFFF)),
+        shadowElevation = 6.dp,
+        border = BorderStroke(1.dp, Color(0x66FFFFFF)),
         modifier = modifier.minimumInteractiveComponentSize()
     ) {
         if (compact) {
             Box(
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(Color(0xFFE91E63), Color(0xFFFF6F9C))
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -481,7 +487,13 @@ fun WhatsAppChatPillButton(
             }
         } else {
             Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                modifier = Modifier
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(Color(0xFFE91E63), Color(0xFFFF6F9C))
+                        )
+                    )
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -509,17 +521,17 @@ fun PriceBadgePill(
 ) {
     Surface(
         shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.22f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f)),
+        color = Color(0xFFFFF0F5),
+        border = BorderStroke(1.dp, Color(0xFFE91E63).copy(alpha = 0.45f)),
         modifier = modifier
     ) {
         Text(
             text = price,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.secondary,
+            color = Color(0xFFE91E63),
             maxLines = 1,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
         )
     }
 }
@@ -557,16 +569,16 @@ fun GalleryGridCard(
 
     Card(
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(
             width = 1.dp,
             color = if (isAllBlurredExpired) {
                 MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
             } else {
-                MaterialTheme.colorScheme.outlineVariant
+                MaterialTheme.colorScheme.outline
             }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isPressed) 1.dp else 4.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isPressed) 2.dp else 8.dp),
         modifier = modifier
             .fillMaxWidth()
             .graphicsLayer {
