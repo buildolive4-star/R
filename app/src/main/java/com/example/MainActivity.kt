@@ -20,23 +20,27 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.rounded.Bookmark
-import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -129,8 +133,8 @@ private val TopTabs = listOf(
     NavTab(
         route = ROUTE_EXPLORE,
         labelRes = R.string.nav_explore,
-        selectedIcon = Icons.Rounded.Explore,
-        unselectedIcon = Icons.Outlined.Explore,
+        selectedIcon = Icons.Rounded.Home,
+        unselectedIcon = Icons.Outlined.Home,
         testTag = "nav_tab_explore"
     ),
     NavTab(
@@ -528,40 +532,53 @@ fun JustUsAppRoot(
                 contentWindowInsets = if (isTopLevelRoute) WindowInsets.safeDrawing else WindowInsets(0, 0, 0, 0),
                 bottomBar = {
                     if (isTopLevelRoute && !useRail) {
-                        NavigationBar(
-                            windowInsets = WindowInsets.navigationBars,
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 0.dp
-                        ) {
-                            TopTabs.forEach { tab ->
-                                val selected = currentRoute == tab.route
-                                val label = stringResource(tab.labelRes)
-                                NavigationBarItem(
-                                    selected = selected,
-                                    onClick = {
-                                        navController.navigate(tab.route) {
-                                            popUpTo(ROUTE_EXPLORE) { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
-                                    },
-                                    icon = {
-                                        BadgedBox(
-                                            badge = {
-                                                if (tab.route == ROUTE_CHATS && totalUnreadMessages > 0) {
-                                                    Badge { Text("${totalUnreadMessages.coerceAtMost(99)}") }
-                                                }
+                        Column {
+                            HorizontalDivider(
+                                thickness = 0.7.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f)
+                            )
+                            NavigationBar(
+                                windowInsets = WindowInsets.navigationBars,
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 0.dp
+                            ) {
+                                TopTabs.forEach { tab ->
+                                    val selected = currentRoute == tab.route
+                                    val label = stringResource(tab.labelRes)
+                                    NavigationBarItem(
+                                        selected = selected,
+                                        onClick = {
+                                            navController.navigate(tab.route) {
+                                                popUpTo(ROUTE_EXPLORE) { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
                                             }
-                                        ) {
-                                            Icon(
-                                                imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                                contentDescription = label
-                                            )
-                                        }
-                                    },
-                                    label = { Text(text = label, maxLines = 1) },
-                                    modifier = Modifier.testTag(tab.testTag)
-                                )
+                                        },
+                                        colors = NavigationBarItemDefaults.colors(
+                                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        ),
+                                        icon = {
+                                            BadgedBox(
+                                                badge = {
+                                                    if (tab.route == ROUTE_CHATS && totalUnreadMessages > 0) {
+                                                        Badge { Text("${totalUnreadMessages.coerceAtMost(99)}") }
+                                                    }
+                                                }
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                                    contentDescription = label
+                                                )
+                                            }
+                                        },
+                                        label = { Text(text = label, maxLines = 1) },
+                                        modifier = Modifier.testTag(tab.testTag)
+                                    )
+                                }
                             }
                         }
                     }
@@ -589,6 +606,13 @@ fun JustUsAppRoot(
                                             restoreState = true
                                         }
                                     },
+                                    colors = NavigationRailItemDefaults.colors(
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    ),
                                     icon = {
                                         BadgedBox(
                                             badge = {

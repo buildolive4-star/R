@@ -238,7 +238,7 @@ service cloud.firestore {
     }
 
     match /companion_profiles/{profileId} {
-      allow get: if isValidId(profileId) && (existing().status == 'published' || isAdmin());
+      allow get: if isValidId(profileId) && (isAdmin() || (resource != null && existing().status == 'published'));
       allow list: if resource.data.status == 'published' || isAdmin();
 
       allow create: if isAdmin() &&
@@ -333,9 +333,14 @@ service cloud.firestore {
 
     match /chats/{chatId} {
       allow get: if isSignedIn() && isValidId(chatId) && (
-        existing().clientUid == request.auth.uid ||
-        (existing().staffOwnerUid != '' && existing().staffOwnerUid == request.auth.uid) ||
-        isAdmin()
+        isAdmin() ||
+        (resource == null &&
+         chatId.size() > request.auth.uid.size() &&
+         chatId[0:request.auth.uid.size() + 1] == (request.auth.uid + '_')) ||
+        (resource != null && (
+          existing().clientUid == request.auth.uid ||
+          (existing().staffOwnerUid != '' && existing().staffOwnerUid == request.auth.uid)
+        ))
       );
       allow list: if isSignedIn() && (
         resource.data.clientUid == request.auth.uid ||
@@ -384,11 +389,15 @@ service cloud.firestore {
       allow delete: if isAdmin() && isValidId(chatId);
 
       match /messages/{messageId} {
+        function parentChatExists() {
+          return exists(/databases/$(database)/documents/chats/$(chatId));
+        }
+
         function parentChat() {
           return get(/databases/$(database)/documents/chats/$(chatId)).data;
         }
 
-        allow get, list: if isSignedIn() && isValidId(chatId) && (
+        allow get, list: if isSignedIn() && isValidId(chatId) && parentChatExists() && (
           parentChat().clientUid == request.auth.uid ||
           (parentChat().staffOwnerUid != '' && parentChat().staffOwnerUid == request.auth.uid) ||
           isAdmin()
@@ -396,6 +405,7 @@ service cloud.firestore {
 
         allow create: if isSignedIn() &&
                          isValidId(messageId) &&
+                         parentChatExists() &&
                          incoming().senderUid == request.auth.uid &&
                          incoming().senderName is string && incoming().senderName.size() >= 1 && incoming().senderName.size() <= 80 &&
                          incoming().text is string && incoming().text.size() >= 1 && incoming().text.size() <= 1000 &&
@@ -445,7 +455,7 @@ service cloud.firestore {
     }
 
     match /call_sessions/{callId} {
-      allow get: if isValidId(callId) && isCallParticipant(existing());
+      allow get: if isValidId(callId) && (isAdmin() || (resource != null && isCallParticipant(existing())));
       allow list: if isCallParticipant(resource.data);
 
       allow create: if isSignedIn() &&
@@ -509,7 +519,7 @@ service cloud.firestore {
 
     // Legacy gallery_images compatibility kept read-only for published docs & admin writes
     match /gallery_images/{imageId} {
-      allow get: if isValidId(imageId) && (existing().status == 'published' || isAdmin());
+      allow get: if isValidId(imageId) && (isAdmin() || (resource != null && existing().status == 'published'));
       allow list: if resource.data.status == 'published' || isAdmin();
       allow create, update, delete: if isAdmin();
     }

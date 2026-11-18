@@ -1,11 +1,11 @@
 <resources>
     <string name="app_name">JustUs</string>
     <string name="brand_tagline">Verified Companions · Private Moments</string>
-    <string name="nav_explore">Moments</string>
+    <string name="nav_explore">Home</string>
     <string name="nav_chats">Chats</string>
     <string name="nav_saved">Favorites</string>
     <string name="nav_settings">Profile</string>
-    <string name="live_sync_badge">Live</string>
+    <string name="live_sync_badge">Verified</string>
     <string name="search_placeholder">Search companions, cities, vibes…</string>
     <string name="clear_search">Clear search</string>
     <string name="vip_showcase_title">VIP Spotlight</string>
@@ -34,7 +34,7 @@
     <string name="chats_title">Private Chats</string>
     <string name="chats_subtitle">Your personal companion inquiries and verified staff messages</string>
     <string name="chats_empty_title">No Chats Started Yet</string>
-    <string name="chats_empty_subtitle">Tap the WhatsApp chat button next to any profile on Moments to begin a conversation.</string>
+    <string name="chats_empty_subtitle">Tap the WhatsApp chat button next to any profile on Home to begin a conversation.</string>
     <string name="staff_inbox_locked_title">Staff Inbox Locked</string>
     <string name="staff_inbox_locked_subtitle">Apply to become Companion Staff (GF / BF) from your Profile tab. Client inbox unlocks after Admin verification.</string>
     <string name="staff_monitor_notice">Admin monitors all client conversations. Sharing phone numbers, emails, Instagram IDs, or external links is blocked.</string>

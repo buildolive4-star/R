@@ -238,20 +238,14 @@ fun ProfileEditorSection(
                     Text("Continue with Google")
                 }
                 val diagInfo = remember(context) { GoogleAuthHelper.getAuthDiagnosticInfo(context) }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = if (diagInfo.isSha1Matched && diagInfo.hasWebClientId) {
-                        "Build Key: Verified (${diagInfo.packageName})"
-                    } else {
-                        "Build Key Warning: SHA-1 ${diagInfo.runtimeSha1Colon ?: "unknown"}"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (diagInfo.isSha1Matched && diagInfo.hasWebClientId) {
-                        MaterialTheme.colorScheme.tertiary
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    }
-                )
+                if (!diagInfo.isSha1Matched || !diagInfo.hasWebClientId) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Build Key Warning: SHA-1 ${diagInfo.runtimeSha1Colon ?: "unknown"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
                 if (!authErrorMessage.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Surface(

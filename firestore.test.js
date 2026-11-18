@@ -317,6 +317,23 @@ test("Chat threads allow client, approved staff owner, and admin, while blocking
   );
 
   const chatId = `${ALICE_UID}_prof_rahul`;
+
+  // Another user cannot probe Alice's non-existent chat thread
+  const secondUserDb = testEnv
+    .authenticatedContext("second_user_999", {
+      email: "seconduser@gmail.com",
+      email_verified: true,
+    })
+    .firestore();
+  await assertFails(secondUserDb.collection("chats").doc(chatId).get());
+
+  // Second user CAN check if their own non-existent chat thread exists before creating it (ChatRepository.openOrCreateChat)
+  const secondUserChatId = "second_user_999_prof_rahul";
+  await assertSucceeds(secondUserDb.collection("chats").doc(secondUserChatId).get());
+
+  // Alice checks non-existent chat thread via .get() just like ChatRepository.openOrCreateChat() before .set()
+  await assertSucceeds(aliceDb.collection("chats").doc(chatId).get());
+
   await assertSucceeds(
     aliceDb.collection("chats").doc(chatId).set({
       clientUid: ALICE_UID,

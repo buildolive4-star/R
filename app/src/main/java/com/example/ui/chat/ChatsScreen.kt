@@ -84,7 +84,15 @@ fun ChatsScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.background,
+                    )
+                )
+            )
     ) {
         Column(
             modifier = Modifier

@@ -83,37 +83,56 @@ class UserCrmRepository(
         return try {
             val authUser = Firebase.auth.currentUser
             val snap = docRef.get().await()
-            val summary = ProfileCompletionCalculator.calculate(
-                name = name,
-                photoUrl = photoUrl,
-                phone = phone,
-                age = age,
-                address = address,
-                city = city,
-                bio = bio,
-                interests = interests,
-                genderPreference = genderPreference,
-            )
-            val safePhotos = galleryUrls
+            val existingCity = snap.getString("city").orEmpty()
+            val existingBio = snap.getString("bio").orEmpty()
+            val existingInterests = snap.getString("interests").orEmpty()
+            val existingGenderPref = snap.getString("genderPreference").orEmpty()
+            val existingPhotoUrl = snap.getString("photoUrl").orEmpty()
+            @Suppress("UNCHECKED_CAST")
+            val existingGallery = (snap.get("galleryUrls") as? List<*>)
+                ?.mapNotNull { it as? String }
+                ?.map { it.trim().take(1000) }
+                ?.filter { it.startsWith("https://") }
+                .orEmpty()
+
+            val mergedPhotoUrl = photoUrl.trim().ifBlank { existingPhotoUrl }.take(1000)
+            val mergedCity = city.trim().ifBlank { existingCity }.take(60)
+            val mergedBio = bio.trim().ifBlank { existingBio }.take(400)
+            val mergedInterests = interests.trim().ifBlank { existingInterests }.take(160)
+            val mergedGenderPref = genderPreference.trim().ifBlank { existingGenderPref }.take(32)
+            val rawGallery = galleryUrls
                 .map { it.trim().take(1000) }
                 .filter { it.startsWith("https://") }
                 .distinct()
                 .take(6)
+            val safePhotos = if (rawGallery.isNotEmpty()) rawGallery else existingGallery.take(6)
+
+            val summary = ProfileCompletionCalculator.calculate(
+                name = name,
+                photoUrl = mergedPhotoUrl,
+                phone = phone,
+                age = age,
+                address = address,
+                city = mergedCity,
+                bio = mergedBio,
+                interests = mergedInterests,
+                genderPreference = mergedGenderPref,
+            )
 
             val nowMs = System.currentTimeMillis()
             if (!snap.exists()) {
                 val payload = hashMapOf<String, Any>(
                     "name" to name.trim().take(80),
                     "email" to (authUser?.email ?: "").trim().take(120),
-                    "photoUrl" to photoUrl.trim().take(1000),
+                    "photoUrl" to mergedPhotoUrl,
                     "galleryUrls" to safePhotos,
                     "phone" to phone.trim().take(24),
                     "age" to age.coerceIn(0, 99),
                     "address" to address.trim().take(240),
-                    "city" to city.trim().take(60),
-                    "bio" to bio.trim().take(400),
-                    "interests" to interests.trim().take(160),
-                    "genderPreference" to genderPreference.trim().take(32),
+                    "city" to mergedCity,
+                    "bio" to mergedBio,
+                    "interests" to mergedInterests,
+                    "genderPreference" to mergedGenderPref,
                     "completionPercent" to summary.percent,
                     "online" to true,
                     "lastActiveEpochMs" to nowMs,
@@ -134,15 +153,15 @@ class UserCrmRepository(
                     mapOf(
                         "name" to name.trim().take(80),
                         "email" to (authUser?.email ?: "").trim().take(120),
-                        "photoUrl" to photoUrl.trim().take(1000),
+                        "photoUrl" to mergedPhotoUrl,
                         "galleryUrls" to safePhotos,
                         "phone" to phone.trim().take(24),
                         "age" to age.coerceIn(0, 99),
                         "address" to address.trim().take(240),
-                        "city" to city.trim().take(60),
-                        "bio" to bio.trim().take(400),
-                        "interests" to interests.trim().take(160),
-                        "genderPreference" to genderPreference.trim().take(32),
+                        "city" to mergedCity,
+                        "bio" to mergedBio,
+                        "interests" to mergedInterests,
+                        "genderPreference" to mergedGenderPref,
                         "completionPercent" to summary.percent,
                         "online" to true,
                         "lastActiveEpochMs" to nowMs,

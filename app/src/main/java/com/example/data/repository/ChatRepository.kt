@@ -167,7 +167,7 @@ class ChatRepository(
         if (clientAccount.moderationStatus == ModerationStatus.SUSPENDED) {
             return Result.failure(IllegalStateException("Your account is temporarily suspended."))
         }
-        val safeProfileId = profile.id.replace(Regex("[^a-zA-Z0-9_\\-]"), "_")
+        val safeProfileId = profile.id.replace(Regex("[^a-zA-Z0-9_\\-]"), "_").ifBlank { "companion" }
         val chatId = "${uid}_$safeProfileId".take(120)
         val docRef = db.collection(COLLECTION_CHATS).document(chatId)
         return try {
