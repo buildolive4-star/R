@@ -385,9 +385,9 @@ class ExampleRobolectricTest {
         assertTrue(onlineFresh.isEffectivelyOnline(now))
         assertEquals("Online", onlineFresh.formatPresenceLabel(now))
 
-        val onlineStale = PresenceStatus(online = true, lastSeenEpochMs = now - 300_000L)
+        val onlineStale = PresenceStatus(online = true, lastSeenEpochMs = now - 1_200_000L)
         assertFalse(onlineStale.isEffectivelyOnline(now))
-        assertEquals("last seen 5m ago", onlineStale.formatPresenceLabel(now))
+        assertEquals("last seen 20m ago", onlineStale.formatPresenceLabel(now))
 
         val offlineJustNow = PresenceStatus(online = false, lastSeenEpochMs = now - 15_000L)
         assertFalse(offlineJustNow.isEffectivelyOnline(now))
