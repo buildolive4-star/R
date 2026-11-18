@@ -59,6 +59,9 @@ class GalleryViewModel(
     private val _selectedCategory = MutableStateFlow(CATEGORY_ALL)
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
+    private val _selectedVibe = MutableStateFlow(VIBE_ALL)
+    val selectedVibe: StateFlow<String> = _selectedVibe.asStateFlow()
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -71,6 +74,8 @@ class GalleryViewModel(
     // Keyed by "${imageId}_${photoIndex}"
     private val optimisticRevealExpiries = MutableStateFlow<Map<String, OptimisticPhotoReveal>>(emptyMap())
     private val knownProfileTokens = mutableSetOf<String>()
+    private val knownLocalTokens = mutableSetOf<String>()
+    private var initialLocalSnapshotHandled = false
     private var initialFirestoreSnapshotHandled = false
     private val activeExpirationJobs = mutableMapOf<String, Job>()
 
@@ -81,6 +86,22 @@ class GalleryViewModel(
         }
         viewModelScope.launch {
             testUploadsRepository.testUploads.collect { uploads ->
+                val currentTokens = uploads.map {
+                    NotifiedImagesStore.buildProfileAlertToken(it.id, it.refreshEpochMs)
+                }
+                if (!initialLocalSnapshotHandled) {
+                    knownLocalTokens.addAll(currentTokens)
+                    initialLocalSnapshotHandled = true
+                } else {
+                    val newLocalArrivals = uploads.filter { img ->
+                        img.id.isNotBlank() && knownLocalTokens.add(
+                            NotifiedImagesStore.buildProfileAlertToken(img.id, img.refreshEpochMs)
+                        )
+                    }
+                    newLocalArrivals.forEach { newImage ->
+                        _newArrivalEvents.tryEmit(newImage)
+                    }
+                }
                 uploads.filter { it.isHidden }
                     .forEach { img ->
                         for (idx in 0 until img.photoCount) {
@@ -318,15 +339,17 @@ class GalleryViewModel(
     val filteredGridProfiles: StateFlow<UiState<List<GalleryImage>>> = combine(
         galleryState,
         _selectedCategory,
+        _selectedVibe,
         _searchQuery,
-    ) { state, category, query ->
+    ) { state, category, vibe, query ->
         when (state) {
             is UiState.Loading -> UiState.Loading
             is UiState.Error -> state
             is UiState.Success -> {
                 val trimmedQuery = query.trim().lowercase()
-                val baseList = if (category == CATEGORY_ALL && trimmedQuery.isEmpty()) {
-                    state.data.filter { it.tier != ProfileTier.VIP_16_9 }
+                val nonVipOnly = state.data.filter { it.tier != ProfileTier.VIP_16_9 }
+                val baseList = if (category == CATEGORY_ALL && vibe == VIBE_ALL && trimmedQuery.isEmpty()) {
+                    if (nonVipOnly.size >= 6) nonVipOnly else state.data
                 } else {
                     state.data
                 }
@@ -335,15 +358,21 @@ class GalleryViewModel(
                         category == CATEGORY_ALL -> true
                         category.equals("GF", true) || category.equals("BF", true) ->
                             item.role.equals(category, ignoreCase = true)
-                        else -> item.category.equals(category, ignoreCase = true)
+                        else -> item.category.equals(category, ignoreCase = true) ||
+                            item.tags.any { it.equals(category, ignoreCase = true) }
                     }
+                    val matchesVibe = vibe == VIBE_ALL ||
+                        item.category.contains(vibe, ignoreCase = true) ||
+                        item.tags.any { it.contains(vibe, ignoreCase = true) } ||
+                        item.description.contains(vibe, ignoreCase = true)
                     val matchesQuery = trimmedQuery.isEmpty() ||
                         item.title.lowercase().contains(trimmedQuery) ||
                         item.description.lowercase().contains(trimmedQuery) ||
                         item.category.lowercase().contains(trimmedQuery) ||
                         item.role.lowercase().contains(trimmedQuery) ||
-                        item.price.lowercase().contains(trimmedQuery)
-                    matchesCategory && matchesQuery
+                        item.price.lowercase().contains(trimmedQuery) ||
+                        item.tags.any { it.lowercase().contains(trimmedQuery) }
+                    matchesCategory && matchesVibe && matchesQuery
                 }
                 UiState.Success(filtered)
             }
@@ -358,12 +387,17 @@ class GalleryViewModel(
         _selectedCategory.value = category
     }
 
+    fun selectVibe(vibe: String) {
+        _selectedVibe.value = vibe
+    }
+
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
     }
 
     fun resetFilters() {
         _selectedCategory.value = CATEGORY_ALL
+        _selectedVibe.value = VIBE_ALL
         _searchQuery.value = ""
     }
 
@@ -378,7 +412,7 @@ class GalleryViewModel(
             notifiedImagesStore.setBackgroundSyncEnabled(enabled)
             if (enabled) {
                 BackgroundSyncScheduler.schedulePeriodicSync(context)
-                _events.tryEmit("Background sync enabled")
+                _events.tryEmit("Live push notifications enabled")
             } else {
                 BackgroundSyncScheduler.cancelPeriodicSync(context)
                 _events.tryEmit("Background sync paused")
@@ -388,7 +422,13 @@ class GalleryViewModel(
 
     fun triggerBackgroundCheckNow(context: Context) {
         BackgroundSyncScheduler.triggerImmediateCheck(context)
-        _events.tryEmit("Checking for new live profiles…")
+        val latestList = (galleryState.value as? UiState.Success)?.data.orEmpty()
+        val spotlight = latestList.firstOrNull { !it.isDeletedBlurred }
+        if (spotlight != null) {
+            _newArrivalEvents.tryEmit(spotlight)
+        } else {
+            _events.tryEmit("Live push notifications active & synced")
+        }
     }
 
     fun notifyExpiredBlurredTap() {
@@ -460,19 +500,19 @@ class GalleryViewModel(
 
     fun toggleBookmark(image: GalleryImage) {
         viewModelScope.launch {
-            if (image.isHidden || image.isDeletedBlurred) {
-                _events.tryEmit("Private moments cannot be bookmarked")
+            if (image.isDeletedBlurred) {
+                _events.tryEmit("Expired memories cannot be added to favorites")
                 return@launch
             }
             val nowSaved = bookmarksRepository.toggleBookmark(image)
-            _events.tryEmit(if (nowSaved) "Saved to favorites" else "Removed from favorites")
+            _events.tryEmit(if (nowSaved) "Added ${image.title} to Favorites ❤️" else "Removed from Favorites")
         }
     }
 
     fun removeBookmark(imageId: String) {
         viewModelScope.launch {
             bookmarksRepository.removeBookmark(imageId)
-            _events.tryEmit("Removed from favorites")
+            _events.tryEmit("Removed from Favorites")
         }
     }
 
@@ -498,6 +538,18 @@ class GalleryViewModel(
 
     companion object {
         const val CATEGORY_ALL = "All"
+        const val VIBE_ALL = "All Vibes"
+        val LIFESTYLE_VIBES = listOf(
+            VIBE_ALL,
+            "Coffee & Chat",
+            "Fine Dining",
+            "Live Music",
+            "Travel Buddy",
+            "Art & Culture",
+            "Movie Night",
+            "Fitness Partner",
+            "Book Club",
+        )
         const val HIDDEN_REVEAL_TTL_MS = 40_000L
         private const val TAG = "GalleryVM"
         private const val STOP_TIMEOUT_MILLIS = 5000L

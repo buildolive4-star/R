@@ -537,10 +537,10 @@ class SessionAndChatViewModel(
         val calleeName = if (isFromAdminOrStaff) {
             chat.clientName.ifBlank { "Client" }
         } else {
-            chat.profileName.ifBlank { "JustUs Concierge" }
+            chat.profileName.ifBlank { "DateMate Concierge" }
         }
         val callerName = when (callerRole) {
-            "admin" -> "JustUs Concierge"
+            "admin" -> "DateMate Concierge"
             "staff" -> account?.name?.ifBlank { chat.profileName } ?: chat.profileName
             else -> account?.name?.ifBlank { _firebaseUser.value?.displayName ?: "Client" } ?: "Client"
         }
@@ -568,7 +568,7 @@ class SessionAndChatViewModel(
             _events.tryEmit("Admin Google Sign-In required for calling.")
             return
         }
-        val adminName = _firebaseUser.value?.displayName?.takeIf { it.isNotBlank() } ?: "JustUs Admin"
+        val adminName = _firebaseUser.value?.displayName?.takeIf { it.isNotBlank() } ?: "DateMate Admin"
         launchOutgoingCall(
             context = context,
             repo = repo,
@@ -952,7 +952,7 @@ class SessionAndChatViewModel(
         val account = userAccount.value
         val authUser = _firebaseUser.value
         val senderName = when (senderRole) {
-            "admin" -> "JustUs Concierge"
+            "admin" -> "DateMate Concierge"
             "staff" -> account?.name?.ifBlank { authUser?.displayName ?: "Companion" } ?: "Companion"
             else -> account?.name?.ifBlank { authUser?.displayName ?: "You" } ?: "You"
         }

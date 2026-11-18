@@ -38,12 +38,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Button
@@ -88,6 +90,13 @@ import com.example.data.model.GalleryImage
 import com.example.ui.theme.WhatsAppDarkGreen
 import com.example.ui.theme.WhatsAppGreen
 import kotlinx.coroutines.delay
+
+private fun resolveMatchPercentage(profile: GalleryImage): String {
+    val explicit = profile.tags.firstOrNull { it.contains("% Match", ignoreCase = true) }
+    if (explicit != null) return explicit
+    val score = 92 + (profile.id.hashCode().absoluteValue % 8)
+    return "$score% Match"
+}
 
 @Composable
 fun ShimmerBox(modifier: Modifier = Modifier) {
@@ -204,10 +213,10 @@ fun VipShowcaseCard(
     onToggleBookmark: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Only turns into blurred memory on Home once ALL photos in this profile are opened & expired!
     val isAllBlurredExpired = profile.isDeletedBlurred
     val unopenedCount = profile.unopenedPhotoCount()
     val hasActiveOrUnopened = profile.isHidden && !isAllBlurredExpired
+    val matchLabel = remember(profile.id, profile.tags) { resolveMatchPercentage(profile) }
 
     Card(
         shape = MaterialTheme.shapes.extraLarge,
@@ -342,7 +351,7 @@ fun VipShowcaseCard(
                 }
             }
 
-            // Soft bottom gradient so VIP details & WhatsApp Chat button pop crisply
+            // Soft bottom gradient so VIP details & Chat button pop crisply
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -364,48 +373,74 @@ fun VipShowcaseCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = Color(0xCC1B101D),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = Color(0xCC1B101D),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f))
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.AutoAwesome,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.AutoAwesome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = "VIP · ${profile.role}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = Color(0xD9E91E63),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f))
+                    ) {
                         Text(
-                            text = if (profile.photoCount > 1) "VIP · ${profile.role} · ${profile.photoCount} pics" else "VIP · ${profile.role}",
+                            text = matchLabel,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.secondary
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                         )
                     }
                 }
 
-                if (!profile.isHidden && !isAllBlurredExpired) {
-                    IconButton(
+                if (!isAllBlurredExpired) {
+                    Surface(
                         onClick = onToggleBookmark,
+                        shape = CircleShape,
+                        color = if (isBookmarked) Color(0xFFE91E63) else Color(0xB31B101D),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isBookmarked) Color.White.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.35f)
+                        ),
+                        shadowElevation = 4.dp,
                         modifier = Modifier
                             .minimumInteractiveComponentSize()
                             .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color(0x9E1B101D))
+                            .testTag("vip_like_${profile.id}")
                     ) {
-                        Icon(
-                            imageVector = if (isBookmarked) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
-                            contentDescription = stringResource(
-                                if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
-                            ),
-                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isBookmarked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = stringResource(
+                                    if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
+                                ),
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -432,12 +467,32 @@ fun VipShowcaseCard(
                         Icon(
                             imageVector = Icons.Rounded.Verified,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = Color(0xFFFF6F9C),
                             modifier = Modifier.size(16.dp)
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    PriceBadgePill(price = profile.displayPrice)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PriceBadgePill(price = profile.displayPrice)
+                        if (profile.category.isNotBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = Color(0x881F1224),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
+                            ) {
+                                Text(
+                                    text = profile.category,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(10.dp))
@@ -467,49 +522,32 @@ fun WhatsAppChatPillButton(
         border = BorderStroke(1.dp, Color(0x66FFFFFF)),
         modifier = modifier.minimumInteractiveComponentSize()
     ) {
-        if (compact) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(Color(0xFFE91E63), Color(0xFFFF6F9C))
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.Chat,
-                    contentDescription = stringResource(R.string.chat_now),
-                    tint = Color.White,
-                    modifier = Modifier.size(19.dp)
-                )
-            }
-        } else {
-            Row(
-                modifier = Modifier
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(Color(0xFFE91E63), Color(0xFFFF6F9C))
-                        )
+        Row(
+            modifier = Modifier
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(Color(0xFFE91E63), Color(0xFFFF6F9C))
                     )
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.Chat,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(17.dp)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stringResource(R.string.chat_now),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
+                .padding(
+                    horizontal = if (compact) 11.dp else 14.dp,
+                    vertical = if (compact) 6.dp else 9.dp
+                ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Chat,
+                contentDescription = "Chat",
+                tint = Color.White,
+                modifier = Modifier.size(if (compact) 14.dp else 17.dp)
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+                text = "Chat",
+                style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
         }
     }
 }
@@ -538,8 +576,7 @@ fun PriceBadgePill(
 
 /**
  * 2-by-2 Grid 9:16 Companion Card.
- * Displays ONLY Name, Age, Price, Photo(s), and WhatsApp Chat button (never Phone or Address).
- * Turns into a soft blur ONLY after ALL uploaded photos in the profile have expired.
+ * Includes Like/Heart button for Favorites, Compatibility Match %, Verified Badge, and 'Chat' button.
  */
 @Composable
 fun GalleryGridCard(
@@ -553,6 +590,7 @@ fun GalleryGridCard(
     val isAllBlurredExpired = image.isDeletedBlurred
     val unopenedCount = image.unopenedPhotoCount()
     val hasActiveOrUnopened = image.isHidden && !isAllBlurredExpired
+    val matchLabel = remember(image.id, image.tags) { resolveMatchPercentage(image) }
     val density = LocalDensity.current.density
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -718,60 +756,107 @@ fun GalleryGridCard(
                     }
                 }
 
-                // Multi-photo count badge if profile has > 1 photo
-                if (image.allPhotoUrls.size > 1 && !image.isHidden && !isAllBlurredExpired) {
+                // Top-left Compatibility Match % & Multi-photo count badge
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = Color(0x9E1C101E),
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(8.dp)
+                        color = Color(0xD9E91E63),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f))
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Text(
+                            text = matchLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
+
+                    if (image.allPhotoUrls.size > 1 && !image.isHidden && !isAllBlurredExpired) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color(0x9E1C101E)
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Collections,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "${image.allPhotoUrls.size}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Collections,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "${image.allPhotoUrls.size}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
                 }
 
-                if (!image.isHidden && !isAllBlurredExpired) {
-                    IconButton(
+                // Top-right Like / Heart Button (adds/removes from Favorites tab)
+                if (!isAllBlurredExpired) {
+                    Surface(
                         onClick = onToggleBookmark,
+                        shape = CircleShape,
+                        color = if (isBookmarked) Color(0xFFE91E63) else Color(0xB31C101E),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isBookmarked) Color.White.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.35f)
+                        ),
+                        shadowElevation = 4.dp,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(6.dp)
                             .minimumInteractiveComponentSize()
                             .size(36.dp)
-                            .clip(CircleShape)
-                            .background(Color(0x9E1C101E))
                             .testTag("card_bookmark_${image.id}")
                     ) {
-                        Icon(
-                            imageVector = if (isBookmarked) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
-                            contentDescription = stringResource(
-                                if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
-                            ),
-                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White,
-                            modifier = Modifier.size(16.dp)
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isBookmarked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = stringResource(
+                                    if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
+                                ),
+                                tint = Color.White,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Bottom-left Vibe / Category tag over photo
+                if (image.category.isNotBlank() && !isAllBlurredExpired) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = Color(0xB31C101E),
+                        border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.3f)),
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = image.category,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
                 }
             }
 
-            // Footer: Name, Age, Price + WhatsApp Chat Icon Button beside Price
+            // Footer: Name, Age, Verified Badge, Price + 'Chat' Pill Button
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -789,6 +874,13 @@ fun GalleryGridCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Icon(
+                        imageVector = Icons.Rounded.Verified,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Surface(

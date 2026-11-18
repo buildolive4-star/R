@@ -147,10 +147,10 @@ fun AdminUsersCrmTab(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
 
-        if (pagedUsers.isEmpty()) {
+        if (pagedUsers.isEmpty() && allChats.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 EmptyGalleryState(
-                    title = "No Matching Users",
+                    title = "No Matching Users or Chats",
                     subtitle = "Switch filter above or wait for users to sign in and send an inquiry."
                 )
             }
@@ -165,6 +165,71 @@ fun AdminUsersCrmTab(
                     .fillMaxSize()
                     .testTag("admin_crm_5col_grid")
             ) {
+                if (allChats.isNotEmpty()) {
+                    item(span = { GridItemSpan(5) }, key = "live_client_chats_header") {
+                        Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.Chat,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Live Client Chat Inbox (${allChats.size})",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Text(
+                                    text = "Tap to Reply",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                text = "All incoming messages from any Google account appear here instantly.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    items(
+                        items = allChats,
+                        key = { "admin_inbox_chat_${it.id}" },
+                        span = { GridItemSpan(5) }
+                    ) { thread ->
+                        ChatThreadCard(
+                            title = "${thread.clientName.ifBlank { "Google User" }} → ${thread.profileName.ifBlank { "Companion" }}",
+                            subtitle = thread.lastMessage.ifBlank { "Tap to open conversation & reply" },
+                            photoUrl = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
+                            priceBadge = thread.profilePrice,
+                            unreadCount = thread.unreadForAdmin,
+                            onClick = { onOpenChatAsAdmin(thread.id) },
+                            modifier = Modifier.testTag("admin_direct_chat_card_${thread.id}")
+                        )
+                    }
+
+                    item(span = { GridItemSpan(5) }, key = "crm_grid_divider_header") {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Registered Users Directory (${pagedUsers.size}) · Tap profile to inspect & chat",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
                 items(pagedUsers, key = { it.uid }) { user ->
                     UserCrmMiniTile(
                         user = user,
@@ -195,12 +260,16 @@ fun AdminUsersCrmTab(
         pagedUsers.firstOrNull { it.uid == selected.uid } ?: selected
     }
     if (activeUser != null) {
-        val userInquiries = remember(allChats, activeUser.uid) {
-            allChats.filter { it.clientUid == activeUser.uid }
+        val userInquiries = remember(allChats, activeUser.uid, activeUser.name) {
+            allChats.filter {
+                it.clientUid == activeUser.uid ||
+                    (activeUser.name.isNotBlank() && it.clientName.equals(activeUser.name, ignoreCase = true))
+            }
         }
         UserCrmInspectorSheet(
             user = activeUser,
             userChats = userInquiries,
+            allChats = allChats,
             onSetLeadTag = { tag -> onSetLeadTag(activeUser.uid, tag) },
             onSetModeration = { status -> onSetModeration(activeUser.uid, status) },
             onCallUser = {
@@ -339,6 +408,7 @@ private fun UserCrmMiniTile(
 private fun UserCrmInspectorSheet(
     user: UserAccount,
     userChats: List<ChatThread>,
+    allChats: List<ChatThread>,
     onSetLeadTag: (String) -> Unit,
     onSetModeration: (String) -> Unit,
     onCallUser: () -> Unit,
@@ -399,6 +469,80 @@ private fun UserCrmInspectorSheet(
                 }
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Rounded.Close, contentDescription = "Close")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Client Chats & Direct Reply AT THE VERY TOP of User Inspector Sheet!
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.Chat,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "User Chat Conversations & Reply (${userChats.size})",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (userChats.isEmpty()) {
+                        Text(
+                            text = "No direct chat threads linked to ${user.name.ifBlank { "this user" }} yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (allChats.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Recent Active Client Chats (${allChats.size}):",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                allChats.take(4).forEach { thread ->
+                                    ChatThreadCard(
+                                        title = "${thread.clientName.ifBlank { "Client" }} → ${thread.profileName}",
+                                        subtitle = thread.lastMessage,
+                                        photoUrl = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
+                                        priceBadge = thread.profilePrice,
+                                        unreadCount = thread.unreadForAdmin,
+                                        onClick = { onOpenChat(thread.id) },
+                                        modifier = Modifier.testTag("crm_fallback_chat_${thread.id}")
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            userChats.forEach { thread ->
+                                ChatThreadCard(
+                                    title = "${user.name.ifBlank { "Client" }} → ${thread.profileName}",
+                                    subtitle = thread.lastMessage,
+                                    photoUrl = thread.profilePhotoUrl,
+                                    priceBadge = thread.profilePrice,
+                                    unreadCount = thread.unreadForAdmin,
+                                    onClick = { onOpenChat(thread.id) },
+                                    modifier = Modifier.testTag("crm_user_chat_${thread.id}")
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -539,47 +683,6 @@ private fun UserCrmInspectorSheet(
                     Icon(Icons.Rounded.Block, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Block", maxLines = 1)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.Chat,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Inquired Profiles & Replies (${userChats.size})",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (userChats.isEmpty()) {
-                Text(
-                    text = "No profile inquiries from this user yet.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    userChats.forEach { thread ->
-                        ChatThreadCard(
-                            title = thread.profileName,
-                            subtitle = thread.lastMessage,
-                            photoUrl = thread.profilePhotoUrl,
-                            priceBadge = thread.profilePrice,
-                            unreadCount = thread.unreadForAdmin,
-                            onClick = { onOpenChat(thread.id) },
-                            modifier = Modifier.testTag("crm_user_chat_${thread.id}")
-                        )
-                    }
                 }
             }
 

@@ -374,6 +374,7 @@ fun JustUsAppRoot(
     val vipProfiles by viewModel.vipProfiles.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
+    val selectedVibe by viewModel.selectedVibe.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     val bookmarkedIds by viewModel.bookmarkedIds.collectAsStateWithLifecycle()
@@ -657,10 +658,12 @@ fun JustUsAppRoot(
                                     vipProfiles = vipProfiles,
                                     categories = categories,
                                     selectedCategory = selectedCategory,
+                                    selectedVibe = selectedVibe,
                                     searchQuery = searchQuery,
                                     bookmarkedIds = bookmarkedIds,
                                     isStaffTheme = isStaffTheme,
                                     onSelectCategory = viewModel::selectCategory,
+                                    onSelectVibe = viewModel::selectVibe,
                                     onSearchQueryChange = viewModel::updateSearchQuery,
                                     onResetFilters = viewModel::resetFilters,
                                     onCheckNow = { viewModel.triggerBackgroundCheckNow(context) },
@@ -1016,9 +1019,9 @@ fun JustUsAppRoot(
                 modifier = Modifier.align(Alignment.TopCenter)
             )
 
-            // 3-Second Admin Launch Info Image Overlay
+            // 3D Glassmorphic Welcome Screen & 3-Second Admin Launch Info Overlay
             val currentLaunchBanner = launchBanner
-            if (currentLaunchBanner != null && currentLaunchBanner.isReadyToDisplay && !launchBannerDismissed) {
+            if (!launchBannerDismissed) {
                 LaunchBannerOverlay(
                     banner = currentLaunchBanner,
                     onSkip = { launchBannerDismissed = true }

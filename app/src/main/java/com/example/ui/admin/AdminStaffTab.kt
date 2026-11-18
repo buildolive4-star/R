@@ -183,9 +183,14 @@ fun AdminStaffTab(
             }
         } else {
             items(managedProfiles, key = { it.id }) { profile ->
-                val relatedChatCount = allChats.count {
-                    it.profileId == profile.id || (profile.ownerUid.isNotBlank() && it.staffOwnerUid == profile.ownerUid)
+                val sanitizedId = profile.id.replace(Regex("[^A-Za-z0-9_-]"), "_").take(40)
+                val relatedChats = allChats.filter {
+                    it.profileId == profile.id ||
+                        it.profileId == sanitizedId ||
+                        it.profileName.equals(profile.title, ignoreCase = true) ||
+                        (profile.ownerUid.isNotBlank() && it.staffOwnerUid == profile.ownerUid)
                 }
+                val relatedChatCount = relatedChats.size
                 Card(
                     shape = MaterialTheme.shapes.large,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -230,18 +235,52 @@ fun AdminStaffTab(
                                 )
                             }
                             Text(
-                                text = "${if (profile.isVip) "VIP 16:9" else "Grid 9:16"} · ${profile.role} · ${profile.allPhotoUrls.size} photo(s)",
+                                text = "${if (profile.isVip) "VIP 16:9" else "Grid 9:16"} · ${profile.role} · Direct Chat Approved ✓",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            PriceBadgePill(price = profile.displayPrice)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                PriceBadgePill(price = profile.displayPrice)
+                                if (relatedChatCount > 0) {
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                    ) {
+                                        Text(
+                                            text = "$relatedChatCount Chat(s)",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         Surface(
+                            onClick = {
+                                if (relatedChats.size == 1) {
+                                    onOpenChatAsAdmin(relatedChats.first().id)
+                                } else {
+                                    onLoadPrivateContact(profile.id)
+                                    inspectedProfileId = profile.id
+                                }
+                            },
                             shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                            modifier = Modifier.size(40.dp)
+                            color = if (relatedChatCount > 0) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                            },
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .size(42.dp)
+                                .testTag("admin_staff_chat_btn_${profile.id}")
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 BadgedBox(
@@ -253,8 +292,8 @@ fun AdminStaffTab(
                                 ) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Rounded.Chat,
-                                        contentDescription = "View client chats",
-                                        tint = MaterialTheme.colorScheme.primary,
+                                        contentDescription = "Open client chats",
+                                        tint = if (relatedChatCount > 0) Color.White else MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -271,9 +310,12 @@ fun AdminStaffTab(
         LaunchedEffect(activeProfile.id) {
             onLoadPrivateContact(activeProfile.id)
         }
-        val staffChats = remember(allChats, activeProfile.id, activeProfile.ownerUid) {
+        val staffChats = remember(allChats, activeProfile.id, activeProfile.title, activeProfile.ownerUid) {
+            val sanitizedId = activeProfile.id.replace(Regex("[^A-Za-z0-9_-]"), "_").take(40)
             allChats.filter {
                 it.profileId == activeProfile.id ||
+                    it.profileId == sanitizedId ||
+                    it.profileName.equals(activeProfile.title, ignoreCase = true) ||
                     (activeProfile.ownerUid.isNotBlank() && it.staffOwnerUid == activeProfile.ownerUid)
             }
         }
@@ -282,6 +324,7 @@ fun AdminStaffTab(
             profile = activeProfile,
             privateContact = contact,
             staffChats = staffChats,
+            allChats = allChats,
             onSaveEdits = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address ->
                 onUpdateProfile(
                     activeProfile.id,
@@ -367,7 +410,14 @@ private fun PendingStaffCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Approving verifies user info, activates Staff Mode, and enables Direct Staff Chat.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -381,7 +431,7 @@ private fun PendingStaffCard(
                 ) {
                     Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Approve 9:16", maxLines = 1)
+                    Text("Verify & Chat (9:16)", maxLines = 1)
                 }
                 FilledTonalButton(
                     onClick = onApproveVip,
@@ -392,7 +442,7 @@ private fun PendingStaffCard(
                 ) {
                     Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Approve VIP", maxLines = 1)
+                    Text("Verify VIP", maxLines = 1)
                 }
                 OutlinedButton(
                     onClick = onReject,
@@ -413,6 +463,7 @@ private fun StaffProfileInspectorSheet(
     profile: GalleryImage,
     privateContact: CompanionPrivateContact?,
     staffChats: List<ChatThread>,
+    allChats: List<ChatThread>,
     onSaveEdits: (
         name: String,
         ageText: String,
@@ -431,7 +482,7 @@ private fun StaffProfileInspectorSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var showChatsSection by remember { mutableStateOf(false) }
+    var showChatsSection by remember { mutableStateOf(true) }
     var showEditDialog by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
@@ -460,7 +511,7 @@ private fun StaffProfileInspectorSheet(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "${profile.role} · ${profile.displayPrice} · ${if (profile.isVip) "VIP 16:9" else "Grid 9:16"}",
+                        text = "${profile.role} · ${profile.displayPrice} · ${if (profile.isVip) "VIP 16:9" else "Grid 9:16"} · Direct Chat Enabled",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -501,51 +552,87 @@ private fun StaffProfileInspectorSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            // Always show Client Chats right at the top when showChatsSection is active (default true!)
             if (showChatsSection) {
-                Text(
-                    text = "Staff Client Discussions (${staffChats.size})",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Monitor messages exchanged with every client and reply directly as Admin.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                if (staffChats.isEmpty()) {
-                    Text(
-                        text = "No client conversations for this profile yet.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        staffChats.forEach { thread ->
-                            ChatThreadCard(
-                                title = thread.clientName.ifBlank { "Client" },
-                                subtitle = thread.lastMessage,
-                                photoUrl = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
-                                priceBadge = thread.profilePrice,
-                                unreadCount = thread.unreadForAdmin,
-                                onClick = { onOpenChat(thread.id) },
-                                modifier = Modifier.testTag("staff_inspector_chat_${thread.id}")
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text(
+                            text = "Client Chat Conversations (${staffChats.size})",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Tap any client conversation below to open the chat room and reply directly as Admin.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        if (staffChats.isEmpty()) {
+                            Text(
+                                text = "No client conversations specifically linked to ${profile.title} yet.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            if (allChats.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Recent Client Messages Across DateMate (${allChats.size}):",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    allChats.take(5).forEach { thread ->
+                                        ChatThreadCard(
+                                            title = "${thread.clientName.ifBlank { "Client" }} → ${thread.profileName}",
+                                            subtitle = thread.lastMessage,
+                                            photoUrl = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
+                                            priceBadge = thread.profilePrice,
+                                            unreadCount = thread.unreadForAdmin,
+                                            onClick = { onOpenChat(thread.id) },
+                                            modifier = Modifier.testTag("staff_inspector_any_chat_${thread.id}")
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                staffChats.forEach { thread ->
+                                    ChatThreadCard(
+                                        title = "${thread.clientName.ifBlank { "Client" }} → ${thread.profileName.ifBlank { profile.title }}",
+                                        subtitle = thread.lastMessage,
+                                        photoUrl = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
+                                        priceBadge = thread.profilePrice,
+                                        unreadCount = thread.unreadForAdmin,
+                                        onClick = { onOpenChat(thread.id) },
+                                        modifier = Modifier.testTag("staff_inspector_chat_${thread.id}")
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            } else {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(profile.allPhotoUrls) { photoUrl ->
-                        PixoraNetworkImage(
-                            imageUrl = photoUrl,
-                            contentDescription = profile.title,
-                            modifier = Modifier
-                                .size(width = 120.dp, height = 165.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                        )
-                    }
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(profile.allPhotoUrls) { photoUrl ->
+                    PixoraNetworkImage(
+                        imageUrl = photoUrl,
+                        contentDescription = profile.title,
+                        modifier = Modifier
+                            .size(width = 120.dp, height = 165.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                    )
                 }
+            }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -634,7 +721,6 @@ private fun StaffProfileInspectorSheet(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Remove Profile")
                 }
-            }
 
             Spacer(modifier = Modifier.height(22.dp))
         }

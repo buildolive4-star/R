@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -31,6 +33,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -38,6 +42,7 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -47,6 +52,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,6 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
@@ -84,6 +91,23 @@ import java.util.Locale
 
 private val WhatsAppBlueTick = Color(0xFF34B7F1)
 
+private val SMART_ICEBREAKERS = listOf(
+    "☕ Coffee & Conversation today?",
+    "🎶 Up for live acoustic music?",
+    "🌅 Evening walk & street food?",
+    "🎨 Art gallery visit this weekend?",
+    "✨ Hey! Loved your profile vibe",
+)
+
+private val DATE_PLANNER_OPTIONS = listOf(
+    "☕ Specialty Coffee & Book Cafe · Today 5:00 PM",
+    "🍽️ Rooftop Fine Dining & Sunset · Tonight 8:00 PM",
+    "🎨 Art Gallery & Heritage Walk · Saturday 4:00 PM",
+    "🎶 Live Indie Music & Mocktails · Friday 7:30 PM",
+    "🎬 Cinema Premiere & Dessert · Sunday 6:00 PM",
+    "🎧 Virtual Coffee & Voice Hangout · In 30 Mins",
+)
+
 @Composable
 fun ChatRoomScreen(
     chat: ChatThread?,
@@ -99,6 +123,7 @@ fun ChatRoomScreen(
     var selectedMessageIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showDeleteMessagesDialog by remember { mutableStateOf(false) }
     var showDeleteChatDialog by remember { mutableStateOf(false) }
+    var showDatePlannerDialog by remember { mutableStateOf(false) }
 
     BackHandler {
         if (selectedMessageIds.isNotEmpty()) {
@@ -142,215 +167,437 @@ fun ChatRoomScreen(
         else -> roleLabel
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-    ) {
-        // Top Header (switches into WhatsApp selection mode when messages are long-pressed)
-        Surface(
-            color = if (selectedMessageIds.isNotEmpty()) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
-            tonalElevation = 2.dp,
-            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-        ) {
-            if (selectedMessageIds.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 8.dp)
-                        .testTag("chat_selection_action_bar"),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { selectedMessageIds = emptySet() },
-                        modifier = Modifier.minimumInteractiveComponentSize()
-                    ) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Clear selection")
-                    }
-                    Text(
-                        text = "${selectedMessageIds.size} selected",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = {
-                            val selectedText = messages
-                                .filter { selectedMessageIds.contains(it.id) }
-                                .joinToString("\n") { it.text }
-                            if (selectedText.isNotBlank()) {
-                                clipboardManager.setText(AnnotatedString(selectedText))
-                            }
-                            selectedMessageIds = emptySet()
-                        },
-                        modifier = Modifier.minimumInteractiveComponentSize()
-                    ) {
-                        Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy selected messages")
-                    }
-                    IconButton(
-                        onClick = { showDeleteMessagesDialog = true },
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("delete_selected_messages_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.DeleteOutline,
-                            contentDescription = "Delete selected messages",
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("chat_room_back_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = stringResource(R.string.back)
-                        )
-                    }
-
-                    Box {
-                        PixoraNetworkImage(
-                            imageUrl = headerAvatar,
-                            contentDescription = headerTitle,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                        )
-                        if (isPeerOnline) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .size(12.dp)
-                                    .clip(CircleShape)
-                                    .background(OnlineEmeraldDot)
-                                    .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = headerTitle,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = subtitleText,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (isPeerOnline) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (isPeerOnline) WhatsAppGreen else MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.testTag("chat_peer_presence_label")
-                        )
-                    }
-
-                    if (chat.profilePrice.isNotBlank()) {
-                        PriceBadgePill(price = chat.profilePrice)
-                        Spacer(modifier = Modifier.width(4.dp))
-                    }
-
-                    IconButton(
-                        onClick = { showDeleteChatDialog = true },
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("chat_room_delete_thread_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.DeleteOutline,
-                            contentDescription = "Delete chat",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    Surface(
-                        onClick = onStartVoiceCall,
-                        shape = CircleShape,
-                        color = WhatsAppGreen.copy(alpha = 0.18f),
-                        border = BorderStroke(1.dp, WhatsAppGreen.copy(alpha = 0.5f)),
-                        modifier = Modifier
-                            .size(44.dp)
-                            .minimumInteractiveComponentSize()
-                            .testTag("chat_room_call_button")
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Rounded.Call,
-                                contentDescription = "Voice Call",
-                                tint = WhatsAppGreen,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Staff Admin Monitoring & Anti-Leak Banner
-        if (senderRole == "staff" || senderRole == "admin") {
-            Surface(
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .statusBarsPadding()
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Pinned Companion Profile Top Header
+                Surface(
+                    color = if (selectedMessageIds.isNotEmpty()) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                    tonalElevation = 3.dp,
+                    shadowElevation = 4.dp,
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Shield,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (senderRole == "staff") {
-                            stringResource(R.string.staff_monitor_notice)
-                        } else {
-                            "Admin Mode: You can view and reply directly in this ${chat.profileName} inquiry thread."
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    if (selectedMessageIds.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 8.dp)
+                                .testTag("chat_selection_action_bar"),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { selectedMessageIds = emptySet() },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(Icons.Rounded.Close, contentDescription = "Clear selection")
+                            }
+                            Text(
+                                text = "${selectedMessageIds.size} selected",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = {
+                                    val selectedText = messages
+                                        .filter { selectedMessageIds.contains(it.id) }
+                                        .joinToString("\n") { it.text }
+                                    if (selectedText.isNotBlank()) {
+                                        clipboardManager.setText(AnnotatedString(selectedText))
+                                    }
+                                    selectedMessageIds = emptySet()
+                                },
+                                modifier = Modifier.minimumInteractiveComponentSize()
+                            ) {
+                                Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy selected messages")
+                            }
+                            IconButton(
+                                onClick = { showDeleteMessagesDialog = true },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("delete_selected_messages_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeleteOutline,
+                                    contentDescription = "Delete selected messages",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = onBack,
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("chat_room_back_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = stringResource(R.string.back)
+                                )
+                            }
+
+                            Box {
+                                PixoraNetworkImage(
+                                    imageUrl = headerAvatar,
+                                    contentDescription = headerTitle,
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                )
+                                if (isPeerOnline) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .size(12.dp)
+                                            .clip(CircleShape)
+                                            .background(OnlineEmeraldDot)
+                                            .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(10.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = headerTitle,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = subtitleText,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (isPeerOnline) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (isPeerOnline) WhatsAppGreen else MaterialTheme.colorScheme.primary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.testTag("chat_peer_presence_label")
+                                )
+                            }
+
+                            if (chat.profilePrice.isNotBlank()) {
+                                PriceBadgePill(price = chat.profilePrice)
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+
+                            IconButton(
+                                onClick = { showDeleteChatDialog = true },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("chat_room_delete_thread_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeleteOutline,
+                                    contentDescription = "Delete chat",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Surface(
+                                onClick = onStartVoiceCall,
+                                shape = CircleShape,
+                                color = WhatsAppGreen.copy(alpha = 0.18f),
+                                border = BorderStroke(1.dp, WhatsAppGreen.copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("chat_room_call_button")
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Call,
+                                        contentDescription = "Voice Call",
+                                        tint = WhatsAppGreen,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Staff Admin Monitoring & Anti-Leak Banner
+                if (senderRole == "staff" || senderRole == "admin") {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Shield,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (senderRole == "staff") {
+                                    stringResource(R.string.staff_monitor_notice)
+                                } else {
+                                    "Admin Mode: Direct live reply active for ${chat.profileName}."
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        bottomBar = {
+            // Sticky Bottom Bar right above navigation bar / keyboard
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 4.dp,
+                shadowElevation = 8.dp,
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .imePadding()
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Inline Anti-Contact-Leak Error Warning
+                    AnimatedVisibility(visible = !leakWarning.isNullOrBlank()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                                .testTag("staff_contact_leak_warning")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = leakWarning.orEmpty(),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+
+                    // Quick Companionship Actions: Date Planner, 3D Virtual Rose Gift & Smart Icebreakers
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        item(key = "plan_date_btn") {
+                            Surface(
+                                onClick = { showDatePlannerDialog = true },
+                                shape = RoundedCornerShape(999.dp),
+                                color = Color(0xFFFFF0F5),
+                                border = BorderStroke(1.dp, Color(0xFFE91E63).copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.CalendarMonth,
+                                        contentDescription = null,
+                                        tint = Color(0xFFE91E63),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Plan Date",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFE91E63)
+                                    )
+                                }
+                            }
+                        }
+
+                        item(key = "send_rose_btn") {
+                            Surface(
+                                onClick = {
+                                    onSendMessage(
+                                        "🌹 Sent a 3D Velvet Rose to ${chat.profileName.ifBlank { "you" }}!",
+                                        { err -> leakWarning = err },
+                                        {}
+                                    )
+                                },
+                                shape = RoundedCornerShape(999.dp),
+                                color = Color(0xFFFFF0F5),
+                                border = BorderStroke(1.dp, Color(0xFFFF6F9C).copy(alpha = 0.55f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Favorite,
+                                        contentDescription = null,
+                                        tint = Color(0xFFE91E63),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "🌹 Send Rose",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFE91E63)
+                                    )
+                                }
+                            }
+                        }
+
+                        items(SMART_ICEBREAKERS, key = { it }) { icebreaker ->
+                            Surface(
+                                onClick = { draft = icebreaker },
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainer,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Text(
+                                    text = icebreaker,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Composer Row (Docked directly above footer)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, end = 12.dp, bottom = 8.dp, top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = draft,
+                            onValueChange = {
+                                draft = it
+                                if (senderRole == "staff" && it.isNotBlank()) {
+                                    val check = ContactLeakFilter.validateForStaff(it)
+                                    leakWarning = if (!check.isAllowed) check.reason else null
+                                } else {
+                                    leakWarning = null
+                                }
+                            },
+                            placeholder = {
+                                Text(
+                                    if (senderRole == "staff") {
+                                        "Reply safely (no phone/IG/email)…"
+                                    } else {
+                                        "Write a message…"
+                                    }
+                                )
+                            },
+                            maxLines = 3,
+                            shape = RoundedCornerShape(22.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("chat_composer_input")
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            onClick = {
+                                val text = draft.trim()
+                                if (text.isEmpty()) return@Surface
+                                if (senderRole == "staff") {
+                                    val check = ContactLeakFilter.validateForStaff(text)
+                                    if (!check.isAllowed) {
+                                        leakWarning = check.reason
+                                        return@Surface
+                                    }
+                                }
+                                onSendMessage(
+                                    text,
+                                    { err -> leakWarning = err },
+                                    {
+                                        draft = ""
+                                        leakWarning = null
+                                    }
+                                )
+                            },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            shadowElevation = 6.dp,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .minimumInteractiveComponentSize()
+                                .testTag("chat_send_button")
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.background(
+                                    Brush.horizontalGradient(
+                                        listOf(Color(0xFFE91E63), Color(0xFFFF6F9C))
+                                    )
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.Send,
+                                    contentDescription = "Send",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
-
-        // Message List
+    ) { innerPadding ->
+        // Scrollable Message List strictly between pinned topBar and pinned bottomBar
         LazyColumn(
             state = listState,
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
+                .fillMaxSize()
+                .padding(innerPadding)
                 .testTag("chat_messages_list")
         ) {
             items(messages, key = { it.id }) { msg ->
@@ -393,125 +640,65 @@ fun ChatRoomScreen(
                 )
             }
         }
-
-        // Inline Anti-Contact-Leak Error Warning
-        AnimatedVisibility(visible = !leakWarning.isNullOrBlank()) {
-            Surface(
-                color = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-                    .testTag("staff_contact_leak_warning")
-            ) {
-                Row(
-                    modifier = Modifier.padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.ErrorOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = leakWarning.orEmpty(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-        }
-
-        // Composer Row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = {
-                    draft = it
-                    if (senderRole == "staff" && it.isNotBlank()) {
-                        val check = ContactLeakFilter.validateForStaff(it)
-                        leakWarning = if (!check.isAllowed) check.reason else null
-                    } else {
-                        leakWarning = null
-                    }
-                },
-                placeholder = {
-                    Text(
-                        if (senderRole == "staff") {
-                            "Reply safely (no phone/IG/email)…"
-                        } else {
-                            "Write a message…"
-                        }
-                    )
-                },
-                maxLines = 3,
-                shape = RoundedCornerShape(22.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                ),
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("chat_composer_input")
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Surface(
-                onClick = {
-                    val text = draft.trim()
-                    if (text.isEmpty()) return@Surface
-                    if (senderRole == "staff") {
-                        val check = ContactLeakFilter.validateForStaff(text)
-                        if (!check.isAllowed) {
-                            leakWarning = check.reason
-                            return@Surface
-                        }
-                    }
-                    onSendMessage(
-                        text,
-                        { err -> leakWarning = err },
-                        {
-                            draft = ""
-                            leakWarning = null
-                        }
-                    )
-                },
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                shadowElevation = 6.dp,
-                modifier = Modifier
-                    .size(48.dp)
-                    .minimumInteractiveComponentSize()
-                    .testTag("chat_send_button")
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.background(
-                        androidx.compose.ui.graphics.Brush.horizontalGradient(
-                            listOf(Color(0xFFE91E63), Color(0xFFFF6F9C))
-                        )
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.Send,
-                        contentDescription = "Send",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-        }
     }
+
+    if (showDatePlannerDialog) {
+        AlertDialog(
+            onDismissRequest = { showDatePlannerDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    tint = Color(0xFFE91E63)
+                )
+            },
+            title = {
+                Text(
+                    text = "Plan a DateMate Hangout",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Select an experience to invite ${chat.profileName.ifBlank { "your companion" }}:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    DATE_PLANNER_OPTIONS.forEach { option ->
+                        Surface(
+                            onClick = {
+                                showDatePlannerDialog = false
+                                onSendMessage(
+                                    "📅 DateMate Hangout Invite: $option",
+                                    { err -> leakWarning = err },
+                                    {}
+                                )
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFFFFF0F5),
+                            border = BorderStroke(1.dp, Color(0xFFE91E63).copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = option,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF25212A),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDatePlannerDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
     if (showDeleteMessagesDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteMessagesDialog = false },

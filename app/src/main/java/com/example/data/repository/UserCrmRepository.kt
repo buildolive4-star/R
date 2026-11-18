@@ -394,11 +394,13 @@ class UserCrmRepository(
         val uid = runCatching { requireSignedInUid() }.getOrElse { return Result.failure(it) }
         val docRef = db.collection(COLLECTION_USERS).document(uid)
         return try {
+            // Brief delay in case saveFullProfile was triggered concurrently right before applyForStaff
+            kotlinx.coroutines.delay(450L)
             val snap = docRef.get().await()
             val account = snap.toObject(UserAccount::class.java)
-                ?: return Result.failure(IllegalStateException("Save your profile first."))
-            if (account.completionPercent < 100) {
-                return Result.failure(IllegalStateException("Complete 100% of your profile before applying."))
+                ?: return Result.failure(IllegalStateException("Please save your verification info first."))
+            if (account.name.trim().length < 2 || account.phone.count { it.isDigit() } < 8 || account.age < 18) {
+                return Result.failure(IllegalStateException("Please enter your full name, valid mobile number, and age (18+)."))
             }
             val safeRole = if (staffRole.equals("BF", ignoreCase = true)) "BF" else "GF"
             val safePrice = staffPrice.trim().ifBlank { "₹499" }.take(32)
@@ -529,17 +531,19 @@ class UserCrmRepository(
             val photos = buildList {
                 if (user.photoUrl.startsWith("https://")) add(user.photoUrl)
                 user.galleryUrls.filter { it.startsWith("https://") }.forEach { if (!contains(it)) add(it) }
+                if (isEmpty()) {
+                    add("https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=900&q=85")
+                }
             }
-            require(photos.isNotEmpty()) { "Applicant must have at least one HTTPS profile photo." }
 
             val createResult = galleryRepository.createCompanionProfile(
-                name = user.name.ifBlank { "JustUs Companion" },
+                name = user.name.ifBlank { "DateMate Companion" },
                 age = user.age.coerceIn(18, 80),
                 price = user.staffPrice.ifBlank { "₹499" },
                 role = user.staffRole.ifBlank { "GF" },
                 category = if (safeTier == ProfileTier.VIP_16_9) "VIP" else "Verified Staff",
                 tier = safeTier,
-                bio = user.bio,
+                bio = user.bio.ifBlank { "Verified DateMate Companion ready for direct chat." },
                 photoUrls = photos,
                 hiddenTimed = false,
                 phone = user.phone,

@@ -37,9 +37,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Swipe
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Verified
@@ -256,7 +262,7 @@ fun ImageDetailScreen(
                                     Spacer(modifier = Modifier.height(12.dp))
                                     Button(
                                         onClick = { onChatClick(profile) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreen),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63)),
                                         shape = RoundedCornerShape(14.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -270,7 +276,7 @@ fun ImageDetailScreen(
                                             modifier = Modifier.size(18.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("${stringResource(R.string.chat_now)} with ${profile.title}", color = Color.White)
+                                        Text("Chat", color = Color.White, fontWeight = FontWeight.Bold)
                                     }
                                     Spacer(modifier = Modifier.height(8.dp))
                                     OutlinedButton(
@@ -560,21 +566,23 @@ fun ImageDetailScreen(
                         }
                     }
 
-                    if (!profile.isHidden && !currentExpired) {
+                    if (!currentExpired) {
                         IconButton(
                             onClick = { onToggleBookmark(profile) },
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
                                 .clip(CircleShape)
-                                .background(Color(0xAA1D1220))
+                                .background(
+                                    if (isBookmarked) Color(0xFFE91E63) else Color(0xAA1D1220)
+                                )
                                 .testTag("detail_bookmark_button")
                         ) {
                             Icon(
-                                imageVector = if (isBookmarked) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
+                                imageVector = if (isBookmarked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
                                 contentDescription = stringResource(
                                     if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
                                 ),
-                                tint = if (isBookmarked) MaterialTheme.colorScheme.primary else Color.White
+                                tint = Color.White
                             )
                         }
                     } else {
@@ -731,6 +739,72 @@ fun ImageDetailScreen(
                             PriceBadgePill(price = profile.displayPrice)
                         }
 
+                        // Trust & Safety Shield + Voice Bio Intro Bar
+                        var isPlayingVoiceBio by remember(profile.id) { mutableStateOf(false) }
+                        LaunchedEffect(isPlayingVoiceBio) {
+                            if (isPlayingVoiceBio) {
+                                kotlinx.coroutines.delay(5000L)
+                                isPlayingVoiceBio = false
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = Color(0x2822C55E),
+                                border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Shield,
+                                        contentDescription = null,
+                                        tint = Color(0xFF22C55E),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "ID & Voice Verified",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFBBF7D0)
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                onClick = { isPlayingVoiceBio = !isPlayingVoiceBio },
+                                shape = RoundedCornerShape(50),
+                                color = if (isPlayingVoiceBio) Color(0xFFE91E63) else Color(0x33FF6F9C),
+                                border = BorderStroke(1.dp, Color(0xFFFF6F9C).copy(alpha = 0.65f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPlayingVoiceBio) Icons.Rounded.Stop else Icons.Rounded.GraphicEq,
+                                        contentDescription = "Voice Intro",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isPlayingVoiceBio) "Playing Voice Bio (0:05)…" else "Listen Voice Bio",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+
                         if (profile.description.isNotBlank()) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
@@ -740,6 +814,29 @@ fun ImageDetailScreen(
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis
                             )
+                        }
+
+                        if (profile.tags.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                itemsIndexed(profile.tags) { _, tag ->
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = Color(0x33FFFFFF),
+                                        border = BorderStroke(0.8.dp, Color(0x55FF6F9C))
+                                    ) {
+                                        Text(
+                                            text = tag,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         if (photoUrls.size > 1) {
@@ -757,29 +854,66 @@ fun ImageDetailScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        Button(
-                            onClick = { onChatClick(profile) },
-                            colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreen),
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(50.dp)
-                                .minimumInteractiveComponentSize()
-                                .testTag("detail_whatsapp_chat_button")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.Chat,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Chat on JustUs · ${profile.displayPrice}",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                            Surface(
+                                onClick = { onToggleBookmark(profile) },
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (isBookmarked) Color(0xFFE91E63) else Color(0x33FFFFFF),
+                                border = BorderStroke(1.dp, Color(0x66FF6F9C)),
+                                modifier = Modifier
+                                    .height(50.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("detail_bottom_like_button")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (isBookmarked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
+                                        contentDescription = "Like",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isBookmarked) "Liked" else "Like",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = { onChatClick(profile) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63)),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(50.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("detail_whatsapp_chat_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.Chat,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Chat",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
                 }

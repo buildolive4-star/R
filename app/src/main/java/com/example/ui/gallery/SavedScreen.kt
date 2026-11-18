@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BookmarkRemove
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -161,13 +162,13 @@ private fun BookmarkTile(
                     .minimumInteractiveComponentSize()
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(Color(0x99141318))
+                    .background(Color(0xFFE91E63))
                     .testTag("remove_saved_${bookmark.imageId}")
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.BookmarkRemove,
+                    imageVector = androidx.compose.material.icons.Icons.Rounded.Favorite,
                     contentDescription = stringResource(R.string.bookmark_remove),
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = Color.White,
                     modifier = Modifier.size(18.dp)
                 )
             }

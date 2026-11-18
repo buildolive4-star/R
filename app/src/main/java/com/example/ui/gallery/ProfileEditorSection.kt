@@ -627,179 +627,333 @@ fun ProfileEditorSection(
         }
     }
 
-    if (firebaseUser != null) {
-        Spacer(modifier = Modifier.height(14.dp))
+    Spacer(modifier = Modifier.height(14.dp))
 
-        // Become Companion / Staff (GF / BF) Application Card
-        val savedPercent = userAccount?.completionPercent ?: 0
-        val status = userAccount?.staffStatus ?: StaffStatus.NONE
+    // "Join DateMate" Verification & Staff Direct Chat Application Section
+    val status = userAccount?.staffStatus ?: StaffStatus.NONE
+    var showJoinDateMateForm by remember { mutableStateOf(false) }
 
-        Card(
-            shape = MaterialTheme.shapes.extraLarge,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-            border = BorderStroke(
-                1.dp,
-                when (status) {
-                    StaffStatus.APPROVED -> MaterialTheme.colorScheme.primary
-                    StaffStatus.PENDING -> MaterialTheme.colorScheme.secondary
-                    else -> MaterialTheme.colorScheme.outlineVariant
-                }
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("become_staff_card")
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f),
-                        modifier = Modifier.size(42.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = when (status) {
-                                    StaffStatus.APPROVED -> Icons.Rounded.Verified
-                                    StaffStatus.PENDING -> Icons.Rounded.HourglassTop
-                                    else -> Icons.Rounded.AutoAwesome
-                                },
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Become Companion / Staff (GF / BF)",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = when (status) {
-                                StaffStatus.APPROVED -> "Verified Staff Active · Staff Theme & Inbox unlocked"
-                                StaffStatus.PENDING -> "Under Review · Admin is verifying your profile"
-                                StaffStatus.REJECTED -> "Previous request declined · Update profile & reapply"
-                                else -> "Reach 100% profile completion to apply"
+    Card(
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(
+            1.2.dp,
+            when (status) {
+                StaffStatus.APPROVED -> MaterialTheme.colorScheme.primary
+                StaffStatus.PENDING -> MaterialTheme.colorScheme.secondary
+                else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+            }
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("become_staff_card")
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showJoinDateMateForm = !showJoinDateMateForm }
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                    modifier = Modifier.size(46.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = when (status) {
+                                StaffStatus.APPROVED -> Icons.Rounded.Verified
+                                StaffStatus.PENDING -> Icons.Rounded.HourglassTop
+                                else -> Icons.Rounded.AutoAwesome
                             },
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Join DateMate",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = when (status) {
+                            StaffStatus.APPROVED -> "Verified Staff Active ✓ · Direct Client Chat Approved by Admin"
+                            StaffStatus.PENDING -> "Under Admin Review · Info verification & chat approval pending"
+                            StaffStatus.REJECTED -> "Verification declined · Update your info & resubmit"
+                            else -> "Tap to submit your info for Admin verification & Staff Direct Chat access"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            when (status) {
+                StaffStatus.APPROVED -> {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "Verified Staff Mode & Direct Chat Unlocked ✓",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "You are verified on DateMate as ${userAccount?.staffRole ?: "Companion"} (${userAccount?.staffPrice ?: "₹499"}). Admin has approved your Direct Chat access—open Chats -> Staff Inbox to chat directly with clients!",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+
+                StaffStatus.PENDING -> {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Status: UNDER ADMIN VERIFICATION. Requested as ${userAccount?.staffRole ?: "GF"} at ${userAccount?.staffPrice ?: "₹499"}. Once Admin verifies your submitted info and approves chat in Admin Studio, your account immediately switches to Staff behavior with Direct Client Chat!",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(12.dp)
                         )
                     }
                 }
 
-                when (status) {
-                    StaffStatus.APPROVED -> {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "You are live on JustUs as verified ${userAccount?.staffRole ?: "Companion"} (${userAccount?.staffPrice ?: "₹499"}). Open Chats -> Staff Inbox to reply to clients. Admin monitors all staff chats & external contact details are blocked.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
-                    }
-
-                    StaffStatus.PENDING -> {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "Status: UNDER REVIEW. Requested as ${userAccount?.staffRole ?: "GF"} at ${userAccount?.staffPrice ?: "₹499"}. As soon as Admin verifies you, your entire app switches to Verified Staff Theme and unlocks Staff Chat Inbox.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
-                    }
-
-                    else -> {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Select Companion Role & Session Rate",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            STAFF_ROLES.forEach { role ->
-                                FilterChip(
-                                    selected = staffRole == role,
-                                    onClick = { staffRole = role },
-                                    label = { Text(if (role == "GF") "Girlfriend (GF)" else "Boyfriend (BF)") },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.secondary,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onSecondary,
-                                    ),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .minimumInteractiveComponentSize()
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            STAFF_PRICE_PRESETS.forEach { preset ->
-                                FilterChip(
-                                    selected = staffPrice == preset,
-                                    onClick = { staffPrice = preset },
-                                    label = { Text(preset) },
-                                    modifier = Modifier.minimumInteractiveComponentSize()
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = staffPrice,
-                            onValueChange = { staffPrice = it },
-                            singleLine = true,
-                            label = { Text("Your Rate (e.g. ₹499)") },
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        val canApply = savedPercent == 100 && !isBusy
+                else -> {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    if (!showJoinDateMateForm) {
                         Button(
-                            onClick = { onApplyForStaff(staffRole, staffPrice) },
-                            enabled = canApply,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondary,
-                                contentColor = MaterialTheme.colorScheme.onSecondary,
-                            ),
+                            onClick = {
+                                if (firebaseUser == null) {
+                                    onSignInGoogle()
+                                } else {
+                                    showJoinDateMateForm = true
+                                }
+                            },
                             shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(50.dp)
+                                .height(48.dp)
                                 .minimumInteractiveComponentSize()
-                                .testTag("apply_become_staff_button")
+                                .testTag("join_datemate_open_button")
                         ) {
+                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (savedPercent == 100) {
-                                    "Submit Staff Verification Request"
-                                } else {
-                                    "Save 100% Profile First ($savedPercent% saved)"
-                                },
+                                text = if (firebaseUser == null) "Sign In to Join DateMate" else "Join DateMate · Apply as Verified Staff",
                                 fontWeight = FontWeight.Bold
                             )
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text(
+                                    text = "Join DateMate · Staff Verification Info",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Fill your details below. Admin will verify your info and approve Direct Chat access.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                OutlinedTextField(
+                                    value = name,
+                                    onValueChange = { name = it },
+                                    singleLine = true,
+                                    label = { Text("Your Full Name *") },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = phone,
+                                        onValueChange = { phone = it },
+                                        singleLine = true,
+                                        label = { Text("Mobile Number *") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.weight(1.3f)
+                                    )
+                                    OutlinedTextField(
+                                        value = ageText,
+                                        onValueChange = { ageText = it.filter { ch -> ch.isDigit() }.take(2) },
+                                        singleLine = true,
+                                        label = { Text("Age *") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.weight(0.7f)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = city,
+                                        onValueChange = { city = it },
+                                        singleLine = true,
+                                        label = { Text("City *") },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    OutlinedTextField(
+                                        value = interests,
+                                        onValueChange = { interests = it },
+                                        singleLine = true,
+                                        label = { Text("Specialty Vibe *") },
+                                        placeholder = { Text("Coffee, Travel") },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.weight(1.2f)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = address,
+                                    onValueChange = { address = it },
+                                    singleLine = true,
+                                    label = { Text("Full Address (Private for Admin Verification) *") },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = bio,
+                                    onValueChange = { bio = it },
+                                    minLines = 2,
+                                    maxLines = 3,
+                                    label = { Text("Companion Bio / Introduction *") },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Select Companion Role & Session Rate",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    STAFF_ROLES.forEach { role ->
+                                        FilterChip(
+                                            selected = staffRole == role,
+                                            onClick = { staffRole = role },
+                                            label = { Text(if (role == "GF") "Companion (GF)" else "Companion (BF)") },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                            ),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .minimumInteractiveComponentSize()
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    STAFF_PRICE_PRESETS.forEach { preset ->
+                                        FilterChip(
+                                            selected = staffPrice == preset,
+                                            onClick = { staffPrice = preset },
+                                            label = { Text(preset) },
+                                            modifier = Modifier.minimumInteractiveComponentSize()
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                OutlinedTextField(
+                                    value = staffPrice,
+                                    onValueChange = { staffPrice = it },
+                                    singleLine = true,
+                                    label = { Text("Session Rate (e.g. ₹499)") },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Button(
+                                    onClick = {
+                                        if (firebaseUser == null) {
+                                            onSignInGoogle()
+                                        } else {
+                                            onSaveProfile(
+                                                name.ifBlank { firebaseUser.displayName ?: "DateMate Staff" },
+                                                selectedAvatarUri,
+                                                selectedGalleryUris,
+                                                phone.ifBlank { "+91 9876543210" },
+                                                ageText.ifBlank { "22" },
+                                                address.ifBlank { "Verified City Center" },
+                                                city.ifBlank { "Mumbai" },
+                                                bio.ifBlank { "Friendly verified DateMate companion for coffee & conversations." },
+                                                interests.ifBlank { "Coffee & Chat, Travel Buddy" },
+                                                genderPref,
+                                            )
+                                            onApplyForStaff(staffRole, staffPrice)
+                                        }
+                                    },
+                                    enabled = !isBusy,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                                    ),
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(50.dp)
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("apply_become_staff_button")
+                                ) {
+                                    Icon(Icons.Rounded.Verified, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Submit Info for Admin Verification & Chat Approval",
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 }

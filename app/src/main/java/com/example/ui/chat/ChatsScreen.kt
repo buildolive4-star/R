@@ -557,7 +557,7 @@ private fun StaffInboxLockedCard(
                 Spacer(modifier = Modifier.height(14.dp))
                 Text(
                     text = if (staffStatus == StaffStatus.PENDING) {
-                        "Staff Application Under Review"
+                        "Join DateMate Verification Pending"
                     } else {
                         stringResource(R.string.staff_inbox_locked_title)
                     },
@@ -569,7 +569,7 @@ private fun StaffInboxLockedCard(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = if (staffStatus == StaffStatus.PENDING) {
-                        "JustUs Admin is reviewing your profile. Once approved, your app theme updates and client inbox unlocks here automatically."
+                        "DateMate Admin is verifying your info & chat approval. Once approved, Staff Mode and direct client chat unlock here automatically."
                     } else {
                         stringResource(R.string.staff_inbox_locked_subtitle)
                     },
@@ -589,9 +589,9 @@ private fun StaffInboxLockedCard(
                 ) {
                     Text(
                         text = if (staffStatus == StaffStatus.PENDING) {
-                            "View Profile Status"
+                            "View Join DateMate Status"
                         } else {
-                            "Complete Profile & Apply"
+                            "Join DateMate in Profile"
                         }
                     )
                 }
