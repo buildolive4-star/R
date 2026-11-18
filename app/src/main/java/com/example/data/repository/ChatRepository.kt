@@ -315,15 +315,102 @@ class ChatRepository(
     suspend fun markChatThreadRead(chatId: String, readerRole: String) {
         if (chatId.isBlank()) return
         runCatching { requireSignedInUid() }.getOrNull() ?: return
-        val fieldName = when (readerRole) {
-            "admin" -> "unreadForAdmin"
-            "staff" -> "unreadForStaff"
-            else -> "unreadForClient"
+        val nowMs = System.currentTimeMillis()
+        val updates = when (readerRole) {
+            "admin" -> mapOf(
+                "unreadForAdmin" to 0,
+                "agentLastReadEpochMs" to nowMs,
+                "agentLastDeliveredEpochMs" to nowMs,
+            )
+            "staff" -> mapOf(
+                "unreadForStaff" to 0,
+                "agentLastReadEpochMs" to nowMs,
+                "agentLastDeliveredEpochMs" to nowMs,
+            )
+            else -> mapOf(
+                "unreadForClient" to 0,
+                "clientLastReadEpochMs" to nowMs,
+                "clientLastDeliveredEpochMs" to nowMs,
+            )
         }
         runCatching {
             db.collection(COLLECTION_CHATS).document(chatId)
-                .update(mapOf(fieldName to 0))
+                .update(updates)
                 .await()
+        }
+    }
+
+    suspend fun markChatDelivered(chatId: String, receiverRole: String) {
+        if (chatId.isBlank()) return
+        runCatching { requireSignedInUid() }.getOrNull() ?: return
+        val nowMs = System.currentTimeMillis()
+        val field = if (receiverRole == "client") {
+            "clientLastDeliveredEpochMs"
+        } else {
+            "agentLastDeliveredEpochMs"
+        }
+        runCatching {
+            db.collection(COLLECTION_CHATS).document(chatId)
+                .update(mapOf(field to nowMs))
+                .await()
+        }
+    }
+
+    suspend fun deleteChatThread(chatId: String): Result<Unit> {
+        if (chatId.isBlank()) return Result.failure(IllegalArgumentException("Invalid chat ID"))
+        val chatRef = db.collection(COLLECTION_CHATS).document(chatId)
+        return try {
+            requireSignedInUid()
+            val messagesSnap = chatRef.collection(COLLECTION_MESSAGES).get().await()
+            messagesSnap.documents.chunked(350).forEach { chunk ->
+                val batch = db.batch()
+                chunk.forEach { batch.delete(it.reference) }
+                batch.commit().await()
+            }
+            chatRef.delete().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, chatRef.path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteMessages(
+        chat: ChatThread,
+        messageIds: List<String>,
+        remainingMessages: List<ChatMessage>,
+    ): Result<Unit> {
+        if (chat.id.isBlank() || messageIds.isEmpty()) return Result.success(Unit)
+        val chatRef = db.collection(COLLECTION_CHATS).document(chat.id)
+        return try {
+            requireSignedInUid()
+            messageIds.distinct().chunked(350).forEach { chunk ->
+                val batch = db.batch()
+                chunk.forEach { msgId ->
+                    batch.delete(chatRef.collection(COLLECTION_MESSAGES).document(msgId))
+                }
+                batch.commit().await()
+            }
+            val latestRemaining = remainingMessages
+                .filter { it.id !in messageIds }
+                .maxByOrNull { it.createdAt?.toDate()?.time ?: 0L }
+            val nextPreview = latestRemaining?.text?.take(500) ?: "Message deleted"
+            val nextRole = latestRemaining?.senderRole ?: chat.lastSenderRole
+            chatRef.update(
+                mapOf(
+                    "lastMessage" to nextPreview,
+                    "lastSenderRole" to nextRole,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, "${chatRef.path}/$COLLECTION_MESSAGES")
+            Result.failure(e)
         }
     }
 

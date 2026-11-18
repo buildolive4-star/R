@@ -52,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -100,6 +101,7 @@ import com.example.ui.chat.ChatsScreen
 import com.example.ui.chat.SessionAndChatViewModel
 import com.example.ui.components.InAppBannerEvent
 import com.example.ui.components.InAppNotificationBanner
+import com.example.ui.components.LaunchBannerOverlay
 import com.example.ui.detail.ImageDetailScreen
 import com.example.ui.gallery.ExploreScreen
 import com.example.ui.gallery.GalleryViewModel
@@ -192,6 +194,7 @@ class MainActivity : ComponentActivity() {
                             userCrmRepository = UserCrmRepository(db),
                             chatRepository = ChatRepository(db),
                             callRepository = CallRepository(db),
+                            appContext = app.applicationContext,
                         )
                     }
                 }
@@ -356,10 +359,23 @@ fun JustUsAppRoot(
     val authErrorMessage by sessionViewModel.authErrorMessage.collectAsStateWithLifecycle()
     val activeCallUi by sessionViewModel.activeCallUi.collectAsStateWithLifecycle()
     val isVerifiedAdminForCalls by sessionViewModel.isVerifiedAdminForCalls.collectAsStateWithLifecycle()
+    val launchBanner by sessionViewModel.launchBanner.collectAsStateWithLifecycle()
 
     val adminChatsObserved by remember(isVerifiedAdminForCalls) {
         if (isVerifiedAdminForCalls) chatRepo.observeAllChatsForAdmin() else flowOf(emptyList())
     }.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    LaunchedEffect(clientChats) {
+        sessionViewModel.markChatsDeliveredIfNeeded(clientChats, "client")
+    }
+    LaunchedEffect(staffInboxChats) {
+        sessionViewModel.markChatsDeliveredIfNeeded(staffInboxChats, "staff")
+    }
+    LaunchedEffect(adminChatsObserved, isVerifiedAdminForCalls) {
+        if (isVerifiedAdminForCalls) {
+            sessionViewModel.markChatsDeliveredIfNeeded(adminChatsObserved, "admin")
+        }
+    }
 
     val totalUnreadMessages = remember(clientChats, staffInboxChats) {
         clientChats.sumOf { it.unreadForClient } + staffInboxChats.sumOf { it.unreadForStaff }
@@ -367,6 +383,7 @@ fun JustUsAppRoot(
 
     var showAdminPasscodeSheet by remember { mutableStateOf(false) }
     var activeBannerEvent by remember { mutableStateOf<InAppBannerEvent?>(null) }
+    var launchBannerDismissed by rememberSaveable { mutableStateOf(false) }
 
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -667,6 +684,16 @@ fun JustUsAppRoot(
                             }
 
                             composable(ROUTE_CHATS) {
+                                val presenceKeys = remember(clientChats, staffInboxChats) {
+                                    (clientChats.map { it.staffOwnerUid.ifBlank { UserCrmRepository.ADMIN_PRESENCE_ID } } +
+                                        staffInboxChats.map { it.clientUid })
+                                        .filter { it.isNotBlank() }
+                                        .distinct()
+                                }
+                                val peerPresences by remember(presenceKeys) {
+                                    sessionViewModel.observePresenceMap(presenceKeys)
+                                }.collectAsStateWithLifecycle(initialValue = emptyMap())
+
                                 ChatsScreen(
                                     clientChats = clientChats,
                                     staffInboxChats = staffInboxChats,
@@ -682,6 +709,10 @@ fun JustUsAppRoot(
                                             launchSingleTop = true
                                             restoreState = true
                                         }
+                                    },
+                                    peerPresences = peerPresences,
+                                    onDeleteChat = { chatId ->
+                                        sessionViewModel.deleteChatThread(chatId)
                                     },
                                 )
                             }
@@ -792,6 +823,9 @@ fun JustUsAppRoot(
                                 val messages by remember(chatId) {
                                     sessionViewModel.observeMessages(chatId)
                                 }.collectAsStateWithLifecycle(initialValue = emptyList())
+                                val peerPresence by remember(chatThread?.clientUid, chatThread?.staffOwnerUid, senderRole) {
+                                    sessionViewModel.observePeerPresence(chatThread, senderRole)
+                                }.collectAsStateWithLifecycle(initialValue = null)
 
                                 LaunchedEffect(chatId, senderRole, messages.size) {
                                     sessionViewModel.markChatRead(chatId, senderRole)
@@ -817,7 +851,21 @@ fun JustUsAppRoot(
                                             sessionViewModel.startVoiceCallFromChat(context, active, senderRole)
                                         }
                                     },
-                                    onBack = { navController.popBackStack() }
+                                    onBack = { navController.popBackStack() },
+                                    peerPresence = peerPresence,
+                                    onDeleteMessages = { messageIds, remainingMessages ->
+                                        val active = chatThread ?: return@ChatRoomScreen
+                                        sessionViewModel.deleteChatMessages(
+                                            chat = active,
+                                            messageIds = messageIds,
+                                            remainingMessages = remainingMessages,
+                                        )
+                                    },
+                                    onDeleteChat = {
+                                        sessionViewModel.deleteChatThread(chatId) {
+                                            navController.popBackStack()
+                                        }
+                                    },
                                 )
                             }
 
@@ -854,6 +902,7 @@ fun JustUsAppRoot(
                                 val allChats by adminViewModel.allChats.collectAsStateWithLifecycle()
                                 val selectedContact by adminViewModel.selectedProfileContact.collectAsStateWithLifecycle()
                                 val adminAuthError by adminViewModel.authErrorMessage.collectAsStateWithLifecycle()
+                                val adminLaunchBanner by adminViewModel.launchBanner.collectAsStateWithLifecycle()
 
                                 val adminSnackbar = remember { SnackbarHostState() }
 
@@ -941,6 +990,18 @@ fun JustUsAppRoot(
                                     onBack = { navController.popBackStack() },
                                     snackbarHostState = adminSnackbar,
                                     authErrorMessage = adminAuthError,
+                                    launchBanner = adminLaunchBanner,
+                                    onPowerResetAllChats = adminViewModel::powerResetAllChats,
+                                    onUploadLaunchBanner = { uri, url, title, onDone ->
+                                        adminViewModel.uploadLaunchBannerImage(
+                                            context = context,
+                                            selectedUri = uri,
+                                            manualUrl = url,
+                                            title = title,
+                                            onSuccess = onDone,
+                                        )
+                                    },
+                                    onRemoveLaunchBanner = adminViewModel::removeLaunchBanner,
                                 )
                             }
                         }
@@ -1019,6 +1080,14 @@ fun JustUsAppRoot(
             onHangUp = { sessionViewModel.hangUpCall(context) },
             onToggleMute = sessionViewModel::toggleCallMute,
             onToggleSpeaker = sessionViewModel::toggleCallSpeaker,
+        )
+    }
+
+    val activeLaunchBanner = launchBanner
+    if (!launchBannerDismissed && activeLaunchBanner != null && activeLaunchBanner.isReadyToDisplay) {
+        LaunchBannerOverlay(
+            banner = activeLaunchBanner,
+            onSkip = { launchBannerDismissed = true },
         )
     }
 }

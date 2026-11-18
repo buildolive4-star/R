@@ -2,19 +2,25 @@ package com.example.ui.components
 
 import android.os.Build
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -62,8 +68,10 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -71,6 +79,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
+import kotlin.math.absoluteValue
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.R
@@ -124,21 +134,34 @@ fun VipShowcaseCarousel(
         }
     }
 
+    val density = LocalDensity.current.density
+
     Column(modifier = modifier.fillMaxWidth()) {
         HorizontalPager(
             state = pagerState,
             pageSpacing = 12.dp,
+            contentPadding = PaddingValues(horizontal = 4.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("vip_16_9_carousel")
         ) { page ->
             val profile = profiles[page]
+            val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+            val absOffset = pageOffset.absoluteValue.coerceIn(0f, 1f)
             VipShowcaseCard(
                 profile = profile,
                 isBookmarked = bookmarkedIds.contains(profile.id),
                 onClick = { onProfileClick(profile) },
                 onChatClick = { onChatClick(profile) },
                 onToggleBookmark = { onToggleBookmark(profile) },
+                modifier = Modifier.graphicsLayer {
+                    cameraDistance = 14f * density
+                    rotationY = (pageOffset * -10f).coerceIn(-12f, 12f)
+                    val s = lerp(0.93f, 1f, 1f - absOffset)
+                    scaleX = s
+                    scaleY = s
+                    alpha = lerp(0.76f, 1f, 1f - absOffset)
+                }
             )
         }
 
@@ -518,6 +541,19 @@ fun GalleryGridCard(
     val isAllBlurredExpired = image.isDeletedBlurred
     val unopenedCount = image.unopenedPhotoCount()
     val hasActiveOrUnopened = image.isHidden && !isAllBlurredExpired
+    val density = LocalDensity.current.density
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "card_press_scale"
+    )
+    val pressTiltX by animateFloatAsState(
+        targetValue = if (isPressed) 4f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "card_press_tilt"
+    )
 
     Card(
         shape = MaterialTheme.shapes.large,
@@ -530,11 +566,21 @@ fun GalleryGridCard(
                 MaterialTheme.colorScheme.outlineVariant
             }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isPressed) 1.dp else 4.dp),
         modifier = modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                cameraDistance = 12f * density
+                scaleX = pressScale
+                scaleY = pressScale
+                rotationX = pressTiltX
+            }
             .testTag("gallery_card_${image.id}")
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = androidx.compose.material3.ripple(),
+                onClick = onClick
+            )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Box(

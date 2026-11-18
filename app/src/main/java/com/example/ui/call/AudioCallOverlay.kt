@@ -1,5 +1,6 @@
 package com.example.ui.call
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -48,8 +49,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -117,16 +120,35 @@ fun AudioCallOverlay(
     val pulseTransition = rememberInfiniteTransition(label = "call_ring_pulse")
     val ringScale by pulseTransition.animateFloat(
         initialValue = 1.0f,
-        targetValue = 1.24f,
-        animationSpec = infiniteRepeatable(tween(1200), RepeatMode.Reverse),
+        targetValue = 1.32f,
+        animationSpec = infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Restart),
         label = "ring_scale"
     )
     val ringAlpha by pulseTransition.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 0.14f,
-        animationSpec = infiniteRepeatable(tween(1200), RepeatMode.Reverse),
+        initialValue = 0.52f,
+        targetValue = 0.0f,
+        animationSpec = infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Restart),
         label = "ring_alpha"
     )
+    val outerRingScale by pulseTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.56f,
+        animationSpec = infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Restart),
+        label = "outer_ring_scale"
+    )
+    val outerRingAlpha by pulseTransition.animateFloat(
+        initialValue = 0.36f,
+        targetValue = 0.0f,
+        animationSpec = infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Restart),
+        label = "outer_ring_alpha"
+    )
+    val emblemTiltY by pulseTransition.animateFloat(
+        initialValue = -6f,
+        targetValue = 6f,
+        animationSpec = infiniteRepeatable(tween(2200, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "emblem_tilt_y"
+    )
+    val density = LocalDensity.current.density
 
     Dialog(
         onDismissRequest = {},
@@ -203,6 +225,13 @@ fun AudioCallOverlay(
                         if (callUi is ActiveCallUi.IncomingRinging || callUi is ActiveCallUi.OutgoingRinging) {
                             Box(
                                 modifier = Modifier
+                                    .size(164.dp)
+                                    .scale(outerRingScale)
+                                    .clip(CircleShape)
+                                    .background(WhatsAppGreen.copy(alpha = outerRingAlpha))
+                            )
+                            Box(
+                                modifier = Modifier
                                     .size(144.dp)
                                     .scale(ringScale)
                                     .clip(CircleShape)
@@ -212,8 +241,14 @@ fun AudioCallOverlay(
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
-                            border = BorderStroke(2.dp, Color(0xFFF6C478).copy(alpha = 0.8f)),
-                            modifier = Modifier.size(112.dp)
+                            border = BorderStroke(2.dp, Color(0xFFF6C478).copy(alpha = 0.85f)),
+                            shadowElevation = 12.dp,
+                            modifier = Modifier
+                                .size(112.dp)
+                                .graphicsLayer {
+                                    cameraDistance = 12f * density
+                                    rotationY = emblemTiltY
+                                }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(

@@ -6,8 +6,13 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.firebase.GoogleAuthHelper
 import com.example.data.model.AdminUserFilter
 import com.example.data.model.CallStatus
+import com.example.data.model.ChatMessage
+import com.example.data.model.ChatThread
 import com.example.data.model.GalleryImage
+import com.example.data.model.LaunchBannerConfig
 import com.example.data.model.LeadTag
+import com.example.data.model.MessageTickState
+import com.example.data.model.PresenceStatus
 import com.example.data.model.ProfileTier
 import com.example.data.model.SavedBookmark
 import com.example.data.preferences.LocalTestUploadsRepository
@@ -16,8 +21,11 @@ import com.example.data.preferences.StoredTestUpload
 import com.example.data.repository.UserCrmRepository
 import com.example.notifications.OneSignalPushManager
 import com.example.notifications.PixoraNotificationManager
+import com.example.util.CallRingtonePlayer
 import com.example.util.ContactLeakFilter
 import com.example.util.ProfileCompletionCalculator
+import com.google.firebase.Timestamp
+import java.util.Date
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -336,5 +344,70 @@ class ExampleRobolectricTest {
         )
         OneSignalPushManager.consumeDeepLinkChat()
         OneSignalPushManager.consumeDeepLinkImage()
+    }
+
+    @Test
+    fun `chatThread tickStateForOutgoingMessage transitions cleanly across SENT, DELIVERED, and READ`() {
+        val now = System.currentTimeMillis()
+        val msg = ChatMessage(
+            id = "m1",
+            senderRole = "client",
+            text = "Hello",
+            createdAt = Timestamp(Date(now - 5_000L)),
+        )
+        val sentThread = ChatThread(id = "c1", clientUid = "u1")
+        assertEquals(
+            MessageTickState.SENT,
+            sentThread.tickStateForOutgoingMessage(msg, viewerRole = "client", peerOnline = false)
+        )
+        assertEquals(
+            MessageTickState.DELIVERED,
+            sentThread.tickStateForOutgoingMessage(msg, viewerRole = "client", peerOnline = true)
+        )
+
+        val deliveredThread = sentThread.copy(agentLastDeliveredEpochMs = now - 1_000L)
+        assertEquals(
+            MessageTickState.DELIVERED,
+            deliveredThread.tickStateForOutgoingMessage(msg, viewerRole = "client", peerOnline = false)
+        )
+
+        val readThread = deliveredThread.copy(agentLastReadEpochMs = now)
+        assertEquals(
+            MessageTickState.READ,
+            readThread.tickStateForOutgoingMessage(msg, viewerRole = "client", peerOnline = false)
+        )
+    }
+
+    @Test
+    fun `presenceStatus detects stale heartbeats and formats WhatsApp status label`() {
+        val now = 1_750_000_000_000L
+        val onlineFresh = PresenceStatus(online = true, lastSeenEpochMs = now - 10_000L)
+        assertTrue(onlineFresh.isEffectivelyOnline(now))
+        assertEquals("Online", onlineFresh.formatPresenceLabel(now))
+
+        val onlineStale = PresenceStatus(online = true, lastSeenEpochMs = now - 300_000L)
+        assertFalse(onlineStale.isEffectivelyOnline(now))
+        assertEquals("last seen 5m ago", onlineStale.formatPresenceLabel(now))
+
+        val offlineJustNow = PresenceStatus(online = false, lastSeenEpochMs = now - 15_000L)
+        assertFalse(offlineJustNow.isEffectivelyOnline(now))
+        assertEquals("last seen just now", offlineJustNow.formatPresenceLabel(now))
+    }
+
+    @Test
+    fun `launchBannerConfig isReadyToDisplay requires active flag and valid https url`() {
+        assertFalse(LaunchBannerConfig(active = false, imageUrl = "https://i.ibb.co/x.jpg").isReadyToDisplay)
+        assertFalse(LaunchBannerConfig(active = true, imageUrl = "").isReadyToDisplay)
+        assertFalse(LaunchBannerConfig(active = true, imageUrl = "http://insecure.jpg").isReadyToDisplay)
+        assertTrue(LaunchBannerConfig(active = true, imageUrl = "https://i.ibb.co/x.jpg").isReadyToDisplay)
+    }
+
+    @Test
+    fun `callRingtonePlayer start and stop executes safely without throwing in Robolectric`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val player = CallRingtonePlayer(context)
+        player.startIncomingRingtone()
+        player.startOutgoingRingback()
+        player.stopAll()
     }
 }

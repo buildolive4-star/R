@@ -8,9 +8,12 @@ import com.example.data.firebase.GoogleAuthHelper
 import com.example.data.model.ActiveCallUi
 import com.example.data.model.CallSession
 import com.example.data.model.CallStatus
+import com.example.data.model.ChatMessage
 import com.example.data.model.ChatThread
 import com.example.data.model.GalleryImage
+import com.example.data.model.LaunchBannerConfig
 import com.example.data.model.ModerationStatus
+import com.example.data.model.PresenceStatus
 import com.example.data.model.UserAccount
 import com.example.data.remote.ImgBbApiService
 import com.example.data.remote.ImgBbUploadHelper
@@ -19,13 +22,17 @@ import com.example.data.repository.ChatRepository
 import com.example.data.repository.UserCrmRepository
 import com.example.notifications.OneSignalPushManager
 import com.example.notifications.PixoraNotificationManager
+import com.example.util.CallRingtonePlayer
 import com.example.util.WebRtcAudioCallClient
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -42,12 +49,13 @@ import kotlinx.coroutines.launch
 import org.webrtc.PeerConnection
 import java.util.UUID
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class SessionAndChatViewModel(
     private val userCrmRepository: UserCrmRepository,
     private val chatRepository: ChatRepository,
     private val callRepository: CallRepository? = null,
     private val imgBbApiService: ImgBbApiService = ImgBbApiService.create(),
+    appContext: Context? = null,
 ) : ViewModel() {
 
     private val _firebaseUser = MutableStateFlow(Firebase.auth.currentUser)
@@ -77,9 +85,14 @@ class SessionAndChatViewModel(
     private val _incomingCallAlert = MutableSharedFlow<CallSession>(extraBufferCapacity = 4)
     val incomingCallAlert: SharedFlow<CallSession> = _incomingCallAlert.asSharedFlow()
 
+    private val ringtonePlayer: CallRingtonePlayer? = appContext?.applicationContext?.let {
+        CallRingtonePlayer(it)
+    }
+
     private var webRtcClient: WebRtcAudioCallClient? = null
     private var activeCallSessionJob: Job? = null
     private var activeIceJob: Job? = null
+    private var ringTimeoutJob: Job? = null
     private val addedRemoteIceKeys = mutableSetOf<String>()
     private val handledIncomingCallIds = mutableSetOf<String>()
     private var appliedRemoteAnswerForCallId: String? = null
@@ -130,10 +143,48 @@ class SessionAndChatViewModel(
             initialValue = emptyList(),
         )
 
+    val launchBanner: StateFlow<LaunchBannerConfig?> = userCrmRepository.observeLaunchBanner()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = null,
+        )
+
     init {
         Firebase.auth.addAuthStateListener(authListener)
         refreshAdminCallMonitoring()
         observeIncomingCallStreams()
+        viewModelScope.launch {
+            _activeCallUi.collect { ui ->
+                ringTimeoutJob?.cancel()
+                when (ui) {
+                    is ActiveCallUi.IncomingRinging -> {
+                        ringtonePlayer?.startIncomingRingtone()
+                        ringTimeoutJob = viewModelScope.launch {
+                            delay(45_000L)
+                            if (_activeCallUi.value is ActiveCallUi.IncomingRinging) {
+                                teardownCallResources()
+                                _activeCallUi.value = ActiveCallUi.Idle
+                            }
+                        }
+                    }
+                    is ActiveCallUi.OutgoingRinging -> {
+                        ringtonePlayer?.startOutgoingRingback()
+                        ringTimeoutJob = viewModelScope.launch {
+                            delay(45_000L)
+                            val cur = _activeCallUi.value
+                            if (cur is ActiveCallUi.OutgoingRinging) {
+                                callRepository?.updateCallStatus(cur.session.id, CallStatus.MISSED)
+                                teardownCallResources()
+                                _activeCallUi.value = ActiveCallUi.Idle
+                                _events.tryEmit("No answer")
+                            }
+                        }
+                    }
+                    else -> ringtonePlayer?.stopAll()
+                }
+            }
+        }
         viewModelScope.launch {
             combine(_firebaseUser, _isVerifiedAdminForCalls, isApprovedStaffTheme) { user, isAdmin, isStaff ->
                 Triple(user?.uid, isAdmin, isStaff)
@@ -143,6 +194,9 @@ class SessionAndChatViewModel(
                     isAdmin = isAdmin,
                     isApprovedStaff = isStaff,
                 )
+                if (!uid.isNullOrBlank()) {
+                    userCrmRepository.setOnlinePresence(uid, online = true, updateAdminSentinel = isAdmin)
+                }
             }
         }
     }
@@ -224,16 +278,82 @@ class SessionAndChatViewModel(
 
     fun observeMessages(chatId: String) = chatRepository.observeMessages(chatId)
 
+    fun observePeerPresence(chat: ChatThread?, senderRole: String): Flow<PresenceStatus?> {
+        if (chat == null) return flowOf(null)
+        val peerId = if (senderRole == "client") {
+            chat.staffOwnerUid.ifBlank { UserCrmRepository.ADMIN_PRESENCE_ID }
+        } else {
+            chat.clientUid
+        }
+        return userCrmRepository.observePresence(peerId)
+    }
+
+    fun observePresenceMap(presenceIds: List<String>): Flow<Map<String, PresenceStatus>> =
+        userCrmRepository.observePresencesMap(presenceIds)
+
     fun markChatRead(chatId: String, readerRole: String) {
         viewModelScope.launch {
             chatRepository.markChatThreadRead(chatId, readerRole)
         }
     }
 
+    fun markChatsDeliveredIfNeeded(chats: List<ChatThread>, receiverRole: String) {
+        if (chats.isEmpty() || _firebaseUser.value == null) return
+        viewModelScope.launch {
+            chats.forEach { thread ->
+                val updatedMs = thread.updatedAt?.toDate()?.time ?: 0L
+                val needsDeliveredStamp = if (receiverRole == "client") {
+                    thread.lastSenderRole != "client" && updatedMs > thread.clientLastDeliveredEpochMs
+                } else {
+                    thread.lastSenderRole == "client" && updatedMs > thread.agentLastDeliveredEpochMs
+                }
+                if (needsDeliveredStamp) {
+                    chatRepository.markChatDelivered(thread.id, receiverRole)
+                }
+            }
+        }
+    }
+
+    fun deleteChatThread(chatId: String, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            chatRepository.deleteChatThread(chatId)
+                .onSuccess {
+                    _events.tryEmit("Chat deleted")
+                    onSuccess()
+                }
+                .onFailure { err ->
+                    _events.tryEmit(err.localizedMessage ?: "Could not delete chat")
+                }
+        }
+    }
+
+    fun deleteChatMessages(
+        chat: ChatThread,
+        messageIds: List<String>,
+        remainingMessages: List<ChatMessage>,
+        onSuccess: () -> Unit = {},
+    ) {
+        if (messageIds.isEmpty()) return
+        viewModelScope.launch {
+            chatRepository.deleteMessages(chat, messageIds, remainingMessages)
+                .onSuccess {
+                    _events.tryEmit(
+                        if (messageIds.size == 1) "Message deleted"
+                        else "${messageIds.size} messages deleted"
+                    )
+                    onSuccess()
+                }
+                .onFailure { err ->
+                    _events.tryEmit(err.localizedMessage ?: "Could not delete messages")
+                }
+        }
+    }
+
     fun setOnlineState(online: Boolean) {
         val uid = _firebaseUser.value?.uid ?: return
+        val isAdmin = _isVerifiedAdminForCalls.value
         viewModelScope.launch {
-            userCrmRepository.setOnlinePresence(uid, online)
+            userCrmRepository.setOnlinePresence(uid, online, updateAdminSentinel = isAdmin)
         }
     }
 
@@ -260,7 +380,8 @@ class SessionAndChatViewModel(
     fun signOut(context: Context) {
         viewModelScope.launch {
             val uid = _firebaseUser.value?.uid
-            if (uid != null) userCrmRepository.setOnlinePresence(uid, false)
+            val wasAdmin = _isVerifiedAdminForCalls.value
+            if (uid != null) userCrmRepository.setOnlinePresence(uid, false, updateAdminSentinel = wasAdmin)
             OneSignalPushManager.clearIdentity()
             GoogleAuthHelper.signOut(context)
             _firebaseUser.value = null
@@ -738,6 +859,9 @@ class SessionAndChatViewModel(
     }
 
     private fun teardownCallResources() {
+        ringTimeoutJob?.cancel()
+        ringTimeoutJob = null
+        ringtonePlayer?.stopAll()
         activeCallSessionJob?.cancel()
         activeIceJob?.cancel()
         activeCallSessionJob = null

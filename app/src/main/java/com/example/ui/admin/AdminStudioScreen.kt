@@ -35,14 +35,17 @@ import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.Badge
+import androidx.compose.material.icons.rounded.Campaign
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -93,8 +96,10 @@ import com.example.data.model.AdminUserFilter
 import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
 import com.example.data.model.GalleryImage
+import com.example.data.model.LaunchBannerConfig
 import com.example.data.model.ProfileTier
 import com.example.data.model.UserAccount
+import com.example.ui.components.PixoraNetworkImage
 import com.google.firebase.auth.FirebaseUser
 
 private val COMPANION_CATEGORIES = listOf(
@@ -179,11 +184,17 @@ fun AdminStudioScreen(
     onBack: () -> Unit,
     snackbarHostState: SnackbarHostState,
     authErrorMessage: String? = null,
+    launchBanner: LaunchBannerConfig? = null,
+    onPowerResetAllChats: () -> Unit = {},
+    onUploadLaunchBanner: (selectedUri: Uri?, manualUrl: String, title: String, onSuccess: () -> Unit) -> Unit = { _, _, _, _ -> },
+    onRemoveLaunchBanner: (onSuccess: () -> Unit) -> Unit = {},
 ) {
     BackHandler(onBack = onBack)
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var showMultiAdminDialog by remember { mutableStateOf(false) }
+    var showPowerResetDialog by remember { mutableStateOf(false) }
+    var showLaunchBannerDialog by remember { mutableStateOf(false) }
 
     val blurredCount = remember(managedProfiles) {
         managedProfiles.count { it.isDeletedBlurred || it.isRevealStarted }
@@ -289,11 +300,12 @@ fun AdminStudioScreen(
                     modifier = Modifier.weight(1f)
                 )
             } else {
-                // Top Refresh Secret Photos bar
-                Box(
+                // Top Refresh Secret Photos + Main Admin Quick Controls (Power Reset + Upload Image Info)
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilledTonalButton(
                         onClick = onRefreshAllBlurred,
@@ -312,6 +324,59 @@ fun AdminStudioScreen(
                                 stringResource(R.string.admin_refresh_top_ready)
                             }
                         )
+                    }
+
+                    if (isSuperAdmin) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilledTonalButton(
+                                onClick = { showPowerResetDialog = true },
+                                enabled = !isAuthBusy,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.16f),
+                                    contentColor = MaterialTheme.colorScheme.error,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("admin_power_reset_button")
+                            ) {
+                                Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Power Reset", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                            }
+
+                            FilledTonalButton(
+                                onClick = { showLaunchBannerDialog = true },
+                                enabled = !isAuthBusy,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f),
+                                    contentColor = MaterialTheme.colorScheme.secondary,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("admin_upload_banner_button")
+                            ) {
+                                Icon(Icons.Rounded.Campaign, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (launchBanner?.isReadyToDisplay == true) "Image Info (Live)" else "Upload Image Info",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -404,6 +469,221 @@ fun AdminStudioScreen(
             onDismiss = { showMultiAdminDialog = false }
         )
     }
+
+    if (showPowerResetDialog && isSuperAdmin) {
+        AlertDialog(
+            onDismissRequest = { showPowerResetDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.DeleteSweep,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(30.dp)
+                )
+            },
+            title = { Text("Power Reset All Chats?") },
+            text = {
+                Text(
+                    "This will permanently delete all user chat threads, every nested message, and clear call sessions from Firebase to free database load. Companion profiles and user accounts stay untouched."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPowerResetDialog = false
+                        onPowerResetAllChats()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
+                    modifier = Modifier.testTag("confirm_power_reset_button")
+                ) {
+                    Text("Yes, Reset All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPowerResetDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showLaunchBannerDialog && isSuperAdmin) {
+        LaunchBannerManagerDialog(
+            currentBanner = launchBanner,
+            isBusy = isAuthBusy,
+            onUpload = { uri, url, title ->
+                onUploadLaunchBanner(uri, url, title) {
+                    showLaunchBannerDialog = false
+                }
+            },
+            onRemove = {
+                onRemoveLaunchBanner {
+                    showLaunchBannerDialog = false
+                }
+            },
+            onDismiss = { showLaunchBannerDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun LaunchBannerManagerDialog(
+    currentBanner: LaunchBannerConfig?,
+    isBusy: Boolean,
+    onUpload: (Uri?, String, String) -> Unit,
+    onRemove: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var selectedUri by remember { mutableStateOf<Uri?>(null) }
+    var manualUrl by remember(currentBanner?.imageUrl) { mutableStateOf(currentBanner?.imageUrl.orEmpty()) }
+    var title by remember(currentBanner?.title) { mutableStateOf(currentBanner?.title.orEmpty()) }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri ->
+            if (uri != null) {
+                selectedUri = uri
+            }
+        }
+    )
+
+    AlertDialog(
+        onDismissRequest = { if (!isBusy) onDismiss() },
+        title = { Text("Launch 3s Image Info") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Shows full-screen for 3 seconds whenever any user opens the app before entering Home.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                val previewModel: Any? = selectedUri ?: currentBanner?.takeIf { it.isReadyToDisplay }?.imageUrl
+                if (previewModel != null) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            if (selectedUri != null) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context).data(selectedUri).crossfade(true).build(),
+                                    contentDescription = "Selected launch image",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                PixoraNetworkImage(
+                                    imageUrl = currentBanner?.imageUrl.orEmpty(),
+                                    contentDescription = "Active launch image",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            if (currentBanner?.isReadyToDisplay == true && selectedUri == null) {
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .padding(8.dp)
+                                ) {
+                                    Text(
+                                        text = "ACTIVE · 3s",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSecondary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    enabled = !isBusy,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .minimumInteractiveComponentSize()
+                        .testTag("launch_banner_pick_button")
+                ) {
+                    Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (selectedUri != null) "Change Gallery Image" else "Pick Notification Image")
+                }
+
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    singleLine = true,
+                    label = { Text("Optional Title / Caption") },
+                    placeholder = { Text("Weekend VIP Offer") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = manualUrl,
+                    onValueChange = { manualUrl = it },
+                    singleLine = true,
+                    label = { Text("Or Paste Direct HTTPS Image URL") },
+                    placeholder = { Text("https://i.ibb.co/...") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (currentBanner?.isReadyToDisplay == true) {
+                    OutlinedButton(
+                        onClick = onRemove,
+                        enabled = !isBusy,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .minimumInteractiveComponentSize()
+                            .testTag("launch_banner_remove_button")
+                    ) {
+                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Remove Active Launch Image")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onUpload(selectedUri, manualUrl, title) },
+                enabled = !isBusy && (selectedUri != null || manualUrl.trim().isNotEmpty()),
+                modifier = Modifier.testTag("launch_banner_publish_button")
+            ) {
+                if (isBusy) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text("Publish 3s Image")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isBusy) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)

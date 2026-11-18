@@ -617,3 +617,145 @@ test("WebRTC call_sessions allow caller/callee/admin signaling and block unautho
     })
   );
 });
+
+test("WhatsApp receipts, participant chat/message deletion, presence, and Super Admin launch_banner", async () => {
+  const superDb = testEnv
+    .authenticatedContext(SUPER_ADMIN_UID, {
+      email: SUPER_ADMIN_EMAIL,
+      email_verified: true,
+    })
+    .firestore();
+  const aliceDb = testEnv
+    .authenticatedContext(ALICE_UID, {
+      email: "alice@example.com",
+      email_verified: true,
+    })
+    .firestore();
+  const staffDb = testEnv
+    .authenticatedContext(STAFF_UID, {
+      email: "rahul@example.com",
+      email_verified: true,
+    })
+    .firestore();
+  const strangerDb = testEnv
+    .authenticatedContext("stranger_777", {
+      email: "stranger@example.com",
+      email_verified: true,
+    })
+    .firestore();
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+
+  const past = new Date(Date.now() - 5000);
+
+  // Presence: Alice updates her own presence, cannot spoof Rahul or admin_concierge
+  await assertSucceeds(
+    aliceDb.collection("presence").doc(ALICE_UID).set({
+      online: true,
+      lastSeenEpochMs: Date.now(),
+      updatedAt: past,
+    })
+  );
+  await assertFails(
+    aliceDb.collection("presence").doc(STAFF_UID).set({
+      online: true,
+      lastSeenEpochMs: Date.now(),
+      updatedAt: past,
+    })
+  );
+  await assertFails(
+    aliceDb.collection("presence").doc("admin_concierge").set({
+      online: true,
+      lastSeenEpochMs: Date.now(),
+      updatedAt: past,
+    })
+  );
+  await assertSucceeds(
+    superDb.collection("presence").doc("admin_concierge").set({
+      online: true,
+      lastSeenEpochMs: Date.now(),
+      updatedAt: past,
+    })
+  );
+  await assertSucceeds(aliceDb.collection("presence").doc("admin_concierge").get());
+
+  // Launch Banner: only Super Admin can publish/remove; anyone can read
+  await assertFails(
+    aliceDb.collection("app_config").doc("launch_banner").set({
+      active: true,
+      imageUrl: "https://i.ibb.co/promo/banner.jpg",
+      title: "Fake Promo",
+      updatedByEmail: "alice@example.com",
+      updatedAt: past,
+    })
+  );
+  await assertSucceeds(
+    superDb.collection("app_config").doc("launch_banner").set({
+      active: true,
+      imageUrl: "https://i.ibb.co/promo/banner.jpg",
+      title: "Weekend VIP Offer",
+      updatedByEmail: SUPER_ADMIN_EMAIL,
+      updatedAt: past,
+    })
+  );
+  await assertSucceeds(publicDb.collection("app_config").doc("launch_banner").get());
+  await assertSucceeds(
+    superDb.collection("app_config").doc("launch_banner").update({
+      active: false,
+      imageUrl: "",
+      title: "",
+      updatedByEmail: SUPER_ADMIN_EMAIL,
+      updatedAt: past,
+    })
+  );
+
+  // Chat thread + receipts + single message delete + whole thread delete
+  const chatId = `${ALICE_UID}_prof_vip_1`;
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).set({
+      clientUid: ALICE_UID,
+      clientName: "Alice",
+      clientPhotoUrl: "",
+      profileId: "prof_vip_1",
+      profileName: "Kavya",
+      profilePhotoUrl: "https://i.ibb.co/k/1.jpg",
+      profilePrice: "₹999",
+      staffOwnerUid: "",
+      lastMessage: "Hello",
+      lastSenderRole: "client",
+      unreadForAdmin: 1,
+      unreadForStaff: 0,
+      unreadForClient: 0,
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).collection("messages").doc("m1").set({
+      senderUid: ALICE_UID,
+      senderRole: "client",
+      senderName: "Alice",
+      text: "First message",
+      createdAt: past,
+    })
+  );
+  await assertSucceeds(
+    superDb.collection("chats").doc(chatId).update({
+      unreadForAdmin: 0,
+      agentLastDeliveredEpochMs: Date.now(),
+      agentLastReadEpochMs: Date.now(),
+    })
+  );
+
+  // Stranger cannot delete Alice's message or thread
+  await assertFails(
+    strangerDb.collection("chats").doc(chatId).collection("messages").doc("m1").delete()
+  );
+  await assertFails(strangerDb.collection("chats").doc(chatId).delete());
+
+  // Alice CAN delete her own message and her own chat thread
+  await assertSucceeds(
+    aliceDb.collection("chats").doc(chatId).collection("messages").doc("m1").delete()
+  );
+  await assertSucceeds(aliceDb.collection("chats").doc(chatId).delete());
+});
+

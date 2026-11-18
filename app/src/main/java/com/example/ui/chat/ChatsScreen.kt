@@ -1,9 +1,12 @@
 package com.example.ui.chat
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,19 +25,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Verified
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,11 +65,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.ChatThread
+import com.example.data.model.PresenceStatus
 import com.example.data.model.StaffStatus
 import com.example.data.model.UserAccount
+import com.example.data.repository.UserCrmRepository
 import com.example.ui.components.EmptyGalleryState
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
+import com.example.ui.theme.OnlineEmeraldDot
 import com.example.ui.theme.WhatsAppGreen
 
 private enum class ChatsSubTab {
@@ -77,9 +88,12 @@ fun ChatsScreen(
     onOpenChat: (chatId: String, senderRole: String) -> Unit,
     onGoToProfile: () -> Unit,
     modifier: Modifier = Modifier,
+    peerPresences: Map<String, PresenceStatus> = emptyMap(),
+    onDeleteChat: (chatId: String) -> Unit = {},
 ) {
     val isApprovedStaff = userAccount?.isApprovedStaff == true
     var selectedTab by remember { mutableStateOf(ChatsSubTab.MY_INQUIRIES) }
+    var pendingDeleteTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     Column(
         modifier = modifier
@@ -223,6 +237,8 @@ fun ChatsScreen(
                             .testTag("client_chats_list")
                     ) {
                         items(clientChats, key = { it.id }) { thread ->
+                            val peerKey = thread.staffOwnerUid.ifBlank { UserCrmRepository.ADMIN_PRESENCE_ID }
+                            val isOnline = peerPresences[peerKey]?.isEffectivelyOnline() == true
                             ChatThreadCard(
                                 title = thread.profileName,
                                 subtitle = thread.lastMessage.ifBlank { "Tap to message" },
@@ -230,6 +246,8 @@ fun ChatsScreen(
                                 priceBadge = thread.profilePrice,
                                 unreadCount = thread.unreadForClient,
                                 onClick = { onOpenChat(thread.id, "client") },
+                                isPeerOnline = isOnline,
+                                onLongPress = { pendingDeleteTarget = thread.id to thread.profileName.ifBlank { "this chat" } },
                                 modifier = Modifier.testTag("client_chat_row_${thread.id}")
                             )
                         }
@@ -317,6 +335,7 @@ fun ChatsScreen(
                             }
                         } else {
                             items(staffInboxChats, key = { it.id }) { thread ->
+                                val isOnline = peerPresences[thread.clientUid]?.isEffectivelyOnline() == true
                                 ChatThreadCard(
                                     title = thread.clientName.ifBlank { "Client" },
                                     subtitle = thread.lastMessage.ifBlank { "New client inquiry" },
@@ -324,6 +343,8 @@ fun ChatsScreen(
                                     priceBadge = thread.profilePrice,
                                     unreadCount = thread.unreadForStaff,
                                     onClick = { onOpenChat(thread.id, "staff") },
+                                    isPeerOnline = isOnline,
+                                    onLongPress = { pendingDeleteTarget = thread.id to thread.clientName.ifBlank { "this chat" } },
                                     modifier = Modifier.testTag("staff_chat_row_${thread.id}")
                                 )
                             }
@@ -333,8 +354,45 @@ fun ChatsScreen(
             }
         }
     }
+
+    val deleteTarget = pendingDeleteTarget
+    if (deleteTarget != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteTarget = null },
+            icon = {
+                Icon(
+                    imageVector = Icons.Rounded.DeleteOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Delete chat with ${deleteTarget.second}?") },
+            text = { Text("This deletes the entire conversation and all messages in this thread.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingDeleteTarget = null
+                        onDeleteChat(deleteTarget.first)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
+                    modifier = Modifier.testTag("confirm_delete_chat_dialog_button")
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteTarget = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatThreadCard(
     title: String,
@@ -344,6 +402,8 @@ fun ChatThreadCard(
     unreadCount: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    isPeerOnline: Boolean = false,
+    onLongPress: (() -> Unit)? = null,
 ) {
     Card(
         shape = MaterialTheme.shapes.large,
@@ -351,7 +411,10 @@ fun ChatThreadCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongPress,
+            )
     ) {
         Row(
             modifier = Modifier
@@ -372,15 +435,18 @@ fun ChatThreadCard(
                         .align(Alignment.BottomEnd)
                         .size(16.dp)
                         .clip(CircleShape)
-                        .background(WhatsAppGreen),
+                        .background(if (isPeerOnline) OnlineEmeraldDot else WhatsAppGreen)
+                        .border(1.5.dp, MaterialTheme.colorScheme.surfaceContainer, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.Chat,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(10.dp)
-                    )
+                    if (!isPeerOnline) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.Chat,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(10.dp)
+                        )
+                    }
                 }
             }
 
@@ -412,8 +478,22 @@ fun ChatThreadCard(
                 )
             }
 
+            if (onLongPress != null) {
+                IconButton(
+                    onClick = onLongPress,
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.DeleteOutline,
+                        contentDescription = "Delete chat",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+            }
+
             if (unreadCount > 0) {
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(4.dp))
                 Surface(
                     shape = CircleShape,
                     color = WhatsAppGreen,

@@ -8,7 +8,9 @@ import com.example.data.model.AdminAccessCode
 import com.example.data.model.AdminEmailEntry
 import com.example.data.model.AdminMemberProfile
 import com.example.data.model.LeadTag
+import com.example.data.model.LaunchBannerConfig
 import com.example.data.model.ModerationStatus
+import com.example.data.model.PresenceStatus
 import com.example.data.model.ProfileTier
 import com.example.data.model.StaffStatus
 import com.example.data.model.UserAccount
@@ -25,8 +27,10 @@ import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
@@ -182,8 +186,22 @@ class UserCrmRepository(
         }
     }
 
-    suspend fun setOnlinePresence(uid: String, online: Boolean) {
+    suspend fun setOnlinePresence(uid: String, online: Boolean, updateAdminSentinel: Boolean = false) {
         if (uid.isBlank()) return
+        val nowMs = System.currentTimeMillis()
+        val presencePayload = mapOf(
+            "online" to online,
+            "lastSeenEpochMs" to nowMs,
+            "updatedAt" to FieldValue.serverTimestamp(),
+        )
+        runCatching {
+            db.collection(COLLECTION_PRESENCE).document(uid).set(presencePayload).await()
+        }
+        if (updateAdminSentinel) {
+            runCatching {
+                db.collection(COLLECTION_PRESENCE).document(ADMIN_PRESENCE_ID).set(presencePayload).await()
+            }
+        }
         val docRef = db.collection(COLLECTION_USERS).document(uid)
         runCatching {
             val snap = docRef.get().await()
@@ -191,11 +209,181 @@ class UserCrmRepository(
                 docRef.update(
                     mapOf(
                         "online" to online,
-                        "lastActiveEpochMs" to System.currentTimeMillis(),
+                        "lastActiveEpochMs" to nowMs,
                         "updatedAt" to FieldValue.serverTimestamp(),
                     )
                 ).await()
             }
+        }
+    }
+
+    fun observePresence(presenceId: String): Flow<PresenceStatus?> {
+        val cleanId = presenceId.trim()
+        if (cleanId.isBlank() || Firebase.auth.currentUser == null) return flowOf(null)
+        return db.collection(COLLECTION_PRESENCE).document(cleanId)
+            .snapshots()
+            .map { snap ->
+                if (!snap.exists()) null
+                else snap.toObject(
+                    PresenceStatus::class.java,
+                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                )
+            }
+            .catch { emit(null) }
+    }
+
+    fun observePresencesMap(presenceIds: List<String>): Flow<Map<String, PresenceStatus>> {
+        val distinctIds = presenceIds.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(25)
+        if (distinctIds.isEmpty() || Firebase.auth.currentUser == null) {
+            return flowOf(emptyMap())
+        }
+        val flows = distinctIds.map { id ->
+            observePresence(id).map { status -> id to status }
+        }
+        return combine(flows) { pairs ->
+            pairs.mapNotNull { (id, status) -> status?.let { id to it } }.toMap()
+        }
+    }
+
+    fun observeLaunchBanner(): Flow<LaunchBannerConfig?> {
+        val ref = db.collection(COLLECTION_APP_CONFIG).document(DOC_LAUNCH_BANNER)
+        return ref.snapshots()
+            .map { snap ->
+                if (!snap.exists()) null
+                else snap.toObject(
+                    LaunchBannerConfig::class.java,
+                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                )
+            }
+            .catch { emit(null) }
+    }
+
+    suspend fun saveLaunchBanner(imageUrl: String, title: String): Result<Unit> {
+        val path = "$COLLECTION_APP_CONFIG/$DOC_LAUNCH_BANNER"
+        return try {
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Main Admin first")
+            require(currentEmail == SUPER_ADMIN_EMAIL) {
+                "Only Main Admin ($SUPER_ADMIN_EMAIL) can upload the launch info image."
+            }
+            val cleanUrl = imageUrl.trim().take(1000)
+            require(cleanUrl.startsWith("https://")) {
+                "Please select an image or enter a valid https:// URL."
+            }
+            db.document(path).set(
+                mapOf(
+                    "active" to true,
+                    "imageUrl" to cleanUrl,
+                    "title" to title.trim().take(120),
+                    "updatedByEmail" to currentEmail,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun removeLaunchBanner(): Result<Unit> {
+        val path = "$COLLECTION_APP_CONFIG/$DOC_LAUNCH_BANNER"
+        return try {
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Main Admin first")
+            require(currentEmail == SUPER_ADMIN_EMAIL) {
+                "Only Main Admin ($SUPER_ADMIN_EMAIL) can remove the launch info image."
+            }
+            db.document(path).set(
+                mapOf(
+                    "active" to false,
+                    "imageUrl" to "",
+                    "title" to "",
+                    "updatedByEmail" to currentEmail,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, path)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Main Admin Power Reset: Deletes all user chat threads & messages, resets user inquiry flags,
+     * and cleans up stale call sessions so Firebase storage and read load stay minimal.
+     */
+    suspend fun powerResetAllChats(): Result<Pair<Int, Int>> {
+        return try {
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Main Admin first")
+            require(currentEmail == SUPER_ADMIN_EMAIL) {
+                "Only Main Admin ($SUPER_ADMIN_EMAIL) can run Power Reset."
+            }
+
+            val chatsSnap = db.collection(ChatRepository.COLLECTION_CHATS).get().await()
+            var deletedChats = 0
+            var deletedMessages = 0
+            val pendingDeletes = mutableListOf<com.google.firebase.firestore.DocumentReference>()
+
+            for (chatDoc in chatsSnap.documents) {
+                val msgSnap = chatDoc.reference.collection(ChatRepository.COLLECTION_MESSAGES).get().await()
+                msgSnap.documents.forEach { msgDoc ->
+                    pendingDeletes.add(msgDoc.reference)
+                    deletedMessages++
+                }
+                pendingDeletes.add(chatDoc.reference)
+                deletedChats++
+            }
+
+            pendingDeletes.chunked(350).forEach { chunk ->
+                val batch = db.batch()
+                chunk.forEach { batch.delete(it) }
+                batch.commit().await()
+            }
+
+            // Reset hasInquiryNotification on users so CRM badges match clean inbox
+            runCatching {
+                val notifiedUsers = db.collection(COLLECTION_USERS)
+                    .whereEqualTo("hasInquiryNotification", true)
+                    .get()
+                    .await()
+                notifiedUsers.documents.chunked(350).forEach { chunk ->
+                    val batch = db.batch()
+                    chunk.forEach { doc ->
+                        batch.update(
+                            doc.reference,
+                            mapOf(
+                                "hasInquiryNotification" to false,
+                                "updatedAt" to FieldValue.serverTimestamp(),
+                            )
+                        )
+                    }
+                    batch.commit().await()
+                }
+            }
+
+            // Clean up finished/stale call sessions cleanly
+            runCatching {
+                val callsSnap = db.collection(CallRepository.COLLECTION_CALLS).get().await()
+                callsSnap.documents.chunked(350).forEach { chunk ->
+                    val batch = db.batch()
+                    chunk.forEach { batch.delete(it.reference) }
+                    batch.commit().await()
+                }
+            }
+
+            Result.success(deletedChats to deletedMessages)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, ChatRepository.COLLECTION_CHATS)
+            Result.failure(e)
         }
     }
 
@@ -751,6 +939,10 @@ class UserCrmRepository(
         const val COLLECTION_ADMINS = "admins"
         const val COLLECTION_ADMIN_EMAILS = "admin_emails"
         const val COLLECTION_ADMIN_CODES = "admin_access_codes"
+        const val COLLECTION_PRESENCE = "presence"
+        const val COLLECTION_APP_CONFIG = "app_config"
+        const val DOC_LAUNCH_BANNER = "launch_banner"
+        const val ADMIN_PRESENCE_ID = "admin_concierge"
         const val SUPER_ADMIN_EMAIL = "buildolive4@gmail.com"
         private val ACCESS_CODE_REGEX = Regex("^[A-Z0-9_\\-]{4,24}$")
 

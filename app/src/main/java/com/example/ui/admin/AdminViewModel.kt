@@ -13,6 +13,7 @@ import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
 import com.example.data.model.CompanionProfile
 import com.example.data.model.GalleryImage
+import com.example.data.model.LaunchBannerConfig
 import com.example.data.model.ProfileTier
 import com.example.data.model.StaffStatus
 import com.example.data.model.UserAccount
@@ -110,6 +111,9 @@ class AdminViewModel(
             if (isSuper) userCrmRepository.observeAdminMembers() else flowOf(emptyList())
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val launchBanner: StateFlow<LaunchBannerConfig?> = userCrmRepository.observeLaunchBanner()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), null)
 
     private val authListener = FirebaseAuth.AuthStateListener { auth ->
         _authUser.value = auth.currentUser
@@ -709,6 +713,92 @@ class AdminViewModel(
             }.onFailure { err ->
                 _events.tryEmit(err.localizedMessage ?: "Failed to send reply")
             }
+        }
+    }
+
+    fun powerResetAllChats() {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.powerResetAllChats()
+            _isBusy.value = false
+            res.onSuccess { (deletedChats, deletedMessages) ->
+                _events.tryEmit(
+                    "Power Reset complete: cleared $deletedChats chat(s) & $deletedMessages message(s)."
+                )
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Power Reset failed")
+            }
+        }
+    }
+
+    fun uploadLaunchBannerImage(
+        context: Context,
+        selectedUri: Uri?,
+        manualUrl: String,
+        title: String,
+        onSuccess: () -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            var resolvedUrl = manualUrl.trim().let {
+                if (it.startsWith("http://")) "https://" + it.removePrefix("http://") else it
+            }
+            if (selectedUri != null) {
+                if (!ImgBbApiService.isApiKeyConfigured()) {
+                    _isBusy.value = false
+                    _events.tryEmit("ImgBB API Key required in Secrets to upload gallery images, or paste an https:// URL.")
+                    return@launch
+                }
+                val uploadRes = ImgBbUploadHelper.uploadUriToImgBb(
+                    context = context.applicationContext,
+                    apiService = imgBbApiService,
+                    imageUri = selectedUri,
+                    title = title.ifBlank { "JustUs Launch Banner" },
+                    category = "Announcement",
+                )
+                resolvedUrl = uploadRes.getOrElse { err ->
+                    _isBusy.value = false
+                    _events.tryEmit(err.localizedMessage ?: "Launch image upload failed")
+                    return@launch
+                }.imageUrl
+            }
+
+            if (!resolvedUrl.startsWith("https://")) {
+                _isBusy.value = false
+                _events.tryEmit("Please pick an image or enter a valid https:// URL.")
+                return@launch
+            }
+
+            val saveRes = userCrmRepository.saveLaunchBanner(resolvedUrl, title)
+            _isBusy.value = false
+            saveRes.onSuccess {
+                _events.tryEmit("Launch 3s Info Image published for all users!")
+                onSuccess()
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to save launch image")
+            }
+        }
+    }
+
+    fun removeLaunchBanner(onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.removeLaunchBanner()
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("Launch Info Image removed.")
+                onSuccess()
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to remove launch image")
+            }
+        }
+    }
+
+    fun deleteChatThreadAsAdmin(chatId: String) {
+        viewModelScope.launch {
+            chatRepository.deleteChatThread(chatId)
+                .onSuccess { _events.tryEmit("Chat deleted") }
+                .onFailure { _events.tryEmit(it.localizedMessage ?: "Failed to delete chat") }
         }
     }
 

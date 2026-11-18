@@ -186,6 +186,53 @@ data class AdminMemberProfile(
     @ServerTimestamp val updatedAt: Timestamp? = null,
 )
 
+enum class MessageTickState {
+    SENT,
+    DELIVERED,
+    READ,
+}
+
+@Keep
+@IgnoreExtraProperties
+data class PresenceStatus(
+    @DocumentId val id: String = "",
+    val online: Boolean = false,
+    val lastSeenEpochMs: Long = 0L,
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+    fun isEffectivelyOnline(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!online) return false
+        if (lastSeenEpochMs <= 0L) return true
+        return (nowMs - lastSeenEpochMs) <= 15 * 60_000L
+    }
+
+    fun formatPresenceLabel(nowMs: Long = System.currentTimeMillis()): String {
+        if (isEffectivelyOnline(nowMs)) return "Online"
+        if (lastSeenEpochMs <= 0L) return "Offline"
+        val diffSec = ((nowMs - lastSeenEpochMs) / 1000L).coerceAtLeast(0L)
+        return when {
+            diffSec < 60L -> "last seen just now"
+            diffSec < 3600L -> "last seen ${diffSec / 60L}m ago"
+            diffSec < 86_400L -> "last seen ${diffSec / 3600L}h ago"
+            else -> "last seen ${diffSec / 86_400L}d ago"
+        }
+    }
+}
+
+@Keep
+@IgnoreExtraProperties
+data class LaunchBannerConfig(
+    @DocumentId val id: String = "",
+    val active: Boolean = false,
+    val imageUrl: String = "",
+    val title: String = "",
+    val updatedByEmail: String = "",
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+    val isReadyToDisplay: Boolean
+        get() = active && imageUrl.startsWith("https://")
+}
+
 @Keep
 @IgnoreExtraProperties
 data class ChatThread(
@@ -203,9 +250,28 @@ data class ChatThread(
     val unreadForAdmin: Int = 0,
     val unreadForStaff: Int = 0,
     val unreadForClient: Int = 0,
+    val clientLastReadEpochMs: Long = 0L,
+    val agentLastReadEpochMs: Long = 0L,
+    val clientLastDeliveredEpochMs: Long = 0L,
+    val agentLastDeliveredEpochMs: Long = 0L,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
-)
+) {
+    fun tickStateForOutgoingMessage(
+        message: ChatMessage,
+        viewerRole: String,
+        peerOnline: Boolean,
+    ): MessageTickState {
+        val msgMs = message.createdAt?.toDate()?.time ?: 0L
+        val peerReadMs = if (viewerRole == "client") agentLastReadEpochMs else clientLastReadEpochMs
+        val peerDeliveredMs = if (viewerRole == "client") agentLastDeliveredEpochMs else clientLastDeliveredEpochMs
+        return when {
+            msgMs > 0L && peerReadMs >= msgMs -> MessageTickState.READ
+            (msgMs > 0L && peerDeliveredMs >= msgMs) || (msgMs > 0L && peerOnline) -> MessageTickState.DELIVERED
+            else -> MessageTickState.SENT
+        }
+    }
+}
 
 @Keep
 @IgnoreExtraProperties

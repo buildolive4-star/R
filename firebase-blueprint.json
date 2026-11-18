@@ -107,6 +107,10 @@
         "unreadForAdmin": { "type": "integer" },
         "unreadForStaff": { "type": "integer" },
         "unreadForClient": { "type": "integer" },
+        "clientLastReadEpochMs": { "type": "number" },
+        "agentLastReadEpochMs": { "type": "number" },
+        "clientLastDeliveredEpochMs": { "type": "number" },
+        "agentLastDeliveredEpochMs": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -119,7 +123,7 @@
     },
     "ChatMessage": {
       "title": "ChatMessage",
-      "description": "Immutable chat message inside a ChatThread with anti-contact guard for staff.",
+      "description": "Chat message inside a ChatThread with anti-contact guard for staff and participant deletion.",
       "type": "object",
       "properties": {
         "senderUid": { "type": "string" },
@@ -129,6 +133,30 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["senderUid", "senderRole", "senderName", "text", "createdAt"]
+    },
+    "PresenceStatus": {
+      "title": "PresenceStatus",
+      "description": "Lightweight online/offline and last-seen indicator isolated from user PII.",
+      "type": "object",
+      "properties": {
+        "online": { "type": "boolean" },
+        "lastSeenEpochMs": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["online", "lastSeenEpochMs", "updatedAt"]
+    },
+    "LaunchBannerConfig": {
+      "title": "LaunchBannerConfig",
+      "description": "3-second launch promotional/info image overlay managed by Super Admin.",
+      "type": "object",
+      "properties": {
+        "active": { "type": "boolean" },
+        "imageUrl": { "type": "string" },
+        "title": { "type": "string" },
+        "updatedByEmail": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["active", "imageUrl", "title", "updatedByEmail", "updatedAt"]
     }
   },
   "firestore": {
@@ -155,6 +183,14 @@
     "/chats/{chatId}/messages/{messageId}": {
       "schema": { "$ref": "#/entities/ChatMessage" },
       "description": "Messages inside an inquiry chat thread."
+    },
+    "/presence/{presenceId}": {
+      "schema": { "$ref": "#/entities/PresenceStatus" },
+      "description": "Publicly queryable (signed-in) online/offline indicator without PII."
+    },
+    "/app_config/{docId}": {
+      "schema": { "$ref": "#/entities/LaunchBannerConfig" },
+      "description": "App-wide Super Admin launch info image configuration."
     }
   }
 }

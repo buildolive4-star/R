@@ -156,6 +156,10 @@ service cloud.firestore {
              data.unreadForAdmin is int && data.unreadForAdmin >= 0 &&
              data.unreadForStaff is int && data.unreadForStaff >= 0 &&
              data.unreadForClient is int && data.unreadForClient >= 0 &&
+             (!('clientLastReadEpochMs' in data) || (data.clientLastReadEpochMs is number && data.clientLastReadEpochMs >= 0)) &&
+             (!('agentLastReadEpochMs' in data) || (data.agentLastReadEpochMs is number && data.agentLastReadEpochMs >= 0)) &&
+             (!('clientLastDeliveredEpochMs' in data) || (data.clientLastDeliveredEpochMs is number && data.clientLastDeliveredEpochMs >= 0)) &&
+             (!('agentLastDeliveredEpochMs' in data) || (data.agentLastDeliveredEpochMs is number && data.agentLastDeliveredEpochMs >= 0)) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -365,7 +369,10 @@ service cloud.firestore {
                          'clientUid', 'clientName', 'clientPhotoUrl', 'profileId', 'profileName',
                          'profilePhotoUrl', 'profilePrice', 'staffOwnerUid',
                          'lastMessage', 'lastSenderRole', 'unreadForAdmin',
-                         'unreadForStaff', 'unreadForClient', 'createdAt', 'updatedAt'
+                         'unreadForStaff', 'unreadForClient',
+                         'clientLastReadEpochMs', 'agentLastReadEpochMs',
+                         'clientLastDeliveredEpochMs', 'agentLastDeliveredEpochMs',
+                         'createdAt', 'updatedAt'
                        ]);
 
       allow update: if isSignedIn() &&
@@ -383,10 +390,16 @@ service cloud.firestore {
                        incoming().diff(existing()).affectedKeys().hasOnly([
                          'clientName', 'clientPhotoUrl', 'profileName', 'profilePhotoUrl', 'profilePrice',
                          'lastMessage', 'lastSenderRole', 'unreadForAdmin', 'unreadForStaff', 'unreadForClient',
+                         'clientLastReadEpochMs', 'agentLastReadEpochMs',
+                         'clientLastDeliveredEpochMs', 'agentLastDeliveredEpochMs',
                          'updatedAt'
                        ]);
 
-      allow delete: if isAdmin() && isValidId(chatId);
+      allow delete: if isSignedIn() && isValidId(chatId) && (
+        isAdmin() ||
+        existing().clientUid == request.auth.uid ||
+        (existing().staffOwnerUid != '' && existing().staffOwnerUid == request.auth.uid)
+      );
 
       match /messages/{messageId} {
         function parentChatExists() {
@@ -424,8 +437,51 @@ service cloud.firestore {
                             !isUserBlockedOrSuspended())
                          );
 
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(chatId) && isValidId(messageId) && parentChatExists() && (
+          isAdmin() ||
+          existing().senderUid == request.auth.uid ||
+          parentChat().clientUid == request.auth.uid ||
+          (parentChat().staffOwnerUid != '' && parentChat().staffOwnerUid == request.auth.uid)
+        );
       }
+    }
+
+    function isValidPresence(data) {
+      return data.online is bool &&
+             data.lastSeenEpochMs is number && data.lastSeenEpochMs >= 0 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /presence/{presenceId} {
+      allow get, list: if isSignedIn() && isValidId(presenceId);
+      allow create, update: if isSignedIn() &&
+                               isValidId(presenceId) &&
+                               (request.auth.uid == presenceId || (presenceId == 'admin_concierge' && isAdmin())) &&
+                               isValidPresence(incoming()) &&
+                               incoming().keys().hasAll(['online', 'lastSeenEpochMs', 'updatedAt']) &&
+                               incoming().keys().hasOnly(['online', 'lastSeenEpochMs', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(presenceId);
+    }
+
+    function isValidLaunchBanner(data) {
+      return data.active is bool &&
+             data.imageUrl is string && data.imageUrl.size() <= 1000 &&
+             (!data.active || hasValidHttpsUrl(data.imageUrl)) &&
+             data.title is string && data.title.size() <= 120 &&
+             data.updatedByEmail is string && data.updatedByEmail.size() <= 120 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /app_config/{docId} {
+      allow get: if docId == 'launch_banner';
+      allow list: if false;
+      allow create, update: if isSuperAdmin() &&
+                               docId == 'launch_banner' &&
+                               isValidLaunchBanner(incoming()) &&
+                               incoming().keys().hasAll(['active', 'imageUrl', 'title', 'updatedByEmail', 'updatedAt']) &&
+                               incoming().keys().hasOnly(['active', 'imageUrl', 'title', 'updatedByEmail', 'updatedAt']);
+      allow delete: if isSuperAdmin() && docId == 'launch_banner';
     }
 
     function isValidCallSession(data) {
