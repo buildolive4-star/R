@@ -76,6 +76,7 @@ fun SettingsScreen(
     galleryCount: Int,
     savedCount: Int,
     hasNotificationPermission: Boolean,
+    oneSignalPushConfigured: Boolean = false,
     backgroundSyncEnabled: Boolean,
     lastSyncCheckEpochMs: Long,
     themeMode: ThemeMode,
@@ -206,6 +207,17 @@ fun SettingsScreen(
                                 text = stringResource(R.string.notification_channel_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (oneSignalPushConfigured) {
+                                    stringResource(R.string.onesignal_push_active)
+                                } else {
+                                    stringResource(R.string.onesignal_push_pending)
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (oneSignalPushConfigured) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
                             )
                         }
                     }

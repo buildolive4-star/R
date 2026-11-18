@@ -23,6 +23,7 @@ import com.example.data.remote.ImgBbUploadHelper
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.GalleryRepository
 import com.example.data.repository.UserCrmRepository
+import com.example.notifications.OneSignalPushManager
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -166,6 +167,11 @@ class AdminViewModel(
                 val isAdmin = userCrmRepository.checkIsCurrentUserAdmin()
                 _isVerifiedAdmin.value = isAdmin
                 _isSuperAdmin.value = userCrmRepository.isSuperAdminEmail(user.email)
+                OneSignalPushManager.syncUserIdentity(
+                    uid = user.uid,
+                    isAdmin = isAdmin,
+                    isApprovedStaff = false,
+                )
                 _isBusy.value = false
                 if (isAdmin) {
                     _events.tryEmit("Signed in as Admin: ${user.email}")
@@ -357,6 +363,11 @@ class AdminViewModel(
             if (res.isSuccess) {
                 val isAdmin = userCrmRepository.checkIsCurrentUserAdmin()
                 _isVerifiedAdmin.value = isAdmin
+                OneSignalPushManager.syncUserIdentity(
+                    uid = _authUser.value?.uid,
+                    isAdmin = isAdmin,
+                    isApprovedStaff = false,
+                )
                 _isBusy.value = false
                 if (isAdmin) {
                     _events.tryEmit("Admin access unlocked!")
@@ -462,6 +473,14 @@ class AdminViewModel(
                         isHidden = hiddenTimed,
                     )
                     _uploadedPreviewAlert.tryEmit(previewImg)
+                    OneSignalPushManager.sendNewProfilePushAsync(
+                        profileId = newId,
+                        profileName = cleanName,
+                        price = cleanPrice,
+                        category = category.ifBlank { if (tier == ProfileTier.VIP_16_9) "VIP" else "Companion" },
+                        coverUrl = cover,
+                        isHidden = hiddenTimed,
+                    )
                     _publishState.value = AdminPublishState.Success(
                         message = "$cleanName ($cleanPrice) published to JustUs!",
                         imageUrl = cover,
@@ -520,8 +539,20 @@ class AdminViewModel(
     fun refreshBlurredUpload(profileId: String) {
         viewModelScope.launch {
             val refreshed = uploadsRepository.refreshUpload(profileId)
+            val remoteMatch = cloudCompanionProfiles.value.firstOrNull { it.id == profileId }
             if (_isVerifiedAdmin.value) {
                 galleryRepository.refreshRemoteImage(profileId)
+            }
+            val pushTarget = refreshed ?: remoteMatch?.toGalleryImage()
+            if (pushTarget != null) {
+                OneSignalPushManager.sendNewProfilePushAsync(
+                    profileId = pushTarget.id,
+                    profileName = pushTarget.title,
+                    price = pushTarget.displayPrice,
+                    category = pushTarget.category,
+                    coverUrl = pushTarget.displayThumbnailUrl,
+                    isHidden = pushTarget.isHidden,
+                )
             }
             if (refreshed != null) {
                 _uploadedPreviewAlert.tryEmit(refreshed)
@@ -536,6 +567,17 @@ class AdminViewModel(
             val cloudTimed = cloudCompanionProfiles.value.filter { it.hiddenTimed }
             if (_isVerifiedAdmin.value) {
                 cloudTimed.forEach { galleryRepository.refreshRemoteImage(it.id) }
+            }
+            val pushFirst = refreshedLocal.firstOrNull() ?: cloudTimed.firstOrNull()?.toGalleryImage()
+            if (pushFirst != null) {
+                OneSignalPushManager.sendNewProfilePushAsync(
+                    profileId = pushFirst.id,
+                    profileName = pushFirst.title,
+                    price = pushFirst.displayPrice,
+                    category = pushFirst.category,
+                    coverUrl = pushFirst.displayThumbnailUrl,
+                    isHidden = pushFirst.isHidden,
+                )
             }
             refreshedLocal.firstOrNull()?.let { _uploadedPreviewAlert.tryEmit(it) }
             _events.tryEmit("Refreshed secret drops for users!")

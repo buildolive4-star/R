@@ -14,6 +14,7 @@ import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.preferences.StoredTestUpload
 import com.example.data.repository.UserCrmRepository
+import com.example.notifications.OneSignalPushManager
 import com.example.notifications.PixoraNotificationManager
 import com.example.util.ContactLeakFilter
 import com.example.util.ProfileCompletionCalculator
@@ -321,5 +322,15 @@ class ExampleRobolectricTest {
         val diag = GoogleAuthHelper.getAuthDiagnosticInfo(context)
         assertTrue(diag.hasWebClientId)
         assertEquals(GoogleAuthHelper.EXPECTED_DEBUG_SHA1_COLON, diag.expectedSha1Colon)
+    }
+
+    @Test
+    fun `oneSignalPushManager safely skips initialization when placeholder secrets are active`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        OneSignalPushManager.init(context)
+        OneSignalPushManager.syncUserIdentity("uid_test", isAdmin = true, isApprovedStaff = false)
+        assertFalse(OneSignalPushManager.isFullyConfigured())
+        OneSignalPushManager.consumeDeepLinkChat()
+        OneSignalPushManager.consumeDeepLinkImage()
     }
 }

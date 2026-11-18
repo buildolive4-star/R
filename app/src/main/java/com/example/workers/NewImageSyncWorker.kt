@@ -12,6 +12,7 @@ import com.example.data.model.CompanionProfile
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.GalleryRepository
+import com.example.data.repository.UserCrmRepository
 import com.example.notifications.PixoraNotificationManager
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
@@ -95,6 +96,10 @@ class NewImageSyncWorker(
         store: NotifiedImagesStore,
         uid: String,
     ) {
+        val crmRepo = UserCrmRepository(db)
+        val isVerifiedAdmin = runCatching { crmRepo.checkIsCurrentUserAdmin() }.getOrDefault(false)
+
+        // 1. Client unread replies
         runCatching {
             val clientSnap = db.collection(ChatRepository.COLLECTION_CHATS)
                 .whereEqualTo("clientUid", uid)
@@ -107,7 +112,8 @@ class NewImageSyncWorker(
             for (thread in clientThreads) {
                 val updatedMs = thread.updatedAt?.toDate()?.time ?: continue
                 if (thread.unreadForClient > 0 && thread.lastSenderRole != "client") {
-                    val lastNotified = store.getLastNotifiedChatEpoch(thread.id)
+                    val trackKey = "${thread.id}_client"
+                    val lastNotified = store.getLastNotifiedChatEpoch(trackKey)
                     if (updatedMs > lastNotified) {
                         PixoraNotificationManager.notifyNewChatMessage(
                             context = applicationContext,
@@ -117,7 +123,69 @@ class NewImageSyncWorker(
                             messageText = thread.lastMessage,
                             avatarUrl = thread.profilePhotoUrl,
                         )
-                        store.markChatNotified(thread.id, updatedMs)
+                        store.markChatNotified(trackKey, updatedMs)
+                    }
+                }
+            }
+        }
+
+        // 2. Staff companion inbox unread messages
+        runCatching {
+            val staffSnap = db.collection(ChatRepository.COLLECTION_CHATS)
+                .whereEqualTo("staffOwnerUid", uid)
+                .get()
+                .await()
+            val staffThreads = staffSnap.toObjects(
+                ChatThread::class.java,
+                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+            )
+            for (thread in staffThreads) {
+                val updatedMs = thread.updatedAt?.toDate()?.time ?: continue
+                if (thread.unreadForStaff > 0 && thread.lastSenderRole == "client") {
+                    val trackKey = "${thread.id}_staff"
+                    val lastNotified = store.getLastNotifiedChatEpoch(trackKey)
+                    if (updatedMs > lastNotified) {
+                        PixoraNotificationManager.notifyNewChatMessage(
+                            context = applicationContext,
+                            chatId = thread.id,
+                            recipientRole = "staff",
+                            senderName = thread.clientName.ifBlank { "Client" },
+                            messageText = thread.lastMessage,
+                            avatarUrl = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
+                        )
+                        store.markChatNotified(trackKey, updatedMs)
+                    }
+                }
+            }
+        }
+
+        // 3. Verified Admin unread inquiries
+        if (isVerifiedAdmin) {
+            runCatching {
+                val adminSnap = db.collection(ChatRepository.COLLECTION_CHATS)
+                    .whereGreaterThan("unreadForAdmin", 0)
+                    .get()
+                    .await()
+                val adminThreads = adminSnap.toObjects(
+                    ChatThread::class.java,
+                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                )
+                for (thread in adminThreads) {
+                    val updatedMs = thread.updatedAt?.toDate()?.time ?: continue
+                    if (thread.unreadForAdmin > 0 && thread.lastSenderRole == "client") {
+                        val trackKey = "${thread.id}_admin"
+                        val lastNotified = store.getLastNotifiedChatEpoch(trackKey)
+                        if (updatedMs > lastNotified) {
+                            PixoraNotificationManager.notifyNewChatMessage(
+                                context = applicationContext,
+                                chatId = thread.id,
+                                recipientRole = "admin",
+                                senderName = "${thread.clientName.ifBlank { "Client" }} → ${thread.profileName}",
+                                messageText = thread.lastMessage,
+                                avatarUrl = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
+                            )
+                            store.markChatNotified(trackKey, updatedMs)
+                        }
                     }
                 }
             }

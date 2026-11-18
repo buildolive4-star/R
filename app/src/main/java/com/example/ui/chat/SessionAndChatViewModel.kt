@@ -17,6 +17,7 @@ import com.example.data.remote.ImgBbUploadHelper
 import com.example.data.repository.CallRepository
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.UserCrmRepository
+import com.example.notifications.OneSignalPushManager
 import com.example.notifications.PixoraNotificationManager
 import com.example.util.WebRtcAudioCallClient
 import com.google.firebase.Firebase
@@ -133,6 +134,17 @@ class SessionAndChatViewModel(
         Firebase.auth.addAuthStateListener(authListener)
         refreshAdminCallMonitoring()
         observeIncomingCallStreams()
+        viewModelScope.launch {
+            combine(_firebaseUser, _isVerifiedAdminForCalls, isApprovedStaffTheme) { user, isAdmin, isStaff ->
+                Triple(user?.uid, isAdmin, isStaff)
+            }.collect { (uid, isAdmin, isStaff) ->
+                OneSignalPushManager.syncUserIdentity(
+                    uid = uid,
+                    isAdmin = isAdmin,
+                    isApprovedStaff = isStaff,
+                )
+            }
+        }
     }
 
     override fun onCleared() {
@@ -249,6 +261,7 @@ class SessionAndChatViewModel(
         viewModelScope.launch {
             val uid = _firebaseUser.value?.uid
             if (uid != null) userCrmRepository.setOnlinePresence(uid, false)
+            OneSignalPushManager.clearIdentity()
             GoogleAuthHelper.signOut(context)
             _firebaseUser.value = null
             _isVerifiedAdminForCalls.value = false
@@ -536,6 +549,14 @@ class SessionAndChatViewModel(
             }
 
             _activeCallUi.value = ActiveCallUi.OutgoingRinging(session)
+            OneSignalPushManager.sendCallPushAsync(
+                callId = callId,
+                callerName = callerName,
+                callerRole = callerRole,
+                calleeUid = calleeUid,
+                chatId = chatId,
+                profileName = profileName,
+            )
 
             activeCallSessionJob = viewModelScope.launch {
                 repo.observeCallSession(callId).collect { updated ->

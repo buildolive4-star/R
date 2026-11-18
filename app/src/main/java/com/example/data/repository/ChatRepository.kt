@@ -9,6 +9,7 @@ import com.example.data.model.ChatThread
 import com.example.data.model.GalleryImage
 import com.example.data.model.ModerationStatus
 import com.example.data.model.UserAccount
+import com.example.notifications.OneSignalPushManager
 import com.example.util.ContactLeakFilter
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
@@ -201,6 +202,17 @@ class ChatRepository(
                             )
                         ).await()
                 }
+                OneSignalPushManager.sendChatPushAsync(
+                    chatId = chatId,
+                    senderRole = "client",
+                    senderName = clientAccount.name.ifBlank { "Guest" },
+                    clientUid = uid,
+                    clientName = clientAccount.name.ifBlank { "Guest" },
+                    staffOwnerUid = profile.ownerUid.trim(),
+                    profileName = profile.title.ifBlank { "Companion" },
+                    messageText = "Started a new inquiry for ${profile.title}",
+                    avatarUrl = clientAccount.photoUrl.ifBlank { profile.displayThumbnailUrl },
+                )
             }
             val saved = docRef.get().await().toObject(
                 ChatThread::class.java,
@@ -280,6 +292,17 @@ class ChatRepository(
                         ).await()
                 }
             }
+            OneSignalPushManager.sendChatPushAsync(
+                chatId = chat.id,
+                senderRole = senderRole,
+                senderName = senderName.trim().ifBlank { "JustUs" },
+                clientUid = chat.clientUid,
+                clientName = chat.clientName,
+                staffOwnerUid = chat.staffOwnerUid,
+                profileName = chat.profileName,
+                messageText = cleanText,
+                avatarUrl = if (senderRole == "client") chat.clientPhotoUrl.ifBlank { chat.profilePhotoUrl } else chat.profilePhotoUrl,
+            )
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e

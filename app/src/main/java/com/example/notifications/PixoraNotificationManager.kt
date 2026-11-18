@@ -11,7 +11,9 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -28,9 +30,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object PixoraNotificationManager {
-    const val CHANNEL_ID = "justus_live_profiles_v2"
-    const val CHANNEL_MESSAGES_ID = "justus_chat_messages_v1"
-    const val CHANNEL_CALLS_ID = "justus_voice_calls_v1"
+    const val CHANNEL_ID = "justus_live_profiles_v3"
+    const val CHANNEL_MESSAGES_ID = "justus_chat_messages_v2"
+    const val CHANNEL_CALLS_ID = "justus_voice_calls_v2"
 
     const val EXTRA_IMAGE_ID = "extra_justus_profile_id"
     const val EXTRA_CHAT_ID = "extra_justus_chat_id"
@@ -38,6 +40,50 @@ object PixoraNotificationManager {
     const val EXTRA_CALL_ID = "extra_justus_call_id"
 
     private const val TAG = "JustUsNotify"
+
+    @Volatile
+    private var lastChimePlayedAtMs: Long = 0L
+
+    private fun notificationSoundUri(context: Context): Uri =
+        runCatching {
+            Uri.parse("android.resource://${context.packageName}/${R.raw.justus_chime}")
+        }.getOrElse {
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        }
+
+    fun playAlertChime(context: Context) {
+        val now = System.currentTimeMillis()
+        if (now - lastChimePlayedAtMs < 1200L) return
+        lastChimePlayedAtMs = now
+        val appCtx = context.applicationContext
+        runCatching {
+            val uri = notificationSoundUri(appCtx)
+            val player = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .build()
+                )
+                setDataSource(appCtx, uri)
+                setOnCompletionListener { mp -> runCatching { mp.release() } }
+                setOnErrorListener { mp, _, _ ->
+                    runCatching { mp.release() }
+                    true
+                }
+                prepare()
+                start()
+            }
+            if (!player.isPlaying) {
+                runCatching { player.release() }
+            }
+        }.onFailure {
+            runCatching {
+                val fallbackUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                RingtoneManager.getRingtone(appCtx, fallbackUri)?.play()
+            }
+        }
+    }
 
     private val CHAT_VIBRATION = longArrayOf(0L, 140L, 80L, 180L)
     private val CALL_VIBRATION = longArrayOf(0L, 500L, 350L, 500L, 350L)
@@ -53,7 +99,7 @@ object PixoraNotificationManager {
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val notifySound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val notifySound = notificationSoundUri(context)
             val notifyAttrs = AudioAttributes.Builder()
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION)
@@ -157,7 +203,7 @@ object PixoraNotificationManager {
         } else {
             "${image.title} (${image.age}) · ${image.displayPrice}"
         }
-        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val soundUri = notificationSoundUri(context)
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_pixora)
@@ -229,7 +275,7 @@ object PixoraNotificationManager {
             else -> "New Reply · $senderName"
         }
         val body = messageText.ifBlank { "Tap to open conversation" }
-        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val soundUri = notificationSoundUri(context)
 
         val builder = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
             .setSmallIcon(R.drawable.ic_notification_pixora)

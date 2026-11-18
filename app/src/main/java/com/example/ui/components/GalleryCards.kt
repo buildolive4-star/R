@@ -253,29 +253,38 @@ fun VipShowcaseCard(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Image(
-                            painter = painterResource(R.drawable.img_hero_showcase_bg),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
+                        PixoraBlurredImage(
+                            imageUrl = profile.displayThumbnailUrl,
+                            contentDescription = profile.title,
+                            blurRadiusDp = 12,
+                            blurPasses = 2,
                             modifier = Modifier.fillMaxSize()
                         )
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color(0x66150B18))
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            Color(0x55180B1C),
+                                            Color(0x6B120816),
+                                            Color(0x99120814),
+                                        )
+                                    )
+                                )
                         )
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Surface(
                                 shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
+                                border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)),
                                 modifier = Modifier.size(48.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         imageVector = Icons.Rounded.Lock,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
+                                        tint = Color.White
                                     )
                                 }
                             }
@@ -283,7 +292,7 @@ fun VipShowcaseCard(
                             Surface(
                                 shape = RoundedCornerShape(50),
                                 color = Color(0xCC1E1222),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f))
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.55f))
                             ) {
                                 Text(
                                     text = if (profile.photoCount > 1 && unopenedCount < profile.photoCount) {
@@ -292,6 +301,7 @@ fun VipShowcaseCard(
                                         stringResource(R.string.hidden_card_badge)
                                     },
                                     style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
                                     color = Color.White,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                 )
@@ -574,30 +584,44 @@ fun GalleryGridCard(
 
                     hasActiveOrUnopened -> {
                         Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(Color(0xFF1F1221), Color(0xFF2E172F), Color(0xFF150D17))
-                                    )
-                                ),
+                            modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
+                            PixoraBlurredImage(
+                                imageUrl = image.displayThumbnailUrl,
+                                contentDescription = image.title,
+                                blurRadiusDp = 12,
+                                blurPasses = 2,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color(0x40160A18),
+                                                Color(0x66140A16),
+                                                Color(0x88120814),
+                                            )
+                                        )
+                                    )
+                            )
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier.padding(10.dp)
                             ) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f),
+                                    border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
                                     modifier = Modifier.size(46.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             imageVector = Icons.Rounded.Lock,
                                             contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
+                                            tint = Color.White,
                                             modifier = Modifier.size(21.dp)
                                         )
                                     }
@@ -606,17 +630,18 @@ fun GalleryGridCard(
                                 Surface(
                                     shape = RoundedCornerShape(50),
                                     color = Color(0xCC211424),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
                                 ) {
                                     Text(
                                         text = if (image.photoCount > 1 && unopenedCount < image.photoCount) {
                                             "$unopenedCount/${image.photoCount} OPEN NEXT"
                                         } else if (image.photoCount > 1) {
-                                            "TAP · ${image.photoCount} PICS"
+                                            "BLUR · ${image.photoCount} PICS"
                                         } else {
                                             stringResource(R.string.hidden_card_badge)
                                         },
                                         style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
                                         color = Color.White,
                                         maxLines = 1,
                                         modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
@@ -803,11 +828,15 @@ fun PixoraBlurredImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    blurRadiusDp: Int = 8,
+    blurPasses: Int = 1,
 ) {
     val context = LocalContext.current
-    val blurTransform = remember { LowResBlurTransformation(maxGridDim = 96, blurPasses = 1, outputScale = 4) }
+    val blurTransform = remember(blurPasses) {
+        LowResBlurTransformation(maxGridDim = 84, blurPasses = blurPasses, outputScale = 4)
+    }
     val blurModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        modifier.blur(6.dp)
+        modifier.blur(blurRadiusDp.dp)
     } else {
         modifier
     }

@@ -84,6 +84,7 @@ import com.example.data.repository.CallRepository
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.GalleryRepository
 import com.example.data.repository.UserCrmRepository
+import com.example.notifications.OneSignalPushManager
 import com.example.notifications.PixoraNotificationManager
 import com.example.ui.admin.AdminPasscodeSheet
 import com.example.ui.admin.AdminStudioScreen
@@ -251,13 +252,22 @@ fun JustUsAppRoot(
     DisposableEffect(lifecycleOwner, sessionViewModel) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> sessionViewModel.setOnlineState(true)
-                Lifecycle.Event.ON_STOP -> sessionViewModel.setOnlineState(false)
+                Lifecycle.Event.ON_RESUME -> {
+                    OneSignalPushManager.isAppInForeground = true
+                    sessionViewModel.setOnlineState(true)
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    OneSignalPushManager.isAppInForeground = false
+                    sessionViewModel.setOnlineState(false)
+                }
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            OneSignalPushManager.isAppInForeground = false
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     var hasNotificationPermission by remember {
@@ -358,7 +368,11 @@ fun JustUsAppRoot(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val currentViewingChatId = backStackEntry?.arguments?.getString("chatId").orEmpty()
+    val currentViewingChatRole = backStackEntry?.arguments?.getString("senderRole").orEmpty()
     val isTopLevelRoute = currentRoute in TopTabs.map { it.route }
+
+    val oneSignalDeepLinkImageId by OneSignalPushManager.deepLinkImageId.collectAsStateWithLifecycle()
+    val oneSignalDeepLinkChat by OneSignalPushManager.deepLinkChat.collectAsStateWithLifecycle()
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { msg -> snackbarHostState.showSnackbar(msg) }
@@ -378,6 +392,7 @@ fun JustUsAppRoot(
     LaunchedEffect(viewModel) {
         viewModel.newArrivalEvents.collect { newImage ->
             activeBannerEvent = InAppBannerEvent.ProfileArrival(newImage)
+            PixoraNotificationManager.playAlertChime(context)
             scope.launch {
                 PixoraNotificationManager.notifyNewImage(context, newImage)
             }
@@ -438,9 +453,12 @@ fun JustUsAppRoot(
             val trackKey = "${item.chatId}_${item.role}"
             val lastNotified = notifiedStore.getLastNotifiedChatEpoch(trackKey)
             if (item.updatedMs > lastNotified) {
+                val isCurrentlyInsideSameRoleChat =
+                    currentRoute == ROUTE_CHAT_ROOM &&
+                        currentViewingChatId == item.chatId &&
+                        currentViewingChatRole == item.role
                 notifiedStore.markChatNotified(trackKey, item.updatedMs)
-                val isCurrentlyInsideChat = currentRoute == ROUTE_CHAT_ROOM && currentViewingChatId == item.chatId
-                if (!isCurrentlyInsideChat) {
+                if (!isCurrentlyInsideSameRoleChat) {
                     activeBannerEvent = InAppBannerEvent.ChatMessageArrival(
                         chatId = item.chatId,
                         senderRoleForOpen = item.role,
@@ -448,6 +466,7 @@ fun JustUsAppRoot(
                         preview = item.message.ifBlank { "New message received" },
                         avatarUrl = item.avatar,
                     )
+                    PixoraNotificationManager.playAlertChime(context)
                     PixoraNotificationManager.notifyNewChatMessage(
                         context = context,
                         chatId = item.chatId,
@@ -480,19 +499,23 @@ fun JustUsAppRoot(
         }
     }
 
-    LaunchedEffect(deepLinkImageId) {
-        if (!deepLinkImageId.isNullOrBlank()) {
-            navController.navigate("detail/$deepLinkImageId") { launchSingleTop = true }
-            onConsumeDeepLinkImage()
+    LaunchedEffect(deepLinkImageId, oneSignalDeepLinkImageId) {
+        val targetImageId = deepLinkImageId?.takeIf { it.isNotBlank() } ?: oneSignalDeepLinkImageId
+        if (!targetImageId.isNullOrBlank()) {
+            navController.navigate("detail/$targetImageId") { launchSingleTop = true }
+            if (!deepLinkImageId.isNullOrBlank()) onConsumeDeepLinkImage()
+            if (!oneSignalDeepLinkImageId.isNullOrBlank()) OneSignalPushManager.consumeDeepLinkImage()
         }
     }
 
-    LaunchedEffect(deepLinkChat) {
-        if (deepLinkChat != null) {
-            navController.navigate("chat/${deepLinkChat.first}/${deepLinkChat.second}") {
+    LaunchedEffect(deepLinkChat, oneSignalDeepLinkChat) {
+        val targetChat = deepLinkChat ?: oneSignalDeepLinkChat
+        if (targetChat != null) {
+            navController.navigate("chat/${targetChat.first}/${targetChat.second}") {
                 launchSingleTop = true
             }
-            onConsumeDeepLinkChat()
+            if (deepLinkChat != null) onConsumeDeepLinkChat()
+            if (oneSignalDeepLinkChat != null) OneSignalPushManager.consumeDeepLinkChat()
         }
     }
 
@@ -658,6 +681,7 @@ fun JustUsAppRoot(
                                     galleryCount = galleryCount,
                                     savedCount = bookmarks.size,
                                     hasNotificationPermission = hasNotificationPermission,
+                                    oneSignalPushConfigured = OneSignalPushManager.isFullyConfigured(),
                                     backgroundSyncEnabled = backgroundSyncEnabled,
                                     lastSyncCheckEpochMs = lastSyncCheckEpochMs,
                                     themeMode = themeMode,

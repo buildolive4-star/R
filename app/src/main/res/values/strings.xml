@@ -92,4 +92,6 @@
     <string name="change_photo_button">Change Photos</string>
     <string name="voice_call_label">Voice Call</string>
     <string name="mic_permission_needed">Microphone permission is required for WebRTC voice calls.</string>
+    <string name="onesignal_push_active">OneSignal Push: Active (24x7 Killed-App Alerts Ready)</string>
+    <string name="onesignal_push_pending">OneSignal Push: Add App ID &amp; REST Key in Secrets</string>
 </resources>
