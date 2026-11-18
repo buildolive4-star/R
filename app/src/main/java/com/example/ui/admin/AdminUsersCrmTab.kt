@@ -33,10 +33,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PauseCircle
 import androidx.compose.material.icons.rounded.Verified
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -81,6 +83,7 @@ import com.example.ui.theme.HotLeadColor
 import com.example.ui.theme.OnlineEmeraldDot
 import com.example.ui.theme.SuspendedAccountColor
 import com.example.ui.theme.WarmLeadColor
+import com.example.ui.theme.WhatsAppGreen
 
 @Composable
 fun AdminUsersCrmTab(
@@ -94,6 +97,7 @@ fun AdminUsersCrmTab(
     onSetLeadTag: (userId: String, leadTag: String) -> Unit,
     onSetModeration: (userId: String, status: String) -> Unit,
     onOpenChatAsAdmin: (chatId: String) -> Unit,
+    onCallUser: (UserAccount, ChatThread?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     var inspectedUser by remember { mutableStateOf<UserAccount?>(null) }
@@ -199,6 +203,10 @@ fun AdminUsersCrmTab(
             userChats = userInquiries,
             onSetLeadTag = { tag -> onSetLeadTag(activeUser.uid, tag) },
             onSetModeration = { status -> onSetModeration(activeUser.uid, status) },
+            onCallUser = {
+                inspectedUser = null
+                onCallUser(activeUser, userInquiries.firstOrNull())
+            },
             onOpenChat = { chatId ->
                 inspectedUser = null
                 onOpenChatAsAdmin(chatId)
@@ -333,6 +341,7 @@ private fun UserCrmInspectorSheet(
     userChats: List<ChatThread>,
     onSetLeadTag: (String) -> Unit,
     onSetModeration: (String) -> Unit,
+    onCallUser: () -> Unit,
     onOpenChat: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -428,6 +437,26 @@ private fun UserCrmInspectorSheet(
                         )
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Button(
+                onClick = onCallUser,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = WhatsAppGreen,
+                    contentColor = Color.White,
+                ),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .minimumInteractiveComponentSize()
+                    .testTag("crm_voice_call_button")
+            ) {
+                Icon(Icons.Rounded.Call, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("WebRTC Voice Call ${user.name.ifBlank { "Member" }}", fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(14.dp))

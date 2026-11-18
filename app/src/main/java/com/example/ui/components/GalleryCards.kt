@@ -8,13 +8,13 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -38,7 +38,6 @@ import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.ErrorOutline
-import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Button
@@ -66,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -181,12 +181,24 @@ fun VipShowcaseCard(
     onToggleBookmark: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val isBlurredExpired = profile.isDeletedBlurred
+    // Only turns into blurred memory on Home once ALL photos in this profile are opened & expired!
+    val isAllBlurredExpired = profile.isDeletedBlurred
+    val unopenedCount = profile.unopenedPhotoCount()
+    val hasActiveOrUnopened = profile.isHidden && !isAllBlurredExpired
 
     Card(
         shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f)),
+        border = BorderStroke(
+            1.2.dp,
+            Brush.linearGradient(
+                listOf(
+                    MaterialTheme.colorScheme.secondary.copy(alpha = 0.72f),
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                )
+            )
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         modifier = modifier
             .fillMaxWidth()
             .testTag("vip_card_${profile.id}")
@@ -198,7 +210,7 @@ fun VipShowcaseCard(
                 .aspectRatio(16f / 9f)
         ) {
             when {
-                isBlurredExpired -> {
+                isAllBlurredExpired -> {
                     PixoraBlurredImage(
                         imageUrl = profile.displayThumbnailUrl,
                         contentDescription = profile.title,
@@ -236,21 +248,27 @@ fun VipShowcaseCard(
                     }
                 }
 
-                profile.isHidden && !profile.isRevealStarted -> {
+                hasActiveOrUnopened -> {
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(Color(0xFF1F1123), Color(0xFF331834), Color(0xFF150D17))
-                                )
-                            ),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
+                        Image(
+                            painter = painterResource(R.drawable.img_hero_showcase_bg),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0x66150B18))
+                        )
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Surface(
                                 shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
                                 modifier = Modifier.size(48.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
@@ -262,11 +280,22 @@ fun VipShowcaseCard(
                                 }
                             }
                             Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = stringResource(R.string.hidden_card_badge),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White
-                            )
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = Color(0xCC1E1222),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f))
+                            ) {
+                                Text(
+                                    text = if (profile.photoCount > 1 && unopenedCount < profile.photoCount) {
+                                        "OPEN NEXT PHOTO ($unopenedCount LEFT)"
+                                    } else {
+                                        stringResource(R.string.hidden_card_badge)
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -319,7 +348,7 @@ fun VipShowcaseCard(
                         )
                         Spacer(modifier = Modifier.width(5.dp))
                         Text(
-                            text = "VIP · ${profile.role}",
+                            text = if (profile.photoCount > 1) "VIP · ${profile.role} · ${profile.photoCount} pics" else "VIP · ${profile.role}",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.secondary
@@ -327,7 +356,7 @@ fun VipShowcaseCard(
                     }
                 }
 
-                if (!profile.isHidden && !isBlurredExpired) {
+                if (!profile.isHidden && !isAllBlurredExpired) {
                     IconButton(
                         onClick = onToggleBookmark,
                         modifier = Modifier
@@ -465,6 +494,7 @@ fun PriceBadgePill(
 /**
  * 2-by-2 Grid 9:16 Companion Card.
  * Displays ONLY Name, Age, Price, Photo(s), and WhatsApp Chat button (never Phone or Address).
+ * Turns into a soft blur ONLY after ALL uploaded photos in the profile have expired.
  */
 @Composable
 fun GalleryGridCard(
@@ -475,19 +505,22 @@ fun GalleryGridCard(
     onToggleBookmark: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val isBlurredExpired = image.isDeletedBlurred
+    val isAllBlurredExpired = image.isDeletedBlurred
+    val unopenedCount = image.unopenedPhotoCount()
+    val hasActiveOrUnopened = image.isHidden && !isAllBlurredExpired
 
     Card(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         border = BorderStroke(
             width = 1.dp,
-            color = if (isBlurredExpired) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.38f)
+            color = if (isAllBlurredExpired) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
             } else {
                 MaterialTheme.colorScheme.outlineVariant
             }
         ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
             .fillMaxWidth()
             .testTag("gallery_card_${image.id}")
@@ -500,7 +533,7 @@ fun GalleryGridCard(
                     .aspectRatio(9f / 16f)
             ) {
                 when {
-                    isBlurredExpired -> {
+                    isAllBlurredExpired -> {
                         PixoraBlurredImage(
                             imageUrl = image.displayThumbnailUrl,
                             contentDescription = image.title,
@@ -539,7 +572,7 @@ fun GalleryGridCard(
                         }
                     }
 
-                    image.isHidden && !image.isRevealStarted -> {
+                    hasActiveOrUnopened -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -552,7 +585,7 @@ fun GalleryGridCard(
                         ) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.padding(12.dp)
+                                modifier = Modifier.padding(10.dp)
                             ) {
                                 Surface(
                                     shape = CircleShape,
@@ -576,7 +609,13 @@ fun GalleryGridCard(
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                                 ) {
                                     Text(
-                                        text = stringResource(R.string.hidden_card_badge),
+                                        text = if (image.photoCount > 1 && unopenedCount < image.photoCount) {
+                                            "$unopenedCount/${image.photoCount} OPEN NEXT"
+                                        } else if (image.photoCount > 1) {
+                                            "TAP · ${image.photoCount} PICS"
+                                        } else {
+                                            stringResource(R.string.hidden_card_badge)
+                                        },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = Color.White,
                                         maxLines = 1,
@@ -597,7 +636,7 @@ fun GalleryGridCard(
                 }
 
                 // Multi-photo count badge if profile has > 1 photo
-                if (image.allPhotoUrls.size > 1 && !image.isHidden && !isBlurredExpired) {
+                if (image.allPhotoUrls.size > 1 && !image.isHidden && !isAllBlurredExpired) {
                     Surface(
                         shape = RoundedCornerShape(50),
                         color = Color(0x9E1C101E),
@@ -625,7 +664,7 @@ fun GalleryGridCard(
                     }
                 }
 
-                if (!image.isHidden && !isBlurredExpired) {
+                if (!image.isHidden && !isAllBlurredExpired) {
                     IconButton(
                         onClick = onToggleBookmark,
                         modifier = Modifier
@@ -824,24 +863,24 @@ fun EmptyGalleryState(
         verticalArrangement = Arrangement.Center
     ) {
         Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
-            modifier = Modifier.size(86.dp)
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)),
+            shadowElevation = 6.dp,
+            modifier = Modifier.size(width = 180.dp, height = 135.dp)
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Rounded.Favorite,
-                    contentDescription = title,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(40.dp)
-                )
-            }
+            Image(
+                painter = painterResource(R.drawable.img_empty_moments),
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
         }
         Spacer(modifier = Modifier.height(20.dp))
         Text(
             text = title,
             style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center
         )

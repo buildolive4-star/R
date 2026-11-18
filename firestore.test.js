@@ -485,3 +485,118 @@ test("Main Admin transfer codes grant admin access and deleting code revokes acc
   await assertSucceeds(superDb.collection("admin_access_codes").doc("PARTNER24").delete());
   await assertFails(partnerDb.collection("users").get());
 });
+
+test("WebRTC call_sessions allow caller/callee/admin signaling and block unauthorized third parties", async () => {
+  const superDb = testEnv
+    .authenticatedContext(SUPER_ADMIN_UID, {
+      email: SUPER_ADMIN_EMAIL,
+      email_verified: true,
+    })
+    .firestore();
+  const aliceDb = testEnv
+    .authenticatedContext(ALICE_UID, {
+      email: "alice@example.com",
+      email_verified: true,
+    })
+    .firestore();
+  const strangerDb = testEnv
+    .authenticatedContext(STAFF_UID, {
+      email: "rahul@example.com",
+      email_verified: true,
+    })
+    .firestore();
+
+  const past = new Date(Date.now() - 5000);
+  const callRef = aliceDb.collection("call_sessions").doc("call_001");
+
+  // Client initiates audio call to Admin
+  await assertSucceeds(
+    callRef.set({
+      callerUid: ALICE_UID,
+      callerName: "Alice",
+      callerRole: "client",
+      calleeUid: "__ADMIN__",
+      calleeName: "JustUs Concierge",
+      chatId: `${ALICE_UID}_prof_1`,
+      profileId: "prof_1",
+      profileName: "Meera",
+      status: "ringing",
+      offerSdp: "v=0\r\no=- 123 2 IN IP4 127.0.0.1\r\n",
+      answerSdp: "",
+      answeredByUid: "",
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+
+  // Stranger cannot read or tamper with Alice's call session
+  await assertFails(strangerDb.collection("call_sessions").doc("call_001").get());
+  await assertFails(
+    strangerDb.collection("call_sessions").doc("call_001").update({
+      status: "accepted",
+      answerSdp: "spoof",
+      answeredByUid: STAFF_UID,
+      updatedAt: past,
+    })
+  );
+
+  // Super Admin accepts call and posts answer SDP + answer ICE candidate
+  await assertSucceeds(
+    superDb.collection("call_sessions").doc("call_001").update({
+      status: "accepted",
+      answerSdp: "v=0\r\no=- 456 2 IN IP4 127.0.0.1\r\n",
+      answeredByUid: SUPER_ADMIN_UID,
+      updatedAt: past,
+    })
+  );
+
+  await assertSucceeds(
+    superDb
+      .collection("call_sessions")
+      .doc("call_001")
+      .collection("answer_candidates")
+      .doc("cand_1")
+      .set({
+        senderUid: SUPER_ADMIN_UID,
+        sdpMid: "0",
+        sdpMLineIndex: 0,
+        candidate: "candidate:1 1 UDP 2122252543 192.168.1.2 54321 typ host",
+        createdAt: past,
+      })
+  );
+
+  // Caller posts offer ICE candidate
+  await assertSucceeds(
+    callRef.collection("offer_candidates").doc("cand_2").set({
+      senderUid: ALICE_UID,
+      sdpMid: "0",
+      sdpMLineIndex: 0,
+      candidate: "candidate:2 1 UDP 2122252543 192.168.1.5 54322 typ host",
+      createdAt: past,
+    })
+  );
+
+  // Stranger cannot inject ICE candidate
+  await assertFails(
+    strangerDb
+      .collection("call_sessions")
+      .doc("call_001")
+      .collection("offer_candidates")
+      .doc("cand_bad")
+      .set({
+        senderUid: STAFF_UID,
+        sdpMid: "0",
+        sdpMLineIndex: 0,
+        candidate: "candidate:bad",
+        createdAt: past,
+      })
+  );
+
+  // Admin can end the call
+  await assertSucceeds(
+    superDb.collection("call_sessions").doc("call_001").update({
+      status: "ended",
+      updatedAt: past,
+    })
+  );
+});

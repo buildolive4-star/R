@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.data.model.GalleryImage
+import com.example.data.model.PhotoRevealState
 import com.example.data.model.ProfileTier
 import com.google.firebase.Timestamp
 import com.squareup.moshi.JsonClass
@@ -38,11 +39,41 @@ data class StoredTestUpload(
     val isHidden: Boolean = false,
     val revealExpiresAtEpochMs: Long = 0L,
     val isExpired: Boolean = false,
+    val photoReveals: Map<String, HiddenRevealRecord> = emptyMap(),
     val refreshEpochMs: Long = 0L,
 ) {
     fun toGalleryImage(nowMs: Long = System.currentTimeMillis()): GalleryImage {
-        val expiredNow = isExpired || (isHidden && revealExpiresAtEpochMs > 0L && nowMs >= revealExpiresAtEpochMs)
-        val photos = if (photoUrls.isNotEmpty()) photoUrls else listOf(imageUrl)
+        val photos = if (photoUrls.isNotEmpty()) photoUrls else listOfNotNull(imageUrl.takeIf { it.isNotBlank() })
+        val photoCount = photos.size.coerceAtLeast(1)
+
+        val perPhotoStates = mutableMapOf<Int, PhotoRevealState>()
+        if (isHidden) {
+            for (idx in 0 until photoCount) {
+                val rec = photoReveals[idx.toString()]
+                if (rec != null) {
+                    val recExpired = rec.isExpired || (rec.expiresAtEpochMs > 0L && nowMs >= rec.expiresAtEpochMs)
+                    perPhotoStates[idx] = PhotoRevealState(
+                        expiresAtEpochMs = rec.expiresAtEpochMs,
+                        isExpired = recExpired,
+                    )
+                } else if (photoReveals.isEmpty() && idx == 0 && (isExpired || revealExpiresAtEpochMs > 0L)) {
+                    val legacyExpired = isExpired || (revealExpiresAtEpochMs > 0L && nowMs >= revealExpiresAtEpochMs)
+                    perPhotoStates[0] = PhotoRevealState(
+                        expiresAtEpochMs = revealExpiresAtEpochMs,
+                        isExpired = legacyExpired,
+                    )
+                }
+            }
+        }
+
+        val allExpiredNow = if (!isHidden) {
+            isExpired
+        } else {
+            (0 until photoCount).all { idx ->
+                perPhotoStates[idx]?.isExpired == true
+            }
+        }
+        val firstState = perPhotoStates[0]
         return GalleryImage(
             id = id,
             title = title,
@@ -57,13 +88,14 @@ data class StoredTestUpload(
             role = role,
             tier = tier,
             status = "published",
-            featured = if (isHidden || expiredNow) false else (featured || tier == ProfileTier.VIP_16_9),
+            featured = if (isHidden || allExpiredNow) false else (featured || tier == ProfileTier.VIP_16_9),
             uploadedBy = "justus_admin",
             uploaderName = title,
             tags = tags,
             isHidden = isHidden,
-            revealExpiresAtEpochMs = revealExpiresAtEpochMs,
-            isExpired = expiredNow,
+            revealExpiresAtEpochMs = firstState?.expiresAtEpochMs ?: revealExpiresAtEpochMs,
+            isExpired = allExpiredNow,
+            photoRevealStates = perPhotoStates,
             refreshEpochMs = refreshEpochMs,
             createdAt = Timestamp(createdAtEpochMs / 1000L, 0),
             updatedAt = Timestamp(createdAtEpochMs / 1000L, 0),
@@ -116,7 +148,7 @@ class LocalTestUploadsRepository(private val context: Context) {
                         title = title.trim().ifBlank { item.title }.take(80),
                         description = description.trim().take(600),
                         category = category.trim().ifBlank { "Companion" }.take(40),
-                        price = price.trim().take(32),
+                        price = price.trim().ifBlank { item.price }.take(32),
                         age = age?.coerceIn(18, 80) ?: item.age,
                         role = role ?: item.role,
                         tier = nextTier,
@@ -126,6 +158,7 @@ class LocalTestUploadsRepository(private val context: Context) {
                         isHidden = nextHidden,
                         revealExpiresAtEpochMs = if (!nextHidden) 0L else item.revealExpiresAtEpochMs,
                         isExpired = if (!nextHidden) false else item.isExpired,
+                        photoReveals = if (!nextHidden) emptyMap() else item.photoReveals,
                     )
                 } else {
                     item
@@ -135,19 +168,37 @@ class LocalTestUploadsRepository(private val context: Context) {
         }
     }
 
-    suspend fun startHiddenRevealCountdown(imageId: String, ttlMs: Long = 40_000L): Long {
+    suspend fun startHiddenRevealCountdown(
+        imageId: String,
+        photoIndex: Int = 0,
+        ttlMs: Long = 40_000L,
+    ): Long {
         var expiresAt = 0L
         context.testUploadsDataStore.edit { prefs ->
             val now = System.currentTimeMillis()
             val updated = decodeList(prefs[key]).map { item ->
-                if (item.id == imageId && item.isHidden && !item.isExpired) {
-                    val resolvedExpiry = if (item.revealExpiresAtEpochMs > 0L) {
-                        item.revealExpiresAtEpochMs
-                    } else {
-                        now + ttlMs
+                if (item.id == imageId && item.isHidden) {
+                    val idxKey = photoIndex.coerceAtLeast(0).toString()
+                    val currentMap = item.photoReveals.toMutableMap()
+                    val existing = currentMap[idxKey]
+                    val resolvedExpiry = when {
+                        existing != null && existing.expiresAtEpochMs > 0L -> existing.expiresAtEpochMs
+                        photoIndex == 0 && item.photoReveals.isEmpty() && item.revealExpiresAtEpochMs > 0L ->
+                            item.revealExpiresAtEpochMs
+                        else -> now + ttlMs
                     }
                     expiresAt = resolvedExpiry
-                    item.copy(revealExpiresAtEpochMs = resolvedExpiry)
+                    if (existing == null) {
+                        currentMap[idxKey] = HiddenRevealRecord(
+                            key = idxKey,
+                            expiresAtEpochMs = resolvedExpiry,
+                            isExpired = false,
+                        )
+                    }
+                    item.copy(
+                        revealExpiresAtEpochMs = if (photoIndex == 0) resolvedExpiry else item.revealExpiresAtEpochMs,
+                        photoReveals = currentMap,
+                    )
                 } else {
                     item
                 }
@@ -157,11 +208,27 @@ class LocalTestUploadsRepository(private val context: Context) {
         return expiresAt
     }
 
-    suspend fun markExpired(imageId: String) {
+    suspend fun markExpired(imageId: String, photoIndex: Int = 0) {
         context.testUploadsDataStore.edit { prefs ->
             val updated = decodeList(prefs[key]).map { item ->
                 if (item.id == imageId) {
-                    item.copy(isExpired = true, featured = false)
+                    val idxKey = photoIndex.coerceAtLeast(0).toString()
+                    val currentMap = item.photoReveals.toMutableMap()
+                    val existing = currentMap[idxKey] ?: HiddenRevealRecord(
+                        key = idxKey,
+                        expiresAtEpochMs = item.revealExpiresAtEpochMs.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                        isExpired = true,
+                    )
+                    currentMap[idxKey] = existing.copy(isExpired = true)
+                    val photoCount = if (item.photoUrls.isNotEmpty()) item.photoUrls.size else 1
+                    val allExpired = (0 until photoCount).all { i ->
+                        currentMap[i.toString()]?.isExpired == true
+                    }
+                    item.copy(
+                        photoReveals = currentMap,
+                        isExpired = allExpired,
+                        featured = if (allExpired) false else item.featured,
+                    )
                 } else {
                     item
                 }
@@ -171,26 +238,49 @@ class LocalTestUploadsRepository(private val context: Context) {
     }
 
     suspend fun markExpiredUploads(nowMs: Long = System.currentTimeMillis()): List<String> {
-        val newlyExpiredIds = mutableListOf<String>()
+        val fullyExpiredIds = mutableListOf<String>()
+        var changed = false
         context.testUploadsDataStore.edit { prefs ->
             val current = decodeList(prefs[key])
             val updated = current.map { item ->
-                val shouldExpire = !item.isExpired &&
-                    item.isHidden &&
-                    item.revealExpiresAtEpochMs > 0L &&
-                    nowMs >= item.revealExpiresAtEpochMs
-                if (shouldExpire) {
-                    newlyExpiredIds.add(item.id)
-                    item.copy(isExpired = true, featured = false)
+                if (!item.isHidden) return@map item
+                val photoCount = if (item.photoUrls.isNotEmpty()) item.photoUrls.size else 1
+                val nextMap = item.photoReveals.toMutableMap()
+                if (nextMap.isEmpty() && item.revealExpiresAtEpochMs > 0L) {
+                    nextMap["0"] = HiddenRevealRecord("0", item.revealExpiresAtEpochMs, item.isExpired)
+                }
+                var itemChanged = false
+                for (i in 0 until photoCount) {
+                    val k = i.toString()
+                    val rec = nextMap[k]
+                    if (rec != null && !rec.isExpired && rec.expiresAtEpochMs > 0L && nowMs >= rec.expiresAtEpochMs) {
+                        nextMap[k] = rec.copy(isExpired = true)
+                        itemChanged = true
+                    }
+                }
+                val allExpiredNow = (0 until photoCount).all { idx ->
+                    nextMap[idx.toString()]?.isExpired == true
+                }
+                if (allExpiredNow && !item.isExpired) {
+                    fullyExpiredIds.add(item.id)
+                    itemChanged = true
+                }
+                if (itemChanged) {
+                    changed = true
+                    item.copy(
+                        photoReveals = nextMap,
+                        isExpired = allExpiredNow,
+                        featured = if (allExpiredNow) false else item.featured,
+                    )
                 } else {
                     item
                 }
             }
-            if (newlyExpiredIds.isNotEmpty()) {
+            if (changed) {
                 prefs[key] = adapter.toJson(updated)
             }
         }
-        return newlyExpiredIds
+        return fullyExpiredIds
     }
 
     suspend fun refreshUpload(imageId: String): GalleryImage? {
@@ -203,6 +293,7 @@ class LocalTestUploadsRepository(private val context: Context) {
                         isHidden = true,
                         isExpired = false,
                         revealExpiresAtEpochMs = 0L,
+                        photoReveals = emptyMap(),
                         refreshEpochMs = now,
                     )
                     refreshedItem = next.toGalleryImage(now)
@@ -221,12 +312,15 @@ class LocalTestUploadsRepository(private val context: Context) {
         val now = System.currentTimeMillis()
         context.testUploadsDataStore.edit { prefs ->
             val updated = decodeList(prefs[key]).map { item ->
-                val needsRefresh = item.isExpired || (item.isHidden && item.revealExpiresAtEpochMs > 0L)
+                val needsRefresh = item.isExpired ||
+                    item.photoReveals.isNotEmpty() ||
+                    (item.isHidden && item.revealExpiresAtEpochMs > 0L)
                 if (needsRefresh) {
                     val next = item.copy(
                         isHidden = true,
                         isExpired = false,
                         revealExpiresAtEpochMs = 0L,
+                        photoReveals = emptyMap(),
                         refreshEpochMs = now,
                     )
                     refreshedItems.add(next.toGalleryImage(now))

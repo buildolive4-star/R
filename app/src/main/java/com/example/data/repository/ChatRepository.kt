@@ -289,6 +289,21 @@ class ChatRepository(
         }
     }
 
+    suspend fun markChatThreadRead(chatId: String, readerRole: String) {
+        if (chatId.isBlank()) return
+        runCatching { requireSignedInUid() }.getOrNull() ?: return
+        val fieldName = when (readerRole) {
+            "admin" -> "unreadForAdmin"
+            "staff" -> "unreadForStaff"
+            else -> "unreadForClient"
+        }
+        runCatching {
+            db.collection(COLLECTION_CHATS).document(chatId)
+                .update(mapOf(fieldName to 0))
+                .await()
+        }
+    }
+
     companion object {
         const val COLLECTION_CHATS = "chats"
         const val COLLECTION_MESSAGES = "messages"

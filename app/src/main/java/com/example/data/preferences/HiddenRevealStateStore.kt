@@ -23,9 +23,9 @@ data class HiddenRevealRecord(
 )
 
 /**
- * Tracks per-device 40-second reveal timers for remote Firestore-synced hidden photos,
- * keyed by "${imageId}_${refreshEpochMs}". When an admin refreshes a profile,
- * every device sees a fresh key and gets the reveal option again.
+ * Tracks independent per-photo 40-second reveal timers for remote Firestore-synced hidden photos,
+ * keyed by "${imageId}_${refreshEpochMs}_${photoIndex}". When an admin refreshes a profile,
+ * every device sees a fresh refreshEpochMs and gets the reveal option again for all photos.
  */
 class HiddenRevealStateStore(private val context: Context) {
     private val key = stringPreferencesKey("reveal_records_json")
@@ -44,8 +44,13 @@ class HiddenRevealStateStore(private val context: Context) {
         decodeMap(prefs[key])
     }
 
-    suspend fun startCountdown(imageId: String, refreshEpochMs: Long, ttlMs: Long = 40_000L): Long {
-        val stateKey = buildKey(imageId, refreshEpochMs)
+    suspend fun startCountdown(
+        imageId: String,
+        refreshEpochMs: Long,
+        photoIndex: Int = 0,
+        ttlMs: Long = 40_000L,
+    ): Long {
+        val stateKey = buildKey(imageId, refreshEpochMs, photoIndex)
         var resolvedExpiry = 0L
         context.hiddenRevealDataStore.edit { prefs ->
             val current = decodeMap(prefs[key]).toMutableMap()
@@ -67,8 +72,12 @@ class HiddenRevealStateStore(private val context: Context) {
         return resolvedExpiry
     }
 
-    suspend fun markExpired(imageId: String, refreshEpochMs: Long) {
-        val stateKey = buildKey(imageId, refreshEpochMs)
+    suspend fun markExpired(
+        imageId: String,
+        refreshEpochMs: Long,
+        photoIndex: Int = 0,
+    ) {
+        val stateKey = buildKey(imageId, refreshEpochMs, photoIndex)
         context.hiddenRevealDataStore.edit { prefs ->
             val current = decodeMap(prefs[key]).toMutableMap()
             val existing = current[stateKey]
@@ -85,6 +94,9 @@ class HiddenRevealStateStore(private val context: Context) {
     }
 
     companion object {
-        fun buildKey(imageId: String, refreshEpochMs: Long): String = "${imageId}_$refreshEpochMs"
+        fun buildKey(imageId: String, refreshEpochMs: Long, photoIndex: Int = 0): String =
+            "${imageId}_${refreshEpochMs}_$photoIndex"
+
+        fun legacyKey(imageId: String, refreshEpochMs: Long): String = "${imageId}_$refreshEpochMs"
     }
 }

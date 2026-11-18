@@ -2,6 +2,7 @@ package com.example
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -28,6 +29,8 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -53,6 +56,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -68,6 +72,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.data.model.ActiveCallUi
 import com.example.data.model.GalleryImage
 import com.example.data.model.UiState
 import com.example.data.preferences.HiddenRevealStateStore
@@ -75,6 +80,7 @@ import com.example.data.preferences.LocalBookmarksRepository
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.preferences.ThemePreferencesRepository
+import com.example.data.repository.CallRepository
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.GalleryRepository
 import com.example.data.repository.UserCrmRepository
@@ -82,10 +88,12 @@ import com.example.notifications.PixoraNotificationManager
 import com.example.ui.admin.AdminPasscodeSheet
 import com.example.ui.admin.AdminStudioScreen
 import com.example.ui.admin.AdminViewModel
+import com.example.ui.call.AudioCallOverlay
 import com.example.ui.chat.ChatOnboardingSheet
 import com.example.ui.chat.ChatRoomScreen
 import com.example.ui.chat.ChatsScreen
 import com.example.ui.chat.SessionAndChatViewModel
+import com.example.ui.components.InAppBannerEvent
 import com.example.ui.components.InAppNotificationBanner
 import com.example.ui.detail.ImageDetailScreen
 import com.example.ui.gallery.ExploreScreen
@@ -97,6 +105,7 @@ import com.example.ui.theme.ThemeMode
 import com.example.workers.BackgroundSyncScheduler
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 const val ROUTE_EXPLORE = "explore"
@@ -148,6 +157,7 @@ private val TopTabs = listOf(
 
 class MainActivity : ComponentActivity() {
     private val pendingDeepLinkImageId = mutableStateOf<String?>(null)
+    private val pendingDeepLinkChat = mutableStateOf<Pair<String, String>?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -162,7 +172,7 @@ class MainActivity : ComponentActivity() {
                 BackgroundSyncScheduler.schedulePeriodicSync(applicationContext)
             }
         }
-        pendingDeepLinkImageId.value = intent?.getStringExtra(PixoraNotificationManager.EXTRA_IMAGE_ID)
+        handleDeepLinkIntent(intent)
 
         setContent {
             val prefsRepo = remember { ThemePreferencesRepository(applicationContext) }
@@ -176,6 +186,7 @@ class MainActivity : ComponentActivity() {
                         SessionAndChatViewModel(
                             userCrmRepository = UserCrmRepository(db),
                             chatRepository = ChatRepository(db),
+                            callRepository = CallRepository(db),
                         )
                     }
                 }
@@ -191,7 +202,9 @@ class MainActivity : ComponentActivity() {
                     sessionViewModel = sessionViewModel,
                     isStaffTheme = isStaffTheme,
                     deepLinkImageId = pendingDeepLinkImageId.value,
-                    onConsumeDeepLink = { pendingDeepLinkImageId.value = null },
+                    deepLinkChat = pendingDeepLinkChat.value,
+                    onConsumeDeepLinkImage = { pendingDeepLinkImageId.value = null },
+                    onConsumeDeepLinkChat = { pendingDeepLinkChat.value = null },
                 )
             }
         }
@@ -200,9 +213,18 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val imageId = intent.getStringExtra(PixoraNotificationManager.EXTRA_IMAGE_ID)
+        handleDeepLinkIntent(intent)
+    }
+
+    private fun handleDeepLinkIntent(intent: Intent?) {
+        val imageId = intent?.getStringExtra(PixoraNotificationManager.EXTRA_IMAGE_ID)
         if (!imageId.isNullOrBlank()) {
             pendingDeepLinkImageId.value = imageId
+        }
+        val chatId = intent?.getStringExtra(PixoraNotificationManager.EXTRA_CHAT_ID)
+        if (!chatId.isNullOrBlank()) {
+            val role = intent.getStringExtra(PixoraNotificationManager.EXTRA_CHAT_ROLE) ?: "client"
+            pendingDeepLinkChat.value = chatId to role
         }
     }
 }
@@ -213,11 +235,18 @@ fun JustUsAppRoot(
     sessionViewModel: SessionAndChatViewModel,
     isStaffTheme: Boolean,
     deepLinkImageId: String?,
-    onConsumeDeepLink: () -> Unit,
+    deepLinkChat: Pair<String, String>?,
+    onConsumeDeepLinkImage: () -> Unit,
+    onConsumeDeepLinkChat: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val notifiedStore = remember(context) { NotifiedImagesStore(context.applicationContext) }
+    val db = remember(context) {
+        FirebaseFirestore.getInstance(context.applicationContext.getString(R.string.firestore_database_id))
+    }
+    val chatRepo = remember(db) { ChatRepository(db) }
 
     DisposableEffect(lifecycleOwner, sessionViewModel) {
         val observer = LifecycleEventObserver { _, event ->
@@ -245,13 +274,43 @@ fun JustUsAppRoot(
         }
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    var pendingMicAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted ->
+            val action = pendingMicAction
+            pendingMicAction = null
+            if (granted) {
+                action?.invoke()
+            } else {
+                scope.launch {
+                    snackbarHostState.showSnackbar("Microphone permission is required for WebRTC voice calls.")
+                }
+            }
+        }
+    )
+
+    fun runWithMicPermission(action: () -> Unit) {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            action()
+        } else {
+            pendingMicAction = action
+            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     val viewModel: GalleryViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
                 val app = checkNotNull(this[APPLICATION_KEY])
-                val db = FirebaseFirestore.getInstance(app.getString(R.string.firestore_database_id))
+                val appDb = FirebaseFirestore.getInstance(app.getString(R.string.firestore_database_id))
                 GalleryViewModel(
-                    repository = GalleryRepository(db),
+                    repository = GalleryRepository(appDb),
                     bookmarksRepository = LocalBookmarksRepository(app),
                     testUploadsRepository = LocalTestUploadsRepository(app),
                     prefsRepository = ThemePreferencesRepository(app),
@@ -281,16 +340,26 @@ fun JustUsAppRoot(
     val staffInboxChats by sessionViewModel.staffInboxChats.collectAsStateWithLifecycle()
     val pendingChatProfile by sessionViewModel.pendingChatProfile.collectAsStateWithLifecycle()
     val authErrorMessage by sessionViewModel.authErrorMessage.collectAsStateWithLifecycle()
+    val activeCallUi by sessionViewModel.activeCallUi.collectAsStateWithLifecycle()
+    val isVerifiedAdminForCalls by sessionViewModel.isVerifiedAdminForCalls.collectAsStateWithLifecycle()
+
+    val adminChatsObserved by remember(isVerifiedAdminForCalls) {
+        if (isVerifiedAdminForCalls) chatRepo.observeAllChatsForAdmin() else flowOf(emptyList())
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+
+    val totalUnreadMessages = remember(clientChats, staffInboxChats) {
+        clientChats.sumOf { it.unreadForClient } + staffInboxChats.sumOf { it.unreadForStaff }
+    }
 
     var showAdminPasscodeSheet by remember { mutableStateOf(false) }
-    var activeBannerImage by remember { mutableStateOf<GalleryImage?>(null) }
+    var activeBannerEvent by remember { mutableStateOf<InAppBannerEvent?>(null) }
 
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val currentViewingChatId = backStackEntry?.arguments?.getString("chatId").orEmpty()
     val isTopLevelRoute = currentRoute in TopTabs.map { it.route }
 
-    val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) {
         viewModel.events.collect { msg -> snackbarHostState.showSnackbar(msg) }
     }
@@ -305,26 +374,125 @@ fun JustUsAppRoot(
         }
     }
 
+    // 1. Live Image / Profile Upload & Refresh Notifications
     LaunchedEffect(viewModel) {
         viewModel.newArrivalEvents.collect { newImage ->
-            activeBannerImage = newImage
+            activeBannerEvent = InAppBannerEvent.ProfileArrival(newImage)
             scope.launch {
                 PixoraNotificationManager.notifyNewImage(context, newImage)
             }
         }
     }
 
-    LaunchedEffect(activeBannerImage) {
-        if (activeBannerImage != null) {
+    // 2. Live Chat Message Notifications (Client Replies + Staff Inbox + Admin Inquiries)
+    LaunchedEffect(clientChats, staffInboxChats, adminChatsObserved, isVerifiedAdminForCalls) {
+        data class PendingChatAlert(
+            val chatId: String,
+            val role: String,
+            val senderName: String,
+            val message: String,
+            val avatar: String,
+            val updatedMs: Long,
+        )
+        val candidates = mutableListOf<PendingChatAlert>()
+        clientChats.filter { it.unreadForClient > 0 && it.lastSenderRole != "client" }.forEach { thread ->
+            candidates.add(
+                PendingChatAlert(
+                    chatId = thread.id,
+                    role = "client",
+                    senderName = thread.profileName.ifBlank { "Companion" },
+                    message = thread.lastMessage,
+                    avatar = thread.profilePhotoUrl,
+                    updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis(),
+                )
+            )
+        }
+        staffInboxChats.filter { it.unreadForStaff > 0 && it.lastSenderRole == "client" }.forEach { thread ->
+            candidates.add(
+                PendingChatAlert(
+                    chatId = thread.id,
+                    role = "staff",
+                    senderName = thread.clientName.ifBlank { "Client" },
+                    message = thread.lastMessage,
+                    avatar = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
+                    updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis(),
+                )
+            )
+        }
+        if (isVerifiedAdminForCalls) {
+            adminChatsObserved.filter { it.unreadForAdmin > 0 && it.lastSenderRole == "client" }.forEach { thread ->
+                candidates.add(
+                    PendingChatAlert(
+                        chatId = thread.id,
+                        role = "admin",
+                        senderName = "${thread.clientName.ifBlank { "Client" }} → ${thread.profileName}",
+                        message = thread.lastMessage,
+                        avatar = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
+                        updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis(),
+                    )
+                )
+            }
+        }
+
+        for (item in candidates.distinctBy { "${it.chatId}_${it.role}" }) {
+            val trackKey = "${item.chatId}_${item.role}"
+            val lastNotified = notifiedStore.getLastNotifiedChatEpoch(trackKey)
+            if (item.updatedMs > lastNotified) {
+                notifiedStore.markChatNotified(trackKey, item.updatedMs)
+                val isCurrentlyInsideChat = currentRoute == ROUTE_CHAT_ROOM && currentViewingChatId == item.chatId
+                if (!isCurrentlyInsideChat) {
+                    activeBannerEvent = InAppBannerEvent.ChatMessageArrival(
+                        chatId = item.chatId,
+                        senderRoleForOpen = item.role,
+                        title = item.senderName,
+                        preview = item.message.ifBlank { "New message received" },
+                        avatarUrl = item.avatar,
+                    )
+                    PixoraNotificationManager.notifyNewChatMessage(
+                        context = context,
+                        chatId = item.chatId,
+                        recipientRole = item.role,
+                        senderName = item.senderName,
+                        messageText = item.message,
+                        avatarUrl = item.avatar,
+                    )
+                }
+            }
+        }
+    }
+
+    // 3. Incoming WebRTC Call Notification
+    LaunchedEffect(sessionViewModel) {
+        sessionViewModel.incomingCallAlert.collect { incoming ->
+            PixoraNotificationManager.notifyIncomingCall(
+                context = context,
+                callId = incoming.id,
+                callerName = incoming.callerName,
+                profileName = incoming.profileName,
+            )
+        }
+    }
+
+    LaunchedEffect(activeBannerEvent) {
+        if (activeBannerEvent != null) {
             delay(5000)
-            activeBannerImage = null
+            activeBannerEvent = null
         }
     }
 
     LaunchedEffect(deepLinkImageId) {
         if (!deepLinkImageId.isNullOrBlank()) {
             navController.navigate("detail/$deepLinkImageId") { launchSingleTop = true }
-            onConsumeDeepLink()
+            onConsumeDeepLinkImage()
+        }
+    }
+
+    LaunchedEffect(deepLinkChat) {
+        if (deepLinkChat != null) {
+            navController.navigate("chat/${deepLinkChat.first}/${deepLinkChat.second}") {
+                launchSingleTop = true
+            }
+            onConsumeDeepLinkChat()
         }
     }
 
@@ -355,10 +523,18 @@ fun JustUsAppRoot(
                                         }
                                     },
                                     icon = {
-                                        Icon(
-                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                            contentDescription = label
-                                        )
+                                        BadgedBox(
+                                            badge = {
+                                                if (tab.route == ROUTE_CHATS && totalUnreadMessages > 0) {
+                                                    Badge { Text("${totalUnreadMessages.coerceAtMost(99)}") }
+                                                }
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                                contentDescription = label
+                                            )
+                                        }
                                     },
                                     label = { Text(text = label, maxLines = 1) },
                                     modifier = Modifier.testTag(tab.testTag)
@@ -391,10 +567,18 @@ fun JustUsAppRoot(
                                         }
                                     },
                                     icon = {
-                                        Icon(
-                                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                            contentDescription = label
-                                        )
+                                        BadgedBox(
+                                            badge = {
+                                                if (tab.route == ROUTE_CHATS && totalUnreadMessages > 0) {
+                                                    Badge { Text("${totalUnreadMessages.coerceAtMost(99)}") }
+                                                }
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                                contentDescription = label
+                                            )
+                                        }
                                     },
                                     label = { Text(text = label, maxLines = 1) },
                                     modifier = Modifier.testTag(tab.testTag)
@@ -537,7 +721,9 @@ fun JustUsAppRoot(
                                     profile = profile,
                                     bookmarkedIds = bookmarkedIds,
                                     onToggleBookmark = viewModel::toggleBookmark,
-                                    onRevealHiddenImage = { img -> viewModel.revealHiddenImage(img) },
+                                    onRevealHiddenImage = { img, photoIdx ->
+                                        viewModel.revealHiddenImage(img, photoIdx)
+                                    },
                                     onChatClick = sessionViewModel::requestChatWithProfile,
                                     onBack = { navController.popBackStack() }
                                 )
@@ -559,6 +745,10 @@ fun JustUsAppRoot(
                                     sessionViewModel.observeMessages(chatId)
                                 }.collectAsStateWithLifecycle(initialValue = emptyList())
 
+                                LaunchedEffect(chatId, senderRole, messages.size) {
+                                    sessionViewModel.markChatRead(chatId, senderRole)
+                                }
+
                                 ChatRoomScreen(
                                     chat = chatThread,
                                     messages = messages,
@@ -573,6 +763,12 @@ fun JustUsAppRoot(
                                             onSent = onSent,
                                         )
                                     },
+                                    onStartVoiceCall = {
+                                        val active = chatThread ?: return@ChatRoomScreen
+                                        runWithMicPermission {
+                                            sessionViewModel.startVoiceCallFromChat(context, active, senderRole)
+                                        }
+                                    },
                                     onBack = { navController.popBackStack() }
                                 )
                             }
@@ -582,12 +778,12 @@ fun JustUsAppRoot(
                                     factory = viewModelFactory {
                                         initializer {
                                             val app = checkNotNull(this[APPLICATION_KEY])
-                                            val db = FirebaseFirestore.getInstance(app.getString(R.string.firestore_database_id))
+                                            val appDb = FirebaseFirestore.getInstance(app.getString(R.string.firestore_database_id))
                                             AdminViewModel(
                                                 uploadsRepository = LocalTestUploadsRepository(app),
-                                                galleryRepository = GalleryRepository(db),
-                                                userCrmRepository = UserCrmRepository(db),
-                                                chatRepository = ChatRepository(db),
+                                                galleryRepository = GalleryRepository(appDb),
+                                                userCrmRepository = UserCrmRepository(appDb),
+                                                chatRepository = ChatRepository(appDb),
                                             )
                                         }
                                     }
@@ -613,12 +809,15 @@ fun JustUsAppRoot(
 
                                 val adminSnackbar = remember { SnackbarHostState() }
 
+                                LaunchedEffect(isVerifiedAdmin) {
+                                    sessionViewModel.refreshAdminCallMonitoring()
+                                }
                                 LaunchedEffect(adminViewModel) {
                                     adminViewModel.events.collect { msg -> adminSnackbar.showSnackbar(msg) }
                                 }
                                 LaunchedEffect(adminViewModel) {
                                     adminViewModel.uploadedPreviewAlert.collect { previewImg ->
-                                        activeBannerImage = previewImg
+                                        activeBannerEvent = InAppBannerEvent.ProfileArrival(previewImg)
                                         scope.launch {
                                             PixoraNotificationManager.notifyNewImage(context, previewImg)
                                         }
@@ -672,11 +871,17 @@ fun JustUsAppRoot(
                                     onResetPublishState = adminViewModel::resetPublishState,
                                     onRefreshAllBlurred = adminViewModel::refreshAllBlurredUploads,
                                     onRefreshProfile = adminViewModel::refreshBlurredUpload,
+                                    onUpdateProfile = adminViewModel::updateCompanionProfileDetails,
                                     onDeleteProfile = adminViewModel::deleteProfile,
                                     onSelectUserFilter = adminViewModel::selectUserFilter,
                                     onLoadNextUsersPage = adminViewModel::loadNextUsersPage,
                                     onSetUserLeadTag = adminViewModel::setUserLeadTag,
                                     onSetUserModeration = adminViewModel::setUserModerationStatus,
+                                    onCallUser = { targetUser, relatedChat ->
+                                        runWithMicPermission {
+                                            sessionViewModel.startDirectAdminVoiceCallToUser(context, targetUser, relatedChat)
+                                        }
+                                    },
                                     onApproveStaff = adminViewModel::approveStaffUser,
                                     onRejectStaff = adminViewModel::rejectStaffUser,
                                     onLoadPrivateContact = adminViewModel::loadPrivateContactForProfile,
@@ -696,9 +901,9 @@ fun JustUsAppRoot(
             }
 
             InAppNotificationBanner(
-                image = activeBannerImage,
-                onViewClick = { img ->
-                    activeBannerImage = null
+                event = activeBannerEvent,
+                onOpenProfile = { img ->
+                    activeBannerEvent = null
                     if (img.isDeletedBlurred) {
                         viewModel.notifyExpiredBlurredTap()
                     } else {
@@ -707,7 +912,13 @@ fun JustUsAppRoot(
                         }
                     }
                 },
-                onDismiss = { activeBannerImage = null },
+                onOpenChat = { chatId, role ->
+                    activeBannerEvent = null
+                    navController.navigate("chat/$chatId/$role") {
+                        launchSingleTop = true
+                    }
+                },
+                onDismiss = { activeBannerEvent = null },
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         }
@@ -744,6 +955,22 @@ fun JustUsAppRoot(
                 }
             },
             onDismiss = { showAdminPasscodeSheet = false }
+        )
+    }
+
+    if (activeCallUi !is ActiveCallUi.Idle) {
+        AudioCallOverlay(
+            callUi = activeCallUi,
+            currentUid = firebaseUser?.uid.orEmpty(),
+            onAccept = { session ->
+                runWithMicPermission {
+                    sessionViewModel.acceptIncomingCall(context, session)
+                }
+            },
+            onDecline = { session -> sessionViewModel.declineIncomingCall(context, session) },
+            onHangUp = { sessionViewModel.hangUpCall(context) },
+            onToggleMute = sessionViewModel::toggleCallMute,
+            onToggleSpeaker = sessionViewModel::toggleCallSpeaker,
         )
     }
 }

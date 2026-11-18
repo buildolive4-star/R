@@ -3,7 +3,9 @@ package com.example
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.firebase.GoogleAuthHelper
 import com.example.data.model.AdminUserFilter
+import com.example.data.model.CallStatus
 import com.example.data.model.GalleryImage
 import com.example.data.model.LeadTag
 import com.example.data.model.ProfileTier
@@ -11,7 +13,6 @@ import com.example.data.model.SavedBookmark
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.preferences.StoredTestUpload
-import com.example.data.firebase.GoogleAuthHelper
 import com.example.data.repository.UserCrmRepository
 import com.example.notifications.PixoraNotificationManager
 import com.example.util.ContactLeakFilter
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -92,26 +94,45 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `notification manager registers high importance channel`() {
+    fun `notification manager registers profile, chat message, and voice call high importance channels`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         PixoraNotificationManager.ensureChannel(context)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = manager.getNotificationChannel(PixoraNotificationManager.CHANNEL_ID)
-        assertNotNull(channel)
-        assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
-        assertTrue(channel.shouldVibrate())
+
+        val profileChannel = manager.getNotificationChannel(PixoraNotificationManager.CHANNEL_ID)
+        assertNotNull(profileChannel)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, profileChannel.importance)
+        assertTrue(profileChannel.shouldVibrate())
+
+        val messageChannel = manager.getNotificationChannel(PixoraNotificationManager.CHANNEL_MESSAGES_ID)
+        assertNotNull(messageChannel)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, messageChannel.importance)
+        assertTrue(messageChannel.shouldVibrate())
+
+        val callChannel = manager.getNotificationChannel(PixoraNotificationManager.CHANNEL_CALLS_ID)
+        assertNotNull(callChannel)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, callChannel.importance)
     }
 
     @Test
-    fun `notifiedImagesStore tracks known IDs and background sync flag`() = runTest {
+    fun `notifiedImagesStore tracks refresh-aware tokens and deduplicates chat epochs`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val store = NotifiedImagesStore(context)
         assertTrue(store.isBackgroundSyncEnabled())
 
-        store.markIdsKnown(listOf("prof_a", "prof_b"))
+        val token1 = NotifiedImagesStore.buildProfileAlertToken("prof_a", 100L)
+        val token2 = NotifiedImagesStore.buildProfileAlertToken("prof_a", 200L)
+        assertNotEquals(token1, token2)
+
+        store.markIdsKnown(listOf(token1))
         val known = store.getKnownIds()
-        assertTrue(known.contains("prof_a"))
-        assertTrue(known.contains("prof_b"))
+        assertTrue(known.contains(token1))
+        assertFalse(known.contains(token2))
+
+        store.markChatNotified("chat_1_client", 5000L)
+        assertEquals(5000L, store.getLastNotifiedChatEpoch("chat_1_client"))
+        store.markChatNotified("chat_1_client", 4000L)
+        assertEquals(5000L, store.getLastNotifiedChatEpoch("chat_1_client"))
 
         store.setBackgroundSyncEnabled(false)
         assertFalse(store.isBackgroundSyncEnabled())
@@ -126,59 +147,114 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `hidden photo starts 40s countdown on reveal and turns into soft blurred preview on expiry`() = runTest {
+    fun `multi-photo hidden profile reveals and expires each photo independently`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val repo = LocalTestUploadsRepository(context)
         repo.clearAll()
 
-        val hiddenUpload = StoredTestUpload(
-            id = "hidden_40",
-            title = "Secret Companion",
-            category = "Date Night",
-            imageUrl = "https://i.ibb.co/sec/secret.jpg",
-            thumbUrl = "https://i.ibb.co/sec/secret_t.jpg",
+        val multiHidden = StoredTestUpload(
+            id = "hidden_multi",
+            title = "Maya Multi",
+            category = "VIP",
+            imageUrl = "https://i.ibb.co/m/1.jpg",
+            thumbUrl = "https://i.ibb.co/m/1.jpg",
+            photoUrls = listOf(
+                "https://i.ibb.co/m/1.jpg",
+                "https://i.ibb.co/m/2.jpg",
+            ),
             aspectRatio = 9.0 / 16.0,
             createdAtEpochMs = 1000L,
-            price = "₹499",
+            price = "₹799",
             age = 22,
             role = "GF",
             tier = ProfileTier.GRID_9_16,
             isHidden = true,
-            revealExpiresAtEpochMs = 0L,
         )
-        repo.addUpload(hiddenUpload)
+        repo.addUpload(multiHidden)
 
-        val beforeReveal = repo.testUploads.first().first()
-        assertTrue(beforeReveal.isHidden)
-        assertFalse(beforeReveal.isRevealStarted)
-        assertFalse(beforeReveal.isDeletedBlurred)
-        assertEquals(40, beforeReveal.remainingSeconds())
+        val initial = repo.testUploads.first().first()
+        assertEquals(2, initial.unopenedPhotoCount())
+        assertEquals(0, initial.nextOpenablePhotoIndex())
+        assertFalse(initial.isDeletedBlurred)
 
-        val expiry1 = repo.startHiddenRevealCountdown("hidden_40", ttlMs = 40_000L)
-        assertTrue(expiry1 > System.currentTimeMillis())
+        // Reveal & expire photo 0 only -> photo 1 MUST still be openable on Home and Profile stays unblurred!
+        val exp0 = repo.startHiddenRevealCountdown("hidden_multi", photoIndex = 0, ttlMs = 40_000L)
+        repo.markExpiredUploads(nowMs = exp0 + 50L)
 
-        val afterReveal = repo.testUploads.first().first()
-        assertTrue(afterReveal.isRevealStarted)
-        assertFalse(afterReveal.isDeletedBlurred)
-        assertTrue(afterReveal.remainingSeconds() in 1..40)
+        val afterFirstExpired = repo.testUploads.first().first()
+        assertTrue(afterFirstExpired.isPhotoExpired(0))
+        assertFalse(afterFirstExpired.isPhotoExpired(1))
+        assertFalse(afterFirstExpired.allPhotosExpired())
+        assertFalse(afterFirstExpired.isDeletedBlurred)
+        assertEquals(1, afterFirstExpired.unopenedPhotoCount())
+        assertEquals(1, afterFirstExpired.nextOpenablePhotoIndex())
 
-        val expiredEarly = repo.markExpiredUploads(nowMs = expiry1 - 1000L)
-        assertTrue(expiredEarly.isEmpty())
+        // Now reveal & expire photo 1 -> NOW Home card turns into soft blurred memory!
+        val exp1 = repo.startHiddenRevealCountdown("hidden_multi", photoIndex = 1, ttlMs = 40_000L)
+        val expiredList = repo.markExpiredUploads(nowMs = exp1 + 50L)
+        assertEquals(listOf("hidden_multi"), expiredList)
 
-        val expiredAfter = repo.markExpiredUploads(nowMs = expiry1 + 100L)
-        assertEquals(listOf("hidden_40"), expiredAfter)
+        val afterAllExpired = repo.testUploads.first().first()
+        assertTrue(afterAllExpired.isPhotoExpired(0))
+        assertTrue(afterAllExpired.isPhotoExpired(1))
+        assertTrue(afterAllExpired.allPhotosExpired())
+        assertTrue(afterAllExpired.isDeletedBlurred)
 
-        val blurredItem = repo.testUploads.first().first()
-        assertTrue(blurredItem.isExpired)
-        assertTrue(blurredItem.isDeletedBlurred)
-        assertEquals(0, blurredItem.remainingSeconds())
-
-        val refreshed = repo.refreshUpload("hidden_40")
+        // Refreshing resets ALL photos cleanly
+        val refreshed = repo.refreshUpload("hidden_multi")
         assertNotNull(refreshed)
         val afterRefresh = repo.testUploads.first().first()
-        assertFalse(afterRefresh.isExpired)
         assertFalse(afterRefresh.isDeletedBlurred)
-        assertFalse(afterRefresh.isRevealStarted)
+        assertEquals(2, afterRefresh.unopenedPhotoCount())
+        assertFalse(afterRefresh.isPhotoRevealStarted(0))
+        assertFalse(afterRefresh.isPhotoRevealStarted(1))
+    }
+
+    @Test
+    fun `admin can manually update profile price and metadata`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo = LocalTestUploadsRepository(context)
+        repo.clearAll()
+
+        repo.addUpload(
+            StoredTestUpload(
+                id = "edit_prof",
+                title = "Ananya",
+                category = "Companion",
+                imageUrl = "https://i.ibb.co/a/1.jpg",
+                thumbUrl = "https://i.ibb.co/a/1.jpg",
+                aspectRatio = 9.0 / 16.0,
+                createdAtEpochMs = 2000L,
+                price = "₹499",
+                age = 21,
+            )
+        )
+
+        repo.updateUpload(
+            imageId = "edit_prof",
+            title = "Ananya VIP",
+            description = "Evening concierge",
+            category = "VIP",
+            price = "₹2,499",
+            tags = emptyList(),
+            featured = true,
+            isHidden = false,
+            age = 23,
+            role = "GF",
+            tier = ProfileTier.VIP_16_9,
+        )
+
+        val updated = repo.testUploads.first().first()
+        assertEquals("Ananya VIP", updated.title)
+        assertEquals("₹2,499", updated.price)
+        assertEquals(23, updated.age)
+        assertTrue(updated.isVip)
+    }
+
+    @Test
+    fun `webrtc admin callee sentinel matches rules expectations`() {
+        assertEquals("__ADMIN__", CallStatus.ADMIN_CALLEE_UID)
+        assertEquals("ringing", CallStatus.RINGING)
     }
 
     @Test

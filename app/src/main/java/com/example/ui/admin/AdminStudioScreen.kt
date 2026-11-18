@@ -153,11 +153,25 @@ fun AdminStudioScreen(
     onResetPublishState: () -> Unit,
     onRefreshAllBlurred: () -> Unit,
     onRefreshProfile: (String) -> Unit,
+    onUpdateProfile: (
+        profileId: String,
+        name: String,
+        ageText: String,
+        price: String,
+        role: String,
+        category: String,
+        tier: String,
+        bio: String,
+        hiddenTimed: Boolean,
+        phone: String?,
+        address: String?,
+    ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _ -> },
     onDeleteProfile: (String) -> Unit,
     onSelectUserFilter: (AdminUserFilter) -> Unit,
     onLoadNextUsersPage: () -> Unit,
     onSetUserLeadTag: (String, String) -> Unit,
     onSetUserModeration: (String, String) -> Unit,
+    onCallUser: (UserAccount, ChatThread?) -> Unit = { _, _ -> },
     onApproveStaff: (UserAccount, String) -> Unit,
     onRejectStaff: (String) -> Unit,
     onLoadPrivateContact: (String) -> Unit,
@@ -350,6 +364,7 @@ fun AdminStudioScreen(
                         onSetLeadTag = onSetUserLeadTag,
                         onSetModeration = onSetUserModeration,
                         onOpenChatAsAdmin = onOpenChatAsAdmin,
+                        onCallUser = onCallUser,
                         modifier = Modifier.weight(1f)
                     )
 
@@ -361,6 +376,7 @@ fun AdminStudioScreen(
                         onApproveStaff = onApproveStaff,
                         onRejectStaff = onRejectStaff,
                         onLoadPrivateContact = onLoadPrivateContact,
+                        onUpdateProfile = onUpdateProfile,
                         onRefreshProfile = onRefreshProfile,
                         onDeleteProfile = onDeleteProfile,
                         onOpenChatAsAdmin = onOpenChatAsAdmin,
@@ -593,9 +609,10 @@ private fun AdminCreateProfileTab(
                             value = price,
                             onValueChange = { price = it },
                             singleLine = true,
-                            label = { Text("Price *") },
+                            label = { Text("Manual Price *") },
+                            placeholder = { Text("₹499 / custom") },
                             shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(0.9f)
+                            modifier = Modifier.weight(0.95f)
                         )
                     }
 

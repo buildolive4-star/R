@@ -418,6 +418,95 @@ service cloud.firestore {
       }
     }
 
+    function isValidCallSession(data) {
+      return data.callerUid is string && data.callerUid.size() >= 1 && data.callerUid.size() <= 128 &&
+             data.callerName is string && data.callerName.size() >= 1 && data.callerName.size() <= 80 &&
+             data.callerRole is string && data.callerRole in ['client', 'admin'] &&
+             data.calleeUid is string && data.calleeUid.size() >= 1 && data.calleeUid.size() <= 128 &&
+             data.calleeName is string && data.calleeName.size() >= 1 && data.calleeName.size() <= 80 &&
+             data.chatId is string && data.chatId.size() <= 128 &&
+             data.profileId is string && data.profileId.size() <= 128 &&
+             data.profileName is string && data.profileName.size() <= 80 &&
+             data.status is string && data.status in ['ringing', 'accepted', 'ended', 'declined', 'missed'] &&
+             data.offerSdp is string && data.offerSdp.size() <= 20000 &&
+             data.answerSdp is string && data.answerSdp.size() <= 20000 &&
+             data.answeredByUid is string && data.answeredByUid.size() <= 128 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isCallParticipant(data) {
+      return isSignedIn() && (
+        data.callerUid == request.auth.uid ||
+        data.calleeUid == request.auth.uid ||
+        (data.calleeUid == '__ADMIN__' && isAdmin()) ||
+        (data.callerRole == 'admin' && isAdmin())
+      );
+    }
+
+    match /call_sessions/{callId} {
+      allow get: if isValidId(callId) && isCallParticipant(existing());
+      allow list: if isCallParticipant(resource.data);
+
+      allow create: if isSignedIn() &&
+                       isValidId(callId) &&
+                       isValidCallSession(incoming()) &&
+                       incoming().callerUid == request.auth.uid &&
+                       incoming().status == 'ringing' &&
+                       !isUserBlockedOrSuspended() &&
+                       (incoming().callerRole == 'client' || isAdmin()) &&
+                       incoming().keys().hasAll([
+                         'callerUid', 'callerName', 'callerRole', 'calleeUid', 'calleeName',
+                         'chatId', 'profileId', 'profileName', 'status',
+                         'offerSdp', 'answerSdp', 'answeredByUid', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'callerUid', 'callerName', 'callerRole', 'calleeUid', 'calleeName',
+                         'chatId', 'profileId', 'profileName', 'status',
+                         'offerSdp', 'answerSdp', 'answeredByUid', 'createdAt', 'updatedAt'
+                       ]);
+
+      allow update: if isSignedIn() &&
+                       isValidId(callId) &&
+                       isCallParticipant(existing()) &&
+                       isValidCallSession(incoming()) &&
+                       incoming().callerUid == existing().callerUid &&
+                       incoming().callerRole == existing().callerRole &&
+                       incoming().calleeUid == existing().calleeUid &&
+                       incoming().chatId == existing().chatId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'status', 'offerSdp', 'answerSdp', 'answeredByUid', 'updatedAt'
+                       ]);
+
+      allow delete: if isAdmin() && isValidId(callId);
+
+      match /{candidateCollection}/{candidateId} {
+        function parentCall() {
+          return get(/databases/$(database)/documents/call_sessions/$(callId)).data;
+        }
+
+        allow get, list: if isValidId(callId) &&
+                             candidateCollection in ['offer_candidates', 'answer_candidates'] &&
+                             isCallParticipant(parentCall());
+
+        allow create: if isSignedIn() &&
+                         isValidId(callId) &&
+                         isValidId(candidateId) &&
+                         candidateCollection in ['offer_candidates', 'answer_candidates'] &&
+                         isCallParticipant(parentCall()) &&
+                         incoming().senderUid == request.auth.uid &&
+                         incoming().sdpMid is string && incoming().sdpMid.size() <= 64 &&
+                         incoming().sdpMLineIndex is int && incoming().sdpMLineIndex >= 0 &&
+                         incoming().candidate is string && incoming().candidate.size() >= 1 && incoming().candidate.size() <= 2000 &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().keys().hasAll(['senderUid', 'sdpMid', 'sdpMLineIndex', 'candidate', 'createdAt']) &&
+                         incoming().keys().hasOnly(['senderUid', 'sdpMid', 'sdpMLineIndex', 'candidate', 'createdAt']);
+
+        allow update, delete: if false;
+      }
+    }
+
     // Legacy gallery_images compatibility kept read-only for published docs & admin writes
     match /gallery_images/{imageId} {
       allow get: if isValidId(imageId) && (existing().status == 'published' || isAdmin());

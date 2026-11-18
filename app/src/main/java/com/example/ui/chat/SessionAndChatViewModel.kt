@@ -5,20 +5,26 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.GoogleAuthHelper
-import com.example.data.model.ChatMessage
+import com.example.data.model.ActiveCallUi
+import com.example.data.model.CallSession
+import com.example.data.model.CallStatus
 import com.example.data.model.ChatThread
 import com.example.data.model.GalleryImage
 import com.example.data.model.ModerationStatus
 import com.example.data.model.UserAccount
 import com.example.data.remote.ImgBbApiService
 import com.example.data.remote.ImgBbUploadHelper
+import com.example.data.repository.CallRepository
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.UserCrmRepository
+import com.example.notifications.PixoraNotificationManager
+import com.example.util.WebRtcAudioCallClient
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -26,16 +32,20 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.webrtc.PeerConnection
+import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionAndChatViewModel(
     private val userCrmRepository: UserCrmRepository,
     private val chatRepository: ChatRepository,
+    private val callRepository: CallRepository? = null,
     private val imgBbApiService: ImgBbApiService = ImgBbApiService.create(),
 ) : ViewModel() {
 
@@ -57,21 +67,31 @@ class SessionAndChatViewModel(
     private val _authErrorMessage = MutableStateFlow<String?>(null)
     val authErrorMessage: StateFlow<String?> = _authErrorMessage.asStateFlow()
 
+    private val _isVerifiedAdminForCalls = MutableStateFlow(false)
+    val isVerifiedAdminForCalls: StateFlow<Boolean> = _isVerifiedAdminForCalls.asStateFlow()
+
+    private val _activeCallUi = MutableStateFlow<ActiveCallUi>(ActiveCallUi.Idle)
+    val activeCallUi: StateFlow<ActiveCallUi> = _activeCallUi.asStateFlow()
+
+    private val _incomingCallAlert = MutableSharedFlow<CallSession>(extraBufferCapacity = 4)
+    val incomingCallAlert: SharedFlow<CallSession> = _incomingCallAlert.asSharedFlow()
+
+    private var webRtcClient: WebRtcAudioCallClient? = null
+    private var activeCallSessionJob: Job? = null
+    private var activeIceJob: Job? = null
+    private val addedRemoteIceKeys = mutableSetOf<String>()
+    private val handledIncomingCallIds = mutableSetOf<String>()
+    private var appliedRemoteAnswerForCallId: String? = null
+    private var isMutedState = false
+    private var isSpeakerState = false
+
     fun clearAuthError() {
         _authErrorMessage.value = null
     }
 
     private val authListener = FirebaseAuth.AuthStateListener { auth ->
         _firebaseUser.value = auth.currentUser
-    }
-
-    init {
-        Firebase.auth.addAuthStateListener(authListener)
-    }
-
-    override fun onCleared() {
-        Firebase.auth.removeAuthStateListener(authListener)
-        super.onCleared()
+        refreshAdminCallMonitoring()
     }
 
     val userAccount: StateFlow<UserAccount?> = _firebaseUser
@@ -109,6 +129,77 @@ class SessionAndChatViewModel(
             initialValue = emptyList(),
         )
 
+    init {
+        Firebase.auth.addAuthStateListener(authListener)
+        refreshAdminCallMonitoring()
+        observeIncomingCallStreams()
+    }
+
+    override fun onCleared() {
+        Firebase.auth.removeAuthStateListener(authListener)
+        teardownCallResources()
+        super.onCleared()
+    }
+
+    fun refreshAdminCallMonitoring() {
+        val user = Firebase.auth.currentUser
+        if (user == null) {
+            _isVerifiedAdminForCalls.value = false
+            return
+        }
+        viewModelScope.launch {
+            _isVerifiedAdminForCalls.value = userCrmRepository.checkIsCurrentUserAdmin()
+        }
+    }
+
+    private fun observeIncomingCallStreams() {
+        val repo = callRepository ?: return
+        val userCallsFlow = _firebaseUser.flatMapLatest { user ->
+            if (user == null) flowOf(emptyList()) else repo.observeIncomingCallsForUser(user.uid)
+        }
+        val adminCallsFlow = _isVerifiedAdminForCalls.flatMapLatest { isAdmin ->
+            if (isAdmin) repo.observeIncomingCallsForAdmin() else flowOf(emptyList())
+        }
+
+        viewModelScope.launch {
+            combine(userCallsFlow, adminCallsFlow) { directCalls, adminCalls ->
+                (directCalls + adminCalls).distinctBy { it.id }
+            }.collect { calls ->
+                val myUid = _firebaseUser.value?.uid ?: return@collect
+                val now = System.currentTimeMillis()
+                val nextCall = calls.firstOrNull { call ->
+                    val createdMs = call.createdAt?.toDate()?.time ?: now
+                    val isFresh = (now - createdMs) <= 120_000L
+                    call.callerUid != myUid &&
+                        !handledIncomingCallIds.contains(call.id) &&
+                        isFresh
+                }
+                if (nextCall != null && _activeCallUi.value is ActiveCallUi.Idle) {
+                    handledIncomingCallIds.add(nextCall.id)
+                    _activeCallUi.value = ActiveCallUi.IncomingRinging(nextCall)
+                    _incomingCallAlert.tryEmit(nextCall)
+                    watchCallStatusWhileIncoming(nextCall.id)
+                }
+            }
+        }
+    }
+
+    private fun watchCallStatusWhileIncoming(callId: String) {
+        val repo = callRepository ?: return
+        activeCallSessionJob?.cancel()
+        activeCallSessionJob = viewModelScope.launch {
+            repo.observeCallSession(callId).collect { updated ->
+                val current = _activeCallUi.value
+                if (current is ActiveCallUi.IncomingRinging && current.session.id == callId) {
+                    if (updated == null || updated.status != CallStatus.RINGING) {
+                        _activeCallUi.value = ActiveCallUi.Idle
+                        activeCallSessionJob?.cancel()
+                    }
+                }
+            }
+        }
+    }
+
     private fun combineStaffFlow() = userAccount.flatMapLatest { account ->
         if (account != null && account.isApprovedStaff) {
             chatRepository.observeStaffInboxChats(account.uid)
@@ -120,6 +211,12 @@ class SessionAndChatViewModel(
     fun observeChatThread(chatId: String) = chatRepository.observeChatThread(chatId)
 
     fun observeMessages(chatId: String) = chatRepository.observeMessages(chatId)
+
+    fun markChatRead(chatId: String, readerRole: String) {
+        viewModelScope.launch {
+            chatRepository.markChatThreadRead(chatId, readerRole)
+        }
+    }
 
     fun setOnlineState(online: Boolean) {
         val uid = _firebaseUser.value?.uid ?: return
@@ -137,6 +234,7 @@ class SessionAndChatViewModel(
             res.onSuccess { user ->
                 _firebaseUser.value = user
                 _authErrorMessage.value = null
+                refreshAdminCallMonitoring()
                 userCrmRepository.setOnlinePresence(user.uid, true)
                 onSuccess?.invoke()
             }.onFailure { err ->
@@ -153,6 +251,7 @@ class SessionAndChatViewModel(
             if (uid != null) userCrmRepository.setOnlinePresence(uid, false)
             GoogleAuthHelper.signOut(context)
             _firebaseUser.value = null
+            _isVerifiedAdminForCalls.value = false
             _events.tryEmit("Signed out")
         }
     }
@@ -233,6 +332,7 @@ class SessionAndChatViewModel(
                 user = signInResult.getOrNull()
                 _firebaseUser.value = user
                 _authErrorMessage.value = null
+                refreshAdminCallMonitoring()
             }
 
             val existing = userAccount.value
@@ -280,6 +380,351 @@ class SessionAndChatViewModel(
                 _events.tryEmit(err.localizedMessage ?: "Unable to open chat")
             }
         }
+    }
+
+    // =========================================================================
+    // WebRTC Voice Calling (Admin <-> User & Staff/Companion)
+    // =========================================================================
+
+    fun startVoiceCallFromChat(context: Context, chat: ChatThread, callerRole: String) {
+        val myUid = _firebaseUser.value?.uid
+        if (myUid.isNullOrBlank()) {
+            _events.tryEmit("Please sign in with Google to place a voice call.")
+            return
+        }
+        val repo = callRepository ?: return
+        val account = userAccount.value
+        val isFromAdminOrStaff = callerRole == "admin" || callerRole == "staff"
+        val calleeUid = if (isFromAdminOrStaff) {
+            chat.clientUid
+        } else {
+            chat.staffOwnerUid.ifBlank { CallStatus.ADMIN_CALLEE_UID }
+        }
+        val calleeName = if (isFromAdminOrStaff) {
+            chat.clientName.ifBlank { "Client" }
+        } else {
+            chat.profileName.ifBlank { "JustUs Concierge" }
+        }
+        val callerName = when (callerRole) {
+            "admin" -> "JustUs Concierge"
+            "staff" -> account?.name?.ifBlank { chat.profileName } ?: chat.profileName
+            else -> account?.name?.ifBlank { _firebaseUser.value?.displayName ?: "Client" } ?: "Client"
+        }
+
+        launchOutgoingCall(
+            context = context,
+            repo = repo,
+            callerName = callerName,
+            callerRole = if (callerRole == "admin") "admin" else "client",
+            calleeUid = calleeUid,
+            calleeName = calleeName,
+            chatId = chat.id,
+            profileId = chat.profileId,
+            profileName = chat.profileName,
+        )
+    }
+
+    fun startDirectAdminVoiceCallToUser(
+        context: Context,
+        targetUser: UserAccount,
+        relatedChat: ChatThread? = null,
+    ) {
+        val repo = callRepository ?: return
+        if (_firebaseUser.value == null) {
+            _events.tryEmit("Admin Google Sign-In required for calling.")
+            return
+        }
+        val adminName = _firebaseUser.value?.displayName?.takeIf { it.isNotBlank() } ?: "JustUs Admin"
+        launchOutgoingCall(
+            context = context,
+            repo = repo,
+            callerName = adminName,
+            callerRole = "admin",
+            calleeUid = targetUser.uid,
+            calleeName = targetUser.name.ifBlank { "Member" },
+            chatId = relatedChat?.id.orEmpty(),
+            profileId = relatedChat?.profileId.orEmpty(),
+            profileName = relatedChat?.profileName ?: "Concierge Call",
+        )
+    }
+
+    private fun launchOutgoingCall(
+        context: Context,
+        repo: CallRepository,
+        callerName: String,
+        callerRole: String,
+        calleeUid: String,
+        calleeName: String,
+        chatId: String,
+        profileId: String,
+        profileName: String,
+    ) {
+        if (_activeCallUi.value !is ActiveCallUi.Idle) {
+            _events.tryEmit("Another call is already active.")
+            return
+        }
+        teardownCallResources()
+        val callId = "call_${UUID.randomUUID().toString().replace("-", "").take(16)}"
+        handledIncomingCallIds.add(callId)
+        appliedRemoteAnswerForCallId = null
+        isMutedState = false
+        isSpeakerState = false
+
+        viewModelScope.launch {
+            val client = WebRtcAudioCallClient(
+                context = context,
+                onLocalIceCandidate = { candidate ->
+                    viewModelScope.launch {
+                        repo.addIceCandidate(
+                            callId = callId,
+                            isOfferSide = true,
+                            sdpMid = candidate.sdpMid ?: "audio",
+                            sdpMLineIndex = candidate.sdpMLineIndex,
+                            candidate = candidate.sdp,
+                        )
+                    }
+                },
+                onConnectionStateChanged = { state ->
+                    if (state == PeerConnection.PeerConnectionState.CONNECTED) {
+                        val current = _activeCallUi.value
+                        val sess = when (current) {
+                            is ActiveCallUi.Connecting -> current.session
+                            is ActiveCallUi.OutgoingRinging -> current.session
+                            is ActiveCallUi.Connected -> current.session
+                            else -> null
+                        }
+                        if (sess != null && current !is ActiveCallUi.Connected) {
+                            _activeCallUi.value = ActiveCallUi.Connected(
+                                session = sess,
+                                connectedAtEpochMs = System.currentTimeMillis(),
+                                isMuted = isMutedState,
+                                isSpeakerOn = isSpeakerState,
+                            )
+                        }
+                    } else if (
+                        state == PeerConnection.PeerConnectionState.FAILED ||
+                        state == PeerConnection.PeerConnectionState.DISCONNECTED
+                    ) {
+                        hangUpCall(context)
+                    }
+                }
+            )
+            webRtcClient = client
+
+            val offerResult = runCatching { client.createOfferSdp() }
+            val offerSdp = offerResult.getOrElse { err ->
+                teardownCallResources()
+                _events.tryEmit("Unable to start microphone: ${err.localizedMessage ?: "Permission or audio error"}")
+                return@launch
+            }
+
+            val createdRes = repo.createCallSession(
+                callId = callId,
+                callerName = callerName,
+                callerRole = callerRole,
+                calleeUid = calleeUid,
+                calleeName = calleeName,
+                chatId = chatId,
+                profileId = profileId,
+                profileName = profileName,
+                offerSdp = offerSdp,
+            )
+            val session = createdRes.getOrElse { err ->
+                teardownCallResources()
+                _events.tryEmit("Call failed: ${err.localizedMessage ?: "Permission denied"}")
+                return@launch
+            }
+
+            _activeCallUi.value = ActiveCallUi.OutgoingRinging(session)
+
+            activeCallSessionJob = viewModelScope.launch {
+                repo.observeCallSession(callId).collect { updated ->
+                    if (updated == null) return@collect
+                    when (updated.status) {
+                        CallStatus.ACCEPTED -> {
+                            if (updated.answerSdp.isNotBlank() && appliedRemoteAnswerForCallId != callId) {
+                                appliedRemoteAnswerForCallId = callId
+                                _activeCallUi.value = ActiveCallUi.Connecting(updated, isCaller = true)
+                                runCatching { client.applyRemoteAnswerSdp(updated.answerSdp) }
+                                    .onSuccess {
+                                        if (_activeCallUi.value is ActiveCallUi.Connecting) {
+                                            _activeCallUi.value = ActiveCallUi.Connected(
+                                                session = updated,
+                                                connectedAtEpochMs = System.currentTimeMillis(),
+                                                isMuted = isMutedState,
+                                                isSpeakerOn = isSpeakerState,
+                                            )
+                                        }
+                                    }
+                                    .onFailure {
+                                        hangUpCall(context)
+                                    }
+                            }
+                        }
+                        CallStatus.DECLINED, CallStatus.ENDED, CallStatus.MISSED -> {
+                            val endMsg = if (updated.status == CallStatus.DECLINED) "Call declined" else "Call ended"
+                            teardownCallResources()
+                            _activeCallUi.value = ActiveCallUi.Idle
+                            _events.tryEmit(endMsg)
+                        }
+                    }
+                }
+            }
+
+            activeIceJob = viewModelScope.launch {
+                repo.observeIceCandidates(callId, fromOfferSide = false).collect { list ->
+                    list.forEach { rec ->
+                        val iceKey = rec.id.ifBlank { "${rec.sdpMid}_${rec.sdpMLineIndex}_${rec.candidate}" }
+                        if (addedRemoteIceKeys.add(iceKey) && rec.candidate.isNotBlank()) {
+                            client.addRemoteIceCandidate(rec.sdpMid, rec.sdpMLineIndex, rec.candidate)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun acceptIncomingCall(context: Context, session: CallSession) {
+        val repo = callRepository ?: return
+        PixoraNotificationManager.cancelCallNotification(context, session.id)
+        teardownCallResources()
+        isMutedState = false
+        isSpeakerState = false
+        _activeCallUi.value = ActiveCallUi.Connecting(session, isCaller = false)
+
+        viewModelScope.launch {
+            val client = WebRtcAudioCallClient(
+                context = context,
+                onLocalIceCandidate = { candidate ->
+                    viewModelScope.launch {
+                        repo.addIceCandidate(
+                            callId = session.id,
+                            isOfferSide = false,
+                            sdpMid = candidate.sdpMid ?: "audio",
+                            sdpMLineIndex = candidate.sdpMLineIndex,
+                            candidate = candidate.sdp,
+                        )
+                    }
+                },
+                onConnectionStateChanged = { state ->
+                    if (state == PeerConnection.PeerConnectionState.CONNECTED) {
+                        val current = _activeCallUi.value
+                        if (current is ActiveCallUi.Connecting) {
+                            _activeCallUi.value = ActiveCallUi.Connected(
+                                session = current.session,
+                                connectedAtEpochMs = System.currentTimeMillis(),
+                                isMuted = isMutedState,
+                                isSpeakerOn = isSpeakerState,
+                            )
+                        }
+                    } else if (state == PeerConnection.PeerConnectionState.FAILED) {
+                        hangUpCall(context)
+                    }
+                }
+            )
+            webRtcClient = client
+
+            val answerRes = runCatching {
+                client.acceptOfferAndCreateAnswerSdp(session.offerSdp)
+            }
+            val answerSdp = answerRes.getOrElse { err ->
+                declineIncomingCall(context, session)
+                _events.tryEmit("Audio call error: ${err.localizedMessage ?: "Unable to connect"}")
+                return@launch
+            }
+
+            val acceptRes = repo.acceptCallSession(session.id, answerSdp)
+            if (acceptRes.isFailure) {
+                teardownCallResources()
+                _activeCallUi.value = ActiveCallUi.Idle
+                _events.tryEmit("Unable to accept call")
+                return@launch
+            }
+
+            _activeCallUi.value = ActiveCallUi.Connected(
+                session = session.copy(status = CallStatus.ACCEPTED, answerSdp = answerSdp),
+                connectedAtEpochMs = System.currentTimeMillis(),
+                isMuted = isMutedState,
+                isSpeakerOn = isSpeakerState,
+            )
+
+            activeCallSessionJob = viewModelScope.launch {
+                repo.observeCallSession(session.id).collect { updated ->
+                    if (updated != null && (updated.status == CallStatus.ENDED || updated.status == CallStatus.MISSED)) {
+                        teardownCallResources()
+                        _activeCallUi.value = ActiveCallUi.Idle
+                        _events.tryEmit("Call ended")
+                    }
+                }
+            }
+
+            activeIceJob = viewModelScope.launch {
+                repo.observeIceCandidates(session.id, fromOfferSide = true).collect { list ->
+                    list.forEach { rec ->
+                        val iceKey = rec.id.ifBlank { "${rec.sdpMid}_${rec.sdpMLineIndex}_${rec.candidate}" }
+                        if (addedRemoteIceKeys.add(iceKey) && rec.candidate.isNotBlank()) {
+                            client.addRemoteIceCandidate(rec.sdpMid, rec.sdpMLineIndex, rec.candidate)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun declineIncomingCall(context: Context, session: CallSession) {
+        PixoraNotificationManager.cancelCallNotification(context, session.id)
+        viewModelScope.launch {
+            callRepository?.updateCallStatus(session.id, CallStatus.DECLINED)
+            teardownCallResources()
+            _activeCallUi.value = ActiveCallUi.Idle
+        }
+    }
+
+    fun hangUpCall(context: Context) {
+        val currentSession = when (val ui = _activeCallUi.value) {
+            is ActiveCallUi.OutgoingRinging -> ui.session
+            is ActiveCallUi.IncomingRinging -> ui.session
+            is ActiveCallUi.Connecting -> ui.session
+            is ActiveCallUi.Connected -> ui.session
+            is ActiveCallUi.Idle -> null
+        }
+        if (currentSession != null) {
+            PixoraNotificationManager.cancelCallNotification(context, currentSession.id)
+            viewModelScope.launch {
+                callRepository?.updateCallStatus(currentSession.id, CallStatus.ENDED)
+            }
+        }
+        teardownCallResources()
+        _activeCallUi.value = ActiveCallUi.Idle
+    }
+
+    fun toggleCallMute() {
+        isMutedState = !isMutedState
+        webRtcClient?.setMuted(isMutedState)
+        val current = _activeCallUi.value
+        if (current is ActiveCallUi.Connected) {
+            _activeCallUi.value = current.copy(isMuted = isMutedState)
+        }
+    }
+
+    fun toggleCallSpeaker() {
+        isSpeakerState = !isSpeakerState
+        webRtcClient?.setSpeakerphone(isSpeakerState)
+        val current = _activeCallUi.value
+        if (current is ActiveCallUi.Connected) {
+            _activeCallUi.value = current.copy(isSpeakerOn = isSpeakerState)
+        }
+    }
+
+    private fun teardownCallResources() {
+        activeCallSessionJob?.cancel()
+        activeIceJob?.cancel()
+        activeCallSessionJob = null
+        activeIceJob = null
+        addedRemoteIceKeys.clear()
+        appliedRemoteAnswerForCallId = null
+        runCatching { webRtcClient?.release() }
+        webRtcClient = null
     }
 
     fun saveFullProfile(

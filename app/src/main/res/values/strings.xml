@@ -90,4 +90,6 @@
     <string name="view_photo">View</string>
     <string name="pick_photo_button">Select Photos</string>
     <string name="change_photo_button">Change Photos</string>
+    <string name="voice_call_label">Voice Call</string>
+    <string name="mic_permission_needed">Microphone permission is required for WebRTC voice calls.</string>
 </resources>

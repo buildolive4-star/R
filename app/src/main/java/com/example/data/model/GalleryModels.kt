@@ -33,6 +33,12 @@ object StaffStatus {
 }
 
 @Keep
+data class PhotoRevealState(
+    val expiresAtEpochMs: Long = 0L,
+    val isExpired: Boolean = false,
+)
+
+@Keep
 @IgnoreExtraProperties
 data class CompanionProfile(
     @DocumentId val id: String = "",
@@ -67,6 +73,7 @@ data class CompanionProfile(
     fun toGalleryImage(
         revealExpiresAtEpochMs: Long = 0L,
         isExpired: Boolean = false,
+        photoRevealStates: Map<Int, PhotoRevealState> = emptyMap(),
     ): GalleryImage = GalleryImage(
         id = id,
         title = name,
@@ -88,6 +95,7 @@ data class CompanionProfile(
         isHidden = hiddenTimed,
         revealExpiresAtEpochMs = revealExpiresAtEpochMs,
         isExpired = isExpired,
+        photoRevealStates = photoRevealStates,
         refreshEpochMs = refreshEpochMs,
         createdAt = createdAt,
         updatedAt = updatedAt,
@@ -234,6 +242,7 @@ data class GalleryImage(
     val isHidden: Boolean = false,
     val revealExpiresAtEpochMs: Long = 0L,
     val isExpired: Boolean = false,
+    val photoRevealStates: Map<Int, PhotoRevealState> = emptyMap(),
     val refreshEpochMs: Long = 0L,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
@@ -244,6 +253,9 @@ data class GalleryImage(
     val allPhotoUrls: List<String>
         get() = if (photoUrls.isNotEmpty()) photoUrls else listOfNotNull(imageUrl.takeIf { it.isNotBlank() })
 
+    val photoCount: Int
+        get() = allPhotoUrls.size.coerceAtLeast(1)
+
     val safeAspectRatio: Float
         get() = aspectRatio.toFloat().coerceIn(0.45f, 2.2f)
 
@@ -253,18 +265,67 @@ data class GalleryImage(
     val isVip: Boolean
         get() = tier == ProfileTier.VIP_16_9
 
-    val isRevealStarted: Boolean
-        get() = isHidden && !isExpired && revealExpiresAtEpochMs > 0L
+    fun photoState(photoIndex: Int): PhotoRevealState {
+        photoRevealStates[photoIndex]?.let { return it }
+        if (photoRevealStates.isEmpty() && photoIndex == 0 && (isExpired || revealExpiresAtEpochMs > 0L)) {
+            return PhotoRevealState(expiresAtEpochMs = revealExpiresAtEpochMs, isExpired = isExpired)
+        }
+        return PhotoRevealState()
+    }
 
-    val isDeletedBlurred: Boolean
-        get() = isExpired || (isHidden && revealExpiresAtEpochMs > 0L && System.currentTimeMillis() >= revealExpiresAtEpochMs)
+    fun isPhotoExpired(photoIndex: Int, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!isHidden) return isExpired
+        val st = photoState(photoIndex)
+        return st.isExpired || (st.expiresAtEpochMs > 0L && nowMs >= st.expiresAtEpochMs)
+    }
 
-    fun remainingSeconds(nowMs: Long = System.currentTimeMillis()): Int {
-        if (isExpired) return 0
-        if (!isRevealStarted) return 40
-        val diffMs = (revealExpiresAtEpochMs - nowMs).coerceAtLeast(0L)
+    fun isPhotoRevealStarted(photoIndex: Int, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!isHidden) return false
+        val st = photoState(photoIndex)
+        return !isPhotoExpired(photoIndex, nowMs) && st.expiresAtEpochMs > 0L
+    }
+
+    fun remainingSecondsForPhoto(photoIndex: Int, nowMs: Long = System.currentTimeMillis()): Int {
+        if (isPhotoExpired(photoIndex, nowMs)) return 0
+        val st = photoState(photoIndex)
+        if (!isPhotoRevealStarted(photoIndex, nowMs)) return 40
+        val diffMs = (st.expiresAtEpochMs - nowMs).coerceAtLeast(0L)
         return ((diffMs + 999L) / 1000L).toInt()
     }
+
+    fun unopenedPhotoIndices(nowMs: Long = System.currentTimeMillis()): List<Int> {
+        if (!isHidden) return emptyList()
+        return (0 until photoCount).filter { idx ->
+            !isPhotoExpired(idx, nowMs) && photoState(idx).expiresAtEpochMs == 0L
+        }
+    }
+
+    fun unopenedPhotoCount(nowMs: Long = System.currentTimeMillis()): Int = unopenedPhotoIndices(nowMs).size
+
+    fun activeRevealedPhotoCount(nowMs: Long = System.currentTimeMillis()): Int {
+        if (!isHidden) return 0
+        return (0 until photoCount).count { idx -> isPhotoRevealStarted(idx, nowMs) }
+    }
+
+    fun nextOpenablePhotoIndex(nowMs: Long = System.currentTimeMillis()): Int {
+        if (!isHidden) return 0
+        val activeIdx = (0 until photoCount).firstOrNull { isPhotoRevealStarted(it, nowMs) }
+        if (activeIdx != null) return activeIdx
+        return unopenedPhotoIndices(nowMs).firstOrNull() ?: 0
+    }
+
+    fun allPhotosExpired(nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!isHidden) return isExpired
+        return (0 until photoCount).all { idx -> isPhotoExpired(idx, nowMs) }
+    }
+
+    val isRevealStarted: Boolean
+        get() = isPhotoRevealStarted(0)
+
+    val isDeletedBlurred: Boolean
+        get() = allPhotosExpired()
+
+    fun remainingSeconds(nowMs: Long = System.currentTimeMillis()): Int = remainingSecondsForPhoto(0, nowMs)
 }
 
 @JsonClass(generateAdapter = true)

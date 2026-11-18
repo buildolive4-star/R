@@ -23,15 +23,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Verified
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -40,13 +46,17 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -61,6 +71,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.model.ChatThread
@@ -73,6 +84,9 @@ import com.example.ui.components.EmptyGalleryState
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
 
+private val EDIT_PRICE_PRESETS = listOf("₹299", "₹499", "₹799", "₹1,499", "₹2,999")
+private val EDIT_CATEGORIES = listOf("Companion", "Date Night", "Dinner", "Travel", "VIP", "Verified Staff")
+
 @Composable
 fun AdminStaffTab(
     pendingStaffUsers: List<UserAccount>,
@@ -82,12 +96,25 @@ fun AdminStaffTab(
     onApproveStaff: (UserAccount, tier: String) -> Unit,
     onRejectStaff: (userId: String) -> Unit,
     onLoadPrivateContact: (profileId: String) -> Unit,
+    onUpdateProfile: (
+        profileId: String,
+        name: String,
+        ageText: String,
+        price: String,
+        role: String,
+        category: String,
+        tier: String,
+        bio: String,
+        hiddenTimed: Boolean,
+        phone: String?,
+        address: String?,
+    ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _ -> },
     onRefreshProfile: (profileId: String) -> Unit,
     onDeleteProfile: (profileId: String) -> Unit,
     onOpenChatAsAdmin: (chatId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var inspectedProfile by remember { mutableStateOf<GalleryImage?>(null) }
+    var inspectedProfileId by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
@@ -167,7 +194,7 @@ fun AdminStaffTab(
                         .fillMaxWidth()
                         .clickable {
                             onLoadPrivateContact(profile.id)
-                            inspectedProfile = profile
+                            inspectedProfileId = profile.id
                         }
                         .testTag("admin_staff_card_${profile.id}")
                 ) {
@@ -239,7 +266,7 @@ fun AdminStaffTab(
         }
     }
 
-    val activeProfile = inspectedProfile
+    val activeProfile = inspectedProfileId?.let { id -> managedProfiles.firstOrNull { it.id == id } }
     if (activeProfile != null) {
         LaunchedEffect(activeProfile.id) {
             onLoadPrivateContact(activeProfile.id)
@@ -255,16 +282,31 @@ fun AdminStaffTab(
             profile = activeProfile,
             privateContact = contact,
             staffChats = staffChats,
+            onSaveEdits = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address ->
+                onUpdateProfile(
+                    activeProfile.id,
+                    name,
+                    ageText,
+                    price,
+                    role,
+                    category,
+                    tier,
+                    bio,
+                    hiddenTimed,
+                    phone,
+                    address,
+                )
+            },
             onRefresh = { onRefreshProfile(activeProfile.id) },
             onDelete = {
-                inspectedProfile = null
+                inspectedProfileId = null
                 onDeleteProfile(activeProfile.id)
             },
             onOpenChat = { chatId ->
-                inspectedProfile = null
+                inspectedProfileId = null
                 onOpenChatAsAdmin(chatId)
             },
-            onDismiss = { inspectedProfile = null }
+            onDismiss = { inspectedProfileId = null }
         )
     }
 }
@@ -365,12 +407,24 @@ private fun PendingStaffCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun StaffProfileInspectorSheet(
     profile: GalleryImage,
     privateContact: CompanionPrivateContact?,
     staffChats: List<ChatThread>,
+    onSaveEdits: (
+        name: String,
+        ageText: String,
+        price: String,
+        role: String,
+        category: String,
+        tier: String,
+        bio: String,
+        hiddenTimed: Boolean,
+        phone: String?,
+        address: String?,
+    ) -> Unit,
     onRefresh: () -> Unit,
     onDelete: () -> Unit,
     onOpenChat: (String) -> Unit,
@@ -378,6 +432,7 @@ private fun StaffProfileInspectorSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showChatsSection by remember { mutableStateOf(false) }
+    var showEditDialog by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -542,33 +597,238 @@ private fun StaffProfileInspectorSheet(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Button(
+                        onClick = { showEditDialog = true },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("admin_edit_price_button")
+                    ) {
+                        Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Edit Price & Info", maxLines = 1)
+                    }
                     if (profile.isHidden) {
                         FilledTonalButton(
                             onClick = onRefresh,
                             shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1f)
                         ) {
                             Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Refresh 40s")
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("40s", maxLines = 1)
                         }
                     }
-                    OutlinedButton(
-                        onClick = onDelete,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Remove Profile")
-                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = onDelete,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Remove Profile")
                 }
             }
 
             Spacer(modifier = Modifier.height(22.dp))
         }
     }
+
+    if (showEditDialog) {
+        EditProfilePriceDialog(
+            profile = profile,
+            privateContact = privateContact,
+            onSave = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address ->
+                showEditDialog = false
+                onSaveEdits(name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address)
+            },
+            onDismiss = { showEditDialog = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EditProfilePriceDialog(
+    profile: GalleryImage,
+    privateContact: CompanionPrivateContact?,
+    onSave: (
+        name: String,
+        ageText: String,
+        price: String,
+        role: String,
+        category: String,
+        tier: String,
+        bio: String,
+        hiddenTimed: Boolean,
+        phone: String?,
+        address: String?,
+    ) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember(profile.id) { mutableStateOf(profile.title) }
+    var ageText by remember(profile.id) { mutableStateOf(profile.age.toString()) }
+    var price by remember(profile.id) { mutableStateOf(profile.price) }
+    var role by remember(profile.id) { mutableStateOf(profile.role.ifBlank { "GF" }) }
+    var tier by remember(profile.id) { mutableStateOf(profile.tier.ifBlank { ProfileTier.GRID_9_16 }) }
+    var category by remember(profile.id) { mutableStateOf(profile.category.ifBlank { "Companion" }) }
+    var bio by remember(profile.id) { mutableStateOf(profile.description) }
+    var hiddenTimed by remember(profile.id) { mutableStateOf(profile.isHidden) }
+    var phone by remember(profile.id, privateContact) { mutableStateOf(privateContact?.phone.orEmpty()) }
+    var address by remember(profile.id, privateContact) { mutableStateOf(privateContact?.address.orEmpty()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Price & Profile") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = price,
+                    onValueChange = { price = it },
+                    singleLine = true,
+                    label = { Text("Manual Custom Price (e.g. ₹999)") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("edit_profile_price_input")
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    EDIT_PRICE_PRESETS.forEach { preset ->
+                        FilterChip(
+                            selected = price == preset,
+                            onClick = { price = preset },
+                            label = { Text(preset) }
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        singleLine = true,
+                        label = { Text("Name") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1.4f)
+                    )
+                    OutlinedTextField(
+                        value = ageText,
+                        onValueChange = { ageText = it.filter { c -> c.isDigit() }.take(2) },
+                        singleLine = true,
+                        label = { Text("Age") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(0.75f)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("GF", "BF").forEach { r ->
+                        FilterChip(
+                            selected = role == r,
+                            onClick = { role = r },
+                            label = { Text(r) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = tier == ProfileTier.GRID_9_16,
+                        onClick = { tier = ProfileTier.GRID_9_16 },
+                        label = { Text("Grid 9:16") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = tier == ProfileTier.VIP_16_9,
+                        onClick = { tier = ProfileTier.VIP_16_9 },
+                        label = { Text("VIP 16:9") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    EDIT_CATEGORIES.forEach { cat ->
+                        FilterChip(
+                            selected = category == cat,
+                            onClick = { category = cat },
+                            label = { Text(cat) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = bio,
+                    onValueChange = { bio = it },
+                    minLines = 2,
+                    maxLines = 4,
+                    label = { Text("Bio / Vibes") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it },
+                    singleLine = true,
+                    label = { Text("Mobile No. (Private)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    singleLine = true,
+                    label = { Text("Address (Private)") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.VisibilityOff, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("40-Sec Hidden Mode", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = hiddenTimed, onCheckedChange = { hiddenTimed = it })
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(
+                        name,
+                        ageText,
+                        price,
+                        role,
+                        category,
+                        tier,
+                        bio,
+                        hiddenTimed,
+                        phone.takeIf { it.isNotBlank() || privateContact != null },
+                        address.takeIf { it.isNotBlank() || privateContact != null },
+                    )
+                },
+                modifier = Modifier.testTag("save_profile_edits_button")
+            ) {
+                Text("Save Changes")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

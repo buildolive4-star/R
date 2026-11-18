@@ -578,6 +578,68 @@ class AdminViewModel(
         }
     }
 
+    fun updateCompanionProfileDetails(
+        profileId: String,
+        name: String,
+        ageText: String,
+        price: String,
+        role: String,
+        category: String,
+        tier: String,
+        bio: String,
+        hiddenTimed: Boolean,
+        phone: String?,
+        address: String?,
+    ) {
+        val cleanName = name.trim().ifBlank { "Companion" }
+        val cleanAge = (ageText.trim().toIntOrNull() ?: 21).coerceIn(18, 80)
+        val cleanPrice = price.trim().ifBlank { "₹499" }
+        viewModelScope.launch {
+            _isBusy.value = true
+            uploadsRepository.updateUpload(
+                imageId = profileId,
+                title = cleanName,
+                description = bio,
+                category = category,
+                price = cleanPrice,
+                tags = emptyList(),
+                featured = tier == ProfileTier.VIP_16_9,
+                isHidden = hiddenTimed,
+                age = cleanAge,
+                role = role,
+                tier = tier,
+            )
+            val isRemote = cloudCompanionProfiles.value.any { it.id == profileId }
+            if (isRemote && _isVerifiedAdmin.value) {
+                val res = galleryRepository.updateCompanionProfile(
+                    profileId = profileId,
+                    name = cleanName,
+                    age = cleanAge,
+                    price = cleanPrice,
+                    role = role,
+                    category = category,
+                    tier = tier,
+                    bio = bio,
+                    hiddenTimed = hiddenTimed,
+                    phone = phone,
+                    address = address,
+                )
+                _isBusy.value = false
+                res.onSuccess {
+                    if (phone != null || address != null) {
+                        loadPrivateContactForProfile(profileId)
+                    }
+                    _events.tryEmit("Updated $cleanName · $cleanPrice")
+                }.onFailure { err ->
+                    _events.tryEmit(err.localizedMessage ?: "Cloud update failed")
+                }
+            } else {
+                _isBusy.value = false
+                _events.tryEmit("Updated $cleanName · $cleanPrice")
+            }
+        }
+    }
+
     fun deleteProfile(profileId: String) {
         viewModelScope.launch {
             uploadsRepository.removeUpload(profileId)

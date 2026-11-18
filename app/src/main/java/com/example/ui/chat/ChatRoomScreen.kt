@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Icon
@@ -67,6 +68,7 @@ fun ChatRoomScreen(
     messages: List<ChatMessage>,
     senderRole: String, // "client", "staff", "admin"
     onSendMessage: (text: String, onError: (String) -> Unit, onSuccess: () -> Unit) -> Unit,
+    onStartVoiceCall: () -> Unit = {},
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
@@ -157,6 +159,27 @@ fun ChatRoomScreen(
 
                 if (chat.profilePrice.isNotBlank()) {
                     PriceBadgePill(price = chat.profilePrice)
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+
+                Surface(
+                    onClick = onStartVoiceCall,
+                    shape = CircleShape,
+                    color = WhatsAppGreen.copy(alpha = 0.18f),
+                    border = BorderStroke(1.dp, WhatsAppGreen.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .size(44.dp)
+                        .minimumInteractiveComponentSize()
+                        .testTag("chat_room_call_button")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.Call,
+                            contentDescription = "Voice Call",
+                            tint = WhatsAppGreen,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
