@@ -99,6 +99,7 @@ service cloud.firestore {
              data.category is string && data.category.size() >= 1 && data.category.size() <= 40 &&
              data.tier is string && data.tier in ['vip_16_9', 'grid_9_16'] &&
              (!('bio' in data) || (data.bio is string && data.bio.size() <= 600)) &&
+             (!('city' in data) || (data.city is string && data.city.size() <= 80)) &&
              data.photoUrls is list && data.photoUrls.size() >= 1 && data.photoUrls.size() <= 8 &&
              hasValidHttpsUrl(data.photoUrls[0]) &&
              hasValidHttpsUrl(data.coverUrl) &&
@@ -262,7 +263,7 @@ service cloud.firestore {
                          'createdByUid', 'createdAt', 'updatedAt'
                        ]) &&
                        incoming().keys().hasOnly([
-                         'name', 'age', 'price', 'role', 'category', 'tier', 'bio',
+                         'name', 'age', 'price', 'role', 'category', 'tier', 'bio', 'city',
                          'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
                          'refreshEpochMs', 'status', 'ownerUid', 'staffVerified',
                          'createdByUid', 'createdAt', 'updatedAt'
@@ -274,7 +275,7 @@ service cloud.firestore {
                        incoming().createdByUid == existing().createdByUid &&
                        incoming().createdAt == existing().createdAt &&
                        incoming().diff(existing()).affectedKeys().hasOnly([
-                         'name', 'age', 'price', 'role', 'category', 'tier', 'bio',
+                         'name', 'age', 'price', 'role', 'category', 'tier', 'bio', 'city',
                          'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
                          'refreshEpochMs', 'status', 'ownerUid', 'staffVerified', 'updatedAt'
                        ]);
@@ -479,15 +480,29 @@ service cloud.firestore {
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
+    function isValidHomeFilters(data) {
+      return data.filters is list && data.filters.size() <= 24 &&
+             data.updatedByEmail is string && data.updatedByEmail.size() <= 120 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
     match /app_config/{docId} {
-      allow get: if docId == 'launch_banner';
+      allow get: if docId == 'launch_banner' || docId == 'home_filters';
       allow list: if false;
-      allow create, update: if isSuperAdmin() &&
-                               docId == 'launch_banner' &&
-                               isValidLaunchBanner(incoming()) &&
-                               incoming().keys().hasAll(['active', 'imageUrl', 'title', 'updatedByEmail', 'updatedAt']) &&
-                               incoming().keys().hasOnly(['active', 'imageUrl', 'title', 'updatedByEmail', 'updatedAt']);
-      allow delete: if isSuperAdmin() && docId == 'launch_banner';
+      allow create, update: if (
+        isSuperAdmin() &&
+        docId == 'launch_banner' &&
+        isValidLaunchBanner(incoming()) &&
+        incoming().keys().hasAll(['active', 'imageUrl', 'title', 'updatedByEmail', 'updatedAt']) &&
+        incoming().keys().hasOnly(['active', 'imageUrl', 'title', 'updatedByEmail', 'updatedAt'])
+      ) || (
+        isAdmin() &&
+        docId == 'home_filters' &&
+        isValidHomeFilters(incoming()) &&
+        incoming().keys().hasAll(['filters', 'updatedByEmail', 'updatedAt']) &&
+        incoming().keys().hasOnly(['filters', 'updatedByEmail', 'updatedAt'])
+      );
+      allow delete: if (isSuperAdmin() && docId == 'launch_banner') || (isAdmin() && docId == 'home_filters');
     }
 
     function isValidCallSession(data) {

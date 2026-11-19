@@ -215,9 +215,6 @@ class MainActivity : ComponentActivity() {
         handleDeepLinkIntent(intent)
 
         setContent {
-            val prefsRepo = remember { ThemePreferencesRepository(applicationContext) }
-            val themeMode by prefsRepo.themeMode.collectAsStateWithLifecycle(initialValue = ThemeMode.LIGHT)
-
             val sessionViewModel: SessionAndChatViewModel = viewModel(
                 factory = viewModelFactory {
                     initializer {
@@ -235,11 +232,10 @@ class MainActivity : ComponentActivity() {
             val isStaffTheme by sessionViewModel.isApprovedStaffTheme.collectAsStateWithLifecycle()
 
             JustUsTheme(
-                themeMode = themeMode,
+                themeMode = ThemeMode.LIGHT,
                 isStaffTheme = isStaffTheme,
             ) {
                 JustUsAppRoot(
-                    prefsRepo = prefsRepo,
                     sessionViewModel = sessionViewModel,
                     isStaffTheme = isStaffTheme,
                     deepLinkImageId = pendingDeepLinkImageId.value,
@@ -272,7 +268,6 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun JustUsAppRoot(
-    prefsRepo: ThemePreferencesRepository,
     sessionViewModel: SessionAndChatViewModel,
     isStaffTheme: Boolean,
     deepLinkImageId: String?,
@@ -375,6 +370,7 @@ fun JustUsAppRoot(
                     prefsRepository = ThemePreferencesRepository(app),
                     notifiedImagesStore = NotifiedImagesStore(app),
                     hiddenRevealStateStore = HiddenRevealStateStore(app),
+                    userCrmRepository = UserCrmRepository(appDb),
                 )
             }
         }
@@ -384,12 +380,12 @@ fun JustUsAppRoot(
     val filteredGridState by viewModel.filteredGridProfiles.collectAsStateWithLifecycle()
     val vipProfiles by viewModel.vipProfiles.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val smartFilters by viewModel.homeFilterOptions.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val selectedVibe by viewModel.selectedVibe.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     val bookmarkedIds by viewModel.bookmarkedIds.collectAsStateWithLifecycle()
-    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val backgroundSyncEnabled by viewModel.backgroundSyncEnabled.collectAsStateWithLifecycle()
     val lastSyncCheckEpochMs by viewModel.lastSyncCheckEpochMs.collectAsStateWithLifecycle()
 
@@ -403,6 +399,15 @@ fun JustUsAppRoot(
     val activeCallUi by sessionViewModel.activeCallUi.collectAsStateWithLifecycle()
     val isVerifiedAdminForCalls by sessionViewModel.isVerifiedAdminForCalls.collectAsStateWithLifecycle()
     val launchBanner by sessionViewModel.launchBanner.collectAsStateWithLifecycle()
+
+    // Sync user's GF/BF preference & city/address into Home Page ranking & auto-filtering
+    LaunchedEffect(userAccount?.genderPreference, userAccount?.city, userAccount?.address) {
+        viewModel.updateUserMatchingContext(
+            genderPreference = userAccount?.genderPreference.orEmpty(),
+            city = userAccount?.city.orEmpty(),
+            address = userAccount?.address.orEmpty(),
+        )
+    }
 
     val adminChatsObserved by remember(isVerifiedAdminForCalls) {
         if (isVerifiedAdminForCalls) chatRepo.observeAllChatsForAdmin() else flowOf(emptyList())
@@ -713,13 +718,17 @@ fun JustUsAppRoot(
                                     filteredGridState = filteredGridState,
                                     vipProfiles = vipProfiles,
                                     categories = categories,
+                                    smartFilters = smartFilters,
                                     selectedCategory = selectedCategory,
-                                    selectedVibe = selectedVibe,
+                                    selectedSmartFilter = selectedVibe,
                                     searchQuery = searchQuery,
                                     bookmarkedIds = bookmarkedIds,
                                     isStaffTheme = isStaffTheme,
+                                    userCity = userAccount?.city.orEmpty(),
+                                    userAddress = userAccount?.address.orEmpty(),
+                                    userGenderPreference = userAccount?.genderPreference.orEmpty(),
                                     onSelectCategory = viewModel::selectCategory,
-                                    onSelectVibe = viewModel::selectVibe,
+                                    onSelectSmartFilter = viewModel::selectVibe,
                                     onSearchQueryChange = viewModel::updateSearchQuery,
                                     onResetFilters = viewModel::resetFilters,
                                     onCheckNow = { viewModel.triggerBackgroundCheckNow(context) },
@@ -792,7 +801,6 @@ fun JustUsAppRoot(
                                     oneSignalPushConfigured = OneSignalPushManager.isFullyConfigured(),
                                     backgroundSyncEnabled = backgroundSyncEnabled,
                                     lastSyncCheckEpochMs = lastSyncCheckEpochMs,
-                                    themeMode = themeMode,
                                     onSignInGoogle = { sessionViewModel.signInWithGoogle(context) },
                                     onSignOut = { sessionViewModel.signOut(context) },
                                     onSaveProfile = { name, avatarUri, galleryUris, phone, ageText, address, city, bio, interests, genderPref ->
@@ -820,9 +828,6 @@ fun JustUsAppRoot(
                                         viewModel.setBackgroundSyncEnabled(context, enabled)
                                     },
                                     onCheckSyncNow = { viewModel.triggerBackgroundCheckNow(context) },
-                                    onThemeModeChange = { mode ->
-                                        scope.launch { prefsRepo.setThemeMode(mode) }
-                                    },
                                     onClearSaved = viewModel::clearAllBookmarks,
                                     onSecretAdminTrigger = { showAdminPasscodeSheet = true },
                                     onSendTestAlert = {
@@ -957,6 +962,7 @@ fun JustUsAppRoot(
                                 val selectedProfileContact by adminViewModel.selectedProfileContact.collectAsStateWithLifecycle()
                                 val adminAuthError by adminViewModel.authErrorMessage.collectAsStateWithLifecycle()
                                 val adminLaunchBanner by adminViewModel.launchBanner.collectAsStateWithLifecycle()
+                                val customHomeFilters by adminViewModel.customHomeFilters.collectAsStateWithLifecycle()
 
                                 LaunchedEffect(adminViewModel) {
                                     adminViewModel.events.collect { msg ->
@@ -1053,6 +1059,9 @@ fun JustUsAppRoot(
                                         )
                                     },
                                     onRemoveLaunchBanner = adminViewModel::removeLaunchBanner,
+                                    customHomeFilters = customHomeFilters,
+                                    onAddCustomHomeFilter = adminViewModel::addCustomHomeFilter,
+                                    onRemoveCustomHomeFilter = adminViewModel::removeCustomHomeFilter,
                                 )
                             }
                         }

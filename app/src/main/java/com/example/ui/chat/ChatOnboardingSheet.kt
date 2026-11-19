@@ -1,5 +1,8 @@
 package com.example.ui.chat
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,12 +24,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +64,8 @@ import com.example.data.model.UserAccount
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
 import com.example.ui.theme.WhatsAppGreen
+import com.example.util.LocationAddressFetcher
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,6 +79,8 @@ fun ChatOnboardingSheet(
     onSubmit: (name: String, phone: String, ageText: String, address: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var name by remember(existingAccount?.uid) {
         mutableStateOf(existingAccount?.name?.ifBlank { defaultDisplayName } ?: defaultDisplayName)
@@ -83,6 +93,43 @@ fun ChatOnboardingSheet(
     }
     var address by remember(existingAccount?.uid) {
         mutableStateOf(existingAccount?.address.orEmpty())
+    }
+    var isFetchingAddress by remember { mutableStateOf(false) }
+    var locationHint by remember { mutableStateOf<String?>(null) }
+
+    fun fetchLocationNow() {
+        if (isFetchingAddress) return
+        scope.launch {
+            isFetchingAddress = true
+            locationHint = "Fetching your current address…"
+            val res = LocationAddressFetcher.fetchCurrentAddress(context)
+            isFetchingAddress = false
+            res.onSuccess { fetched ->
+                address = fetched.fullAddress.ifBlank { fetched.city }
+                locationHint = "Auto-filled: ${fetched.city.ifBlank { fetched.fullAddress }}"
+            }.onFailure { err ->
+                locationHint = err.localizedMessage ?: "Location unavailable. Turn on GPS or type manually."
+            }
+        }
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted ->
+            if (granted) {
+                fetchLocationNow()
+            } else {
+                locationHint = "Location permission denied. Please type your city/address."
+            }
+        }
+    )
+
+    fun triggerAutoFetchAddress() {
+        if (LocationAddressFetcher.hasLocationPermission(context)) {
+            fetchLocationNow()
+        } else {
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
     }
 
     ModalBottomSheet(
@@ -210,6 +257,54 @@ fun ChatOnboardingSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Your Address",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                FilledTonalButton(
+                    onClick = { triggerAutoFetchAddress() },
+                    enabled = !isFetchingAddress,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("onboarding_autofetch_address_button")
+                ) {
+                    if (isFetchingAddress) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Fetching…", style = MaterialTheme.typography.labelMedium)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.MyLocation,
+                            contentDescription = "Auto-fetch current address",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Auto-Fetch Address", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+            if (!locationHint.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = locationHint.orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
             OutlinedTextField(
                 value = address,
                 onValueChange = { address = it },
@@ -288,7 +383,6 @@ fun ChatOnboardingSheet(
             }
 
             if (!isSignedIn) {
-                val context = LocalContext.current
                 val diagInfo = remember(context) { GoogleAuthHelper.getAuthDiagnosticInfo(context) }
                 if (!diagInfo.isSha1Matched || !diagInfo.hasWebClientId) {
                     Spacer(modifier = Modifier.height(8.dp))

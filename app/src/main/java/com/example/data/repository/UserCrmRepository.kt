@@ -7,6 +7,7 @@ import com.example.data.firebase.handleFirestoreError
 import com.example.data.model.AdminAccessCode
 import com.example.data.model.AdminEmailEntry
 import com.example.data.model.AdminMemberProfile
+import com.example.data.model.HomeFiltersConfig
 import com.example.data.model.LeadTag
 import com.example.data.model.LaunchBannerConfig
 import com.example.data.model.ModerationStatus
@@ -301,6 +302,82 @@ class UserCrmRepository(
                     "active" to false,
                     "imageUrl" to "",
                     "title" to "",
+                    "updatedByEmail" to currentEmail,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, path)
+            Result.failure(e)
+        }
+    }
+
+    fun observeHomeFilters(): Flow<List<String>> {
+        val ref = db.collection(COLLECTION_APP_CONFIG).document(DOC_HOME_FILTERS)
+        return ref.snapshots()
+            .map { snap ->
+                if (!snap.exists()) emptyList()
+                else {
+                    val config = snap.toObject(
+                        HomeFiltersConfig::class.java,
+                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                    )
+                    config?.filters
+                        ?.map { it.trim() }
+                        ?.filter { it.isNotBlank() }
+                        ?.distinctBy { it.lowercase() }
+                        .orEmpty()
+                }
+            }
+            .catch { emit(emptyList()) }
+    }
+
+    suspend fun addHomeFilter(rawLabel: String): Result<Unit> {
+        val path = "$COLLECTION_APP_CONFIG/$DOC_HOME_FILTERS"
+        return try {
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Admin first")
+            val cleanLabel = rawLabel.trim().take(32)
+            require(cleanLabel.length >= 2) { "Enter a filter name (at least 2 characters)." }
+            val ref = db.document(path)
+            val snap = ref.get().await()
+            val existing = snap.toObject(HomeFiltersConfig::class.java)?.filters.orEmpty()
+            val updated = (existing + cleanLabel)
+                .map { it.trim().take(32) }
+                .filter { it.isNotBlank() }
+                .distinctBy { it.lowercase() }
+                .take(24)
+            ref.set(
+                mapOf(
+                    "filters" to updated,
+                    "updatedByEmail" to currentEmail,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun removeHomeFilter(label: String): Result<Unit> {
+        val path = "$COLLECTION_APP_CONFIG/$DOC_HOME_FILTERS"
+        return try {
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Admin first")
+            val ref = db.document(path)
+            val snap = ref.get().await()
+            val existing = snap.toObject(HomeFiltersConfig::class.java)?.filters.orEmpty()
+            val updated = existing.filterNot { it.equals(label.trim(), ignoreCase = true) }
+            ref.set(
+                mapOf(
+                    "filters" to updated,
                     "updatedByEmail" to currentEmail,
                     "updatedAt" to FieldValue.serverTimestamp(),
                 )
@@ -977,6 +1054,7 @@ class UserCrmRepository(
         const val COLLECTION_PRESENCE = "presence"
         const val COLLECTION_APP_CONFIG = "app_config"
         const val DOC_LAUNCH_BANNER = "launch_banner"
+        const val DOC_HOME_FILTERS = "home_filters"
         const val ADMIN_PRESENCE_ID = "admin_concierge"
         const val SUPER_ADMIN_EMAIL = "buildolive4@gmail.com"
         private val ACCESS_CODE_REGEX = Regex("^[A-Z0-9_\\-]{4,24}$")

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -188,6 +189,9 @@ fun AdminStudioScreen(
     onPowerResetAllChats: () -> Unit = {},
     onUploadLaunchBanner: (selectedUri: Uri?, manualUrl: String, title: String, onSuccess: () -> Unit) -> Unit = { _, _, _, _ -> },
     onRemoveLaunchBanner: (onSuccess: () -> Unit) -> Unit = {},
+    customHomeFilters: List<String> = emptyList(),
+    onAddCustomHomeFilter: (String) -> Unit = {},
+    onRemoveCustomHomeFilter: (String) -> Unit = {},
 ) {
     BackHandler(onBack = onBack)
 
@@ -195,6 +199,7 @@ fun AdminStudioScreen(
     var showMultiAdminDialog by remember { mutableStateOf(false) }
     var showPowerResetDialog by remember { mutableStateOf(false) }
     var showLaunchBannerDialog by remember { mutableStateOf(false) }
+    var showHomeFiltersDialog by remember { mutableStateOf(false) }
 
     val blurredCount = remember(managedProfiles) {
         managedProfiles.count { it.isDeletedBlurred || it.isRevealStarted }
@@ -310,23 +315,57 @@ fun AdminStudioScreen(
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    FilledTonalButton(
-                        onClick = onRefreshAllBlurred,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                            .testTag("admin_refresh_all_button")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (blurredCount > 0) {
-                                stringResource(R.string.admin_refresh_all_blurred, blurredCount)
-                            } else {
-                                stringResource(R.string.admin_refresh_top_ready)
-                            }
-                        )
+                        FilledTonalButton(
+                            onClick = onRefreshAllBlurred,
+                            shape = RoundedCornerShape(14.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .weight(1.35f)
+                                .height(46.dp)
+                                .testTag("admin_refresh_all_button")
+                        ) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (blurredCount > 0) {
+                                    stringResource(R.string.admin_refresh_all_blurred, blurredCount)
+                                } else {
+                                    stringResource(R.string.admin_refresh_top_ready)
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        FilledTonalButton(
+                            onClick = { showHomeFiltersDialog = true },
+                            enabled = !isAuthBusy,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                contentColor = MaterialTheme.colorScheme.primary,
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .minimumInteractiveComponentSize()
+                                .testTag("admin_home_filters_button")
+                        ) {
+                            Icon(Icons.Rounded.FilterList, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = if (customHomeFilters.isNotEmpty()) "Filters (${customHomeFilters.size})" else "Home Filters",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
 
                     if (isSuperAdmin) {
@@ -530,6 +569,148 @@ fun AdminStudioScreen(
             onDismiss = { showLaunchBannerDialog = false }
         )
     }
+
+    if (showHomeFiltersDialog) {
+        AdminHomeFiltersDialog(
+            customFilters = customHomeFilters,
+            isBusy = isAuthBusy,
+            onAddFilter = onAddCustomHomeFilter,
+            onRemoveFilter = onRemoveCustomHomeFilter,
+            onDismiss = { showHomeFiltersDialog = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AdminHomeFiltersDialog(
+    customFilters: List<String>,
+    isBusy: Boolean,
+    onAddFilter: (String) -> Unit,
+    onRemoveFilter: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var newFilterText by remember { mutableStateOf("") }
+    val quickSuggestions = listOf("Under ₹299", "Mumbai", "Delhi NCR", "Bengaluru", "Pune", "Weekend Date", "VIP")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.FilterList,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "Home Page Smart Filters",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Built-in filters (Nearby You, Budget ≤₹399, Premium, Verified) are always active. Add custom filters below to show them live on every user's Home page!",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = newFilterText,
+                        onValueChange = { newFilterText = it.take(32) },
+                        singleLine = true,
+                        label = { Text("New Filter Name") },
+                        placeholder = { Text("e.g. Under ₹299 or Mumbai") },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("admin_new_filter_input")
+                    )
+                    Button(
+                        onClick = {
+                            if (newFilterText.trim().length >= 2) {
+                                onAddFilter(newFilterText.trim())
+                                newFilterText = ""
+                            }
+                        },
+                        enabled = !isBusy && newFilterText.trim().length >= 2,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .height(52.dp)
+                            .testTag("admin_add_filter_button")
+                    ) {
+                        Text("Add")
+                    }
+                }
+
+                Text(
+                    text = "Quick Add Suggestions",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    quickSuggestions.filter { sug ->
+                        customFilters.none { it.equals(sug, ignoreCase = true) }
+                    }.forEach { suggestion ->
+                        FilterChip(
+                            selected = false,
+                            onClick = { onAddFilter(suggestion) },
+                            label = { Text("+ $suggestion", style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                }
+
+                if (customFilters.isNotEmpty()) {
+                    Text(
+                        text = "Active Custom Filters (Tap to Delete)",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        customFilters.forEach { label ->
+                            FilterChip(
+                                selected = true,
+                                onClick = { onRemoveFilter(label) },
+                                label = { Text(label) },
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.DeleteOutline,
+                                        contentDescription = "Delete $label",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                    selectedLabelColor = MaterialTheme.colorScheme.primary,
+                                    selectedTrailingIconColor = MaterialTheme.colorScheme.error,
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Done")
+            }
+        }
+    )
 }
 
 @Composable

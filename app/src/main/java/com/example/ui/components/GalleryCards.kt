@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.BrokenImage
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Button
@@ -68,6 +69,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -89,6 +91,7 @@ import com.example.R
 import com.example.data.model.GalleryImage
 import com.example.ui.theme.WhatsAppDarkGreen
 import com.example.ui.theme.WhatsAppGreen
+import com.example.util.Local3DAssetResolver
 import kotlinx.coroutines.delay
 
 private fun resolveMatchPercentage(profile: GalleryImage): String {
@@ -585,6 +588,7 @@ fun GalleryGridCard(
     onClick: () -> Unit,
     onChatClick: () -> Unit,
     onToggleBookmark: () -> Unit,
+    isNearby: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val isAllBlurredExpired = image.isDeletedBlurred
@@ -600,25 +604,35 @@ fun GalleryGridCard(
         label = "card_press_scale"
     )
     val pressTiltX by animateFloatAsState(
-        targetValue = if (isPressed) 4f else 0f,
+        targetValue = if (isPressed) 4.5f else 0f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "card_press_tilt"
     )
 
     Card(
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(
-            width = 1.dp,
-            color = if (isAllBlurredExpired) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
-            } else {
-                MaterialTheme.colorScheme.outline
-            }
+            width = if (isNearby) 1.8.dp else 1.2.dp,
+            brush = Brush.linearGradient(
+                colors = if (isNearby) {
+                    listOf(Color(0xFFFF4081), Color(0xFFFF9EC3), Color(0xFFE91E63))
+                } else if (isAllBlurredExpired) {
+                    listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), MaterialTheme.colorScheme.secondary.copy(alpha = 0.35f))
+                } else {
+                    listOf(Color(0xFFE91E63).copy(alpha = 0.45f), Color(0xFFFFB2CC).copy(alpha = 0.65f), Color(0xFFFFFFFF))
+                }
+            )
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isPressed) 2.dp else 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isPressed) 3.dp else 10.dp),
         modifier = modifier
             .fillMaxWidth()
+            .shadow(
+                elevation = if (isNearby) 14.dp else 9.dp,
+                shape = RoundedCornerShape(24.dp),
+                ambientColor = Color(0xFFE91E63).copy(alpha = if (isNearby) 0.32f else 0.18f),
+                spotColor = Color(0xFFFF4081).copy(alpha = if (isNearby) 0.38f else 0.22f)
+            )
             .graphicsLayer {
                 cameraDistance = 12f * density
                 scaleX = pressScale
@@ -834,24 +848,81 @@ fun GalleryGridCard(
                     }
                 }
 
-                // Bottom-left Vibe / Category tag over photo
-                if (image.category.isNotBlank() && !isAllBlurredExpired) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = Color(0xB31C101E),
-                        border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.3f)),
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(8.dp)
-                    ) {
-                        Text(
-                            text = image.category,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        )
+                // Bottom-left Nearby / City / Category tag over photo
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (isNearby && !isAllBlurredExpired) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color(0xE600BFA5),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.7f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.LocationOn,
+                                    contentDescription = "Near You",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "Near You",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    } else if (image.city.isNotBlank() && !isAllBlurredExpired) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color(0xB81C101E),
+                            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.35f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.LocationOn,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF80AB),
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = image.city,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    } else if (image.category.isNotBlank() && !isAllBlurredExpired) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color(0xB31C101E),
+                            border = BorderStroke(0.8.dp, Color.White.copy(alpha = 0.3f))
+                        ) {
+                            Text(
+                                text = image.category,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -924,9 +995,13 @@ fun PixoraNetworkImage(
     contentScale: ContentScale = ContentScale.Crop,
     showSpinnerOnLoad: Boolean = false,
 ) {
+    val context = LocalContext.current
+    val resolvedModel = remember(imageUrl) {
+        Local3DAssetResolver.resolveCoilModel(context, imageUrl)
+    }
     SubcomposeAsyncImage(
-        model = ImageRequest.Builder(LocalContext.current)
-            .data(imageUrl)
+        model = ImageRequest.Builder(context)
+            .data(resolvedModel)
             .crossfade(true)
             .build(),
         contentDescription = contentDescription,
@@ -991,9 +1066,13 @@ fun PixoraBlurredImage(
         modifier
     }
 
+    val resolvedModel = remember(imageUrl) {
+        Local3DAssetResolver.resolveCoilModel(context, imageUrl)
+    }
+
     SubcomposeAsyncImage(
         model = ImageRequest.Builder(context)
-            .data(imageUrl)
+            .data(resolvedModel)
             .allowHardware(false)
             .transformations(blurTransform)
             .crossfade(true)

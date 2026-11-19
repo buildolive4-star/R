@@ -23,6 +23,7 @@ import com.example.data.repository.UserCrmRepository
 import com.example.notifications.OneSignalPushManager
 import com.example.notifications.PixoraNotificationManager
 import com.example.util.CallRingtonePlayer
+import com.example.util.LocationAddressFetcher
 import com.example.util.WebRtcAudioCallClient
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
@@ -492,6 +493,8 @@ class SessionAndChatViewModel(
             }
 
             val existing = userAccount.value
+            val derivedCity = existing?.city?.takeIf { it.isNotBlank() }
+                ?: LocationAddressFetcher.extractPublicCityFromAddress(address)
             val saveRes = userCrmRepository.upsertOwnProfile(
                 name = name,
                 photoUrl = existing?.photoUrl ?: (user?.photoUrl?.toString() ?: ""),
@@ -499,7 +502,7 @@ class SessionAndChatViewModel(
                 phone = phone,
                 age = age,
                 address = address,
-                city = existing?.city.orEmpty(),
+                city = derivedCity,
                 bio = existing?.bio.orEmpty(),
                 interests = existing?.interests.orEmpty(),
                 genderPreference = existing?.genderPreference.orEmpty(),

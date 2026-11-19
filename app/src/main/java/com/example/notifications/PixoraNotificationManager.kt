@@ -15,6 +15,9 @@ import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -28,6 +31,7 @@ import coil.request.SuccessResult
 import com.example.MainActivity
 import com.example.R
 import com.example.data.model.GalleryImage
+import com.example.util.Local3DAssetResolver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,9 +40,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 object PixoraNotificationManager {
-    const val CHANNEL_ID = "datemate_system_push_profiles_v6"
-    const val CHANNEL_MESSAGES_ID = "datemate_system_push_messages_v6"
-    const val CHANNEL_CALLS_ID = "datemate_system_push_calls_v5"
+    const val CHANNEL_ID = "datemate_system_push_profiles_v7"
+    const val CHANNEL_MESSAGES_ID = "datemate_system_push_messages_v7"
+    const val CHANNEL_CALLS_ID = "datemate_system_push_calls_v6"
     const val CHANNEL_BG_SYNC_ID = "datemate_live_push_monitor_v1"
 
     const val EXTRA_IMAGE_ID = "extra_justus_profile_id"
@@ -60,11 +64,39 @@ object PixoraNotificationManager {
             RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         }
 
+    fun triggerAlertVibration(context: Context) {
+        val appCtx = context.applicationContext
+        runCatching {
+            val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = appCtx.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                appCtx.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            if (vibrator != null && vibrator.hasVibrator()) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val effect = VibrationEffect.createWaveform(
+                        CHAT_VIBRATION,
+                        intArrayOf(0, 220, 0, 255),
+                        -1
+                    )
+                    vibrator.vibrate(effect)
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(CHAT_VIBRATION, -1)
+                }
+            }
+        }
+    }
+
     fun playAlertChime(context: Context) {
         val now = System.currentTimeMillis()
-        if (now - lastChimePlayedAtMs < 1200L) return
+        if (now - lastChimePlayedAtMs < 1100L) return
         lastChimePlayedAtMs = now
         val appCtx = context.applicationContext
+        // Always fire BOTH crisp vibration + notification chime together
+        triggerAlertVibration(appCtx)
         runCatching {
             val uri = notificationSoundUri(appCtx)
             val player = MediaPlayer().apply {
@@ -94,7 +126,7 @@ object PixoraNotificationManager {
         }
     }
 
-    private val CHAT_VIBRATION = longArrayOf(0L, 200L, 100L, 250L)
+    private val CHAT_VIBRATION = longArrayOf(0L, 240L, 120L, 300L)
     private val CALL_VIBRATION = longArrayOf(0L, 500L, 350L, 500L, 350L)
 
     fun hasNotificationPermission(context: Context): Boolean {
@@ -286,6 +318,7 @@ object PixoraNotificationManager {
             val nm = NotificationManagerCompat.from(context)
             nm.cancel(notificationId)
             nm.notify(notificationId, builder.build())
+            playAlertChime(context)
         } catch (e: SecurityException) {
             Log.w(TAG, "Unable to post image notification due to missing permission", e)
         }
@@ -427,6 +460,7 @@ object PixoraNotificationManager {
             // Cancel prior notification ID first so Android OS always triggers a fresh Heads-Up Push Pop-up outside & at top of phone
             nm.cancel(notificationId)
             nm.notify(notificationId, builder.build())
+            playAlertChime(context)
         } catch (e: SecurityException) {
             Log.w(TAG, "Unable to post chat notification due to missing permission", e)
         }
@@ -484,8 +518,9 @@ object PixoraNotificationManager {
         withContext(Dispatchers.IO) {
             if (url.isBlank()) return@withContext null
             runCatching {
+                val resolvedModel = Local3DAssetResolver.resolveCoilModel(context, url)
                 val request = ImageRequest.Builder(context)
-                    .data(url)
+                    .data(resolvedModel)
                     .size(512)
                     .allowHardware(false)
                     .build()

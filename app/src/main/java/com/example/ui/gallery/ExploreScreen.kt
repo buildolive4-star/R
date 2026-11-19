@@ -13,7 +13,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -42,12 +41,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CurrencyRupee
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Verified
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -72,10 +72,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -118,8 +116,12 @@ fun ExploreScreen(
     onProfileClick: (GalleryImage) -> Unit,
     onChatClick: (GalleryImage) -> Unit,
     onToggleBookmark: (GalleryImage) -> Unit,
-    selectedVibe: String = GalleryViewModel.VIBE_ALL,
-    onSelectVibe: (String) -> Unit = {},
+    smartFilters: List<String> = GalleryViewModel.DEFAULT_SMART_FILTERS,
+    selectedSmartFilter: String = GalleryViewModel.FILTER_ALL,
+    onSelectSmartFilter: (String) -> Unit = {},
+    userCity: String = "",
+    userAddress: String = "",
+    userGenderPreference: String = "",
     modifier: Modifier = Modifier,
 ) {
     val allProfiles = (galleryState as? UiState.Success)?.data.orEmpty()
@@ -150,336 +152,261 @@ fun ExploreScreen(
                     colors = listOf(
                         DateMateWhite,
                         DateMateBackground,
-                        DateMateSoftBlush.copy(alpha = 0.55f),
+                        DateMateSoftBlush.copy(alpha = 0.65f),
                     )
                 )
             )
     ) {
-        // Subtle 3D floating hearts in background
-        Floating3DHeartsBackground(heartCount = 7)
+        // Subtle 3D floating glowing hearts in background
+        Floating3DHeartsBackground(heartCount = 8)
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            DateMateLuxuryHomeHeader(
-                totalCount = totalCount,
-                isStaffTheme = isStaffTheme,
-                onSecretAdminTrigger = onSecretAdminTrigger,
-                onPushBellClick = handlePushBellClick,
-                searchQuery = searchQuery,
-                onSearchQueryChange = onSearchQueryChange,
-                categories = categories,
-                selectedCategory = selectedCategory,
-                onSelectCategory = onSelectCategory,
-                selectedVibe = selectedVibe,
-                onSelectVibe = onSelectVibe,
-            )
-
-            when (filteredGridState) {
-                is UiState.Loading -> {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(6) {
-                            ShimmerBox(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(9f / 16f)
-                                    .clip(RoundedCornerShape(26.dp))
-                            )
-                        }
+        when (filteredGridState) {
+            is UiState.Loading -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 110.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "loading_header") {
+                        DateMateScrollableHomeHeader(
+                            totalCount = totalCount,
+                            isStaffTheme = isStaffTheme,
+                            onSecretAdminTrigger = onSecretAdminTrigger,
+                            onPushBellClick = handlePushBellClick,
+                            searchQuery = searchQuery,
+                            onSearchQueryChange = onSearchQueryChange,
+                            categories = categories,
+                            selectedCategory = selectedCategory,
+                            onSelectCategory = onSelectCategory,
+                            smartFilters = smartFilters,
+                            selectedSmartFilter = selectedSmartFilter,
+                            onSelectSmartFilter = onSelectSmartFilter,
+                            userCity = userCity,
+                            userGenderPreference = userGenderPreference,
+                        )
+                    }
+                    items(4) {
+                        ShimmerBox(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(9f / 16f)
+                                .clip(RoundedCornerShape(24.dp))
+                        )
                     }
                 }
+            }
 
-                is UiState.Error -> {
+            is UiState.Error -> {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        DateMateScrollableHomeHeader(
+                            totalCount = totalCount,
+                            isStaffTheme = isStaffTheme,
+                            onSecretAdminTrigger = onSecretAdminTrigger,
+                            onPushBellClick = handlePushBellClick,
+                            searchQuery = searchQuery,
+                            onSearchQueryChange = onSearchQueryChange,
+                            categories = categories,
+                            selectedCategory = selectedCategory,
+                            onSelectCategory = onSelectCategory,
+                            smartFilters = smartFilters,
+                            selectedSmartFilter = selectedSmartFilter,
+                            onSelectSmartFilter = onSelectSmartFilter,
+                            userCity = userCity,
+                            userGenderPreference = userGenderPreference,
+                        )
+                    }
                     ErrorStateCard(
                         message = filteredGridState.message,
-                        modifier = Modifier.padding(top = 16.dp)
+                        modifier = Modifier.padding(top = 12.dp)
                     )
                 }
+            }
 
-                is UiState.Success -> {
-                    val gridProfiles = filteredGridState.data
-                    val showVipCarousel = vipProfiles.isNotEmpty() &&
-                        selectedCategory == GalleryViewModel.CATEGORY_ALL &&
-                        selectedVibe == GalleryViewModel.VIBE_ALL &&
-                        searchQuery.isBlank()
+            is UiState.Success -> {
+                val gridProfiles = filteredGridState.data
+                // VIP 16:9 Spotlight ONLY shows when Admin Panel uploads VIP profiles
+                val showVipCarousel = vipProfiles.isNotEmpty() &&
+                    selectedCategory == GalleryViewModel.CATEGORY_ALL &&
+                    selectedSmartFilter == GalleryViewModel.FILTER_ALL &&
+                    searchQuery.isBlank()
 
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = 8.dp,
-                            bottom = 110.dp
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .testTag("explore_uniform_grid")
-                    ) {
-                        // Luxury DateMate Hero Banner at top of Home
-                        if (searchQuery.isBlank() && selectedCategory == GalleryViewModel.CATEGORY_ALL && selectedVibe == GalleryViewModel.VIBE_ALL) {
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "datemate_luxury_hero") {
-                                DateMateExploreHeroCard(onTestPushClick = handlePushBellClick)
-                            }
-                        }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 6.dp,
+                        bottom = 112.dp
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("explore_uniform_grid")
+                ) {
+                    // Scrollable DateMate Header + Search Bar + Smart Filters (scrolls up seamlessly for maximum space!)
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "scrollable_home_header") {
+                        DateMateScrollableHomeHeader(
+                            totalCount = totalCount,
+                            isStaffTheme = isStaffTheme,
+                            onSecretAdminTrigger = onSecretAdminTrigger,
+                            onPushBellClick = handlePushBellClick,
+                            searchQuery = searchQuery,
+                            onSearchQueryChange = onSearchQueryChange,
+                            categories = categories,
+                            selectedCategory = selectedCategory,
+                            onSelectCategory = onSelectCategory,
+                            smartFilters = smartFilters,
+                            selectedSmartFilter = selectedSmartFilter,
+                            onSelectSmartFilter = onSelectSmartFilter,
+                            userCity = userCity,
+                            userGenderPreference = userGenderPreference,
+                        )
+                    }
 
-                        if (showVipCarousel) {
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "vip_section_header") {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 6.dp, bottom = 2.dp)
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = DateMateSoftBlush,
-                                            modifier = Modifier.size(30.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.AutoAwesome,
-                                                    contentDescription = null,
-                                                    tint = DateMatePrimaryPink,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column {
-                                            Text(
-                                                text = stringResource(R.string.vip_showcase_title),
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = DateMateDarkText
-                                            )
-                                            Text(
-                                                text = "16:9 Exclusive Verified Spotlights",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = DateMateSecondaryText
-                                            )
-                                        }
-                                    }
+                    // Admin-Uploaded 16:9 VIP Spotlight (No static 16:9 Hero Banner above it!)
+                    if (showVipCarousel) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "vip_section_header") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp, bottom = 2.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Surface(
-                                        shape = RoundedCornerShape(999.dp),
+                                        shape = CircleShape,
                                         color = DateMateSoftBlush,
-                                        border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.35f)),
+                                        modifier = Modifier.size(30.dp)
                                     ) {
-                                        Text(
-                                            text = "${vipProfiles.size} EXCLUSIVE",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = DateMatePrimaryPink,
-                                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
-                                        )
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.AutoAwesome,
+                                                contentDescription = null,
+                                                tint = DateMatePrimaryPink,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
                                     }
-                                }
-                            }
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "vip_carousel") {
-                                VipShowcaseCarousel(
-                                    profiles = vipProfiles,
-                                    bookmarkedIds = bookmarkedIds,
-                                    onProfileClick = onProfileClick,
-                                    onChatClick = onChatClick,
-                                    onToggleBookmark = onToggleBookmark,
-                                    modifier = Modifier.padding(bottom = 6.dp)
-                                )
-                            }
-                        }
-
-                        if (gridProfiles.isEmpty() && !showVipCarousel) {
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "empty_gallery_card") {
-                                if (totalCount == 0) {
-                                    EmptyGalleryState(
-                                        title = stringResource(R.string.empty_gallery_title),
-                                        subtitle = stringResource(R.string.empty_gallery_subtitle),
-                                        actionLabel = stringResource(R.string.check_now_button),
-                                        onAction = onCheckNow
-                                    )
-                                } else {
-                                    EmptyGalleryState(
-                                        title = stringResource(R.string.empty_search_title),
-                                        subtitle = stringResource(R.string.empty_search_subtitle),
-                                        actionLabel = stringResource(R.string.reset_filters),
-                                        onAction = onResetFilters
-                                    )
-                                }
-                            }
-                        } else if (gridProfiles.isNotEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "grid_section_header") {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 4.dp, bottom = 2.dp)
-                                ) {
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Column {
                                         Text(
-                                            text = "${stringResource(R.string.grid_companions_title)} (${gridProfiles.size})",
+                                            text = stringResource(R.string.vip_showcase_title),
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.ExtraBold,
                                             color = DateMateDarkText
                                         )
                                         Text(
-                                            text = "Tap ❤️ to save to Favorites or tap Chat to connect",
+                                            text = "16:9 Exclusive Admin Spotlights",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = DateMateSecondaryText
                                         )
                                     }
-                                    Surface(
-                                        shape = RoundedCornerShape(999.dp),
-                                        color = DateMateSoftBlush,
-                                        border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.35f))
-                                    ) {
-                                        Text(
-                                            text = "2×2 GRID",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = DateMatePrimaryPink,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                        )
-                                    }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = DateMateSoftBlush,
+                                    border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.4f)),
+                                ) {
+                                    Text(
+                                        text = "${vipProfiles.size} VIP",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DateMatePrimaryPink,
+                                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
+                                    )
                                 }
                             }
-                            items(gridProfiles, key = { it.id }) { profile ->
-                                GalleryGridCard(
-                                    image = profile,
-                                    isBookmarked = bookmarkedIds.contains(profile.id),
-                                    onClick = { onProfileClick(profile) },
-                                    onChatClick = { onChatClick(profile) },
-                                    onToggleBookmark = { onToggleBookmark(profile) }
+                        }
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "vip_carousel") {
+                            VipShowcaseCarousel(
+                                profiles = vipProfiles,
+                                bookmarkedIds = bookmarkedIds,
+                                onProfileClick = onProfileClick,
+                                onChatClick = onChatClick,
+                                onToggleBookmark = onToggleBookmark,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                        }
+                    }
+
+                    if (gridProfiles.isEmpty() && !showVipCarousel) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "empty_gallery_card") {
+                            if (totalCount == 0) {
+                                EmptyGalleryState(
+                                    title = stringResource(R.string.empty_gallery_title),
+                                    subtitle = stringResource(R.string.empty_gallery_subtitle),
+                                    actionLabel = stringResource(R.string.check_now_button),
+                                    onAction = onCheckNow
+                                )
+                            } else {
+                                EmptyGalleryState(
+                                    title = stringResource(R.string.empty_search_title),
+                                    subtitle = stringResource(R.string.empty_search_subtitle),
+                                    actionLabel = stringResource(R.string.reset_filters),
+                                    onAction = onResetFilters
                                 )
                             }
                         }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DateMateExploreHeroCard(
-    onTestPushClick: () -> Unit,
-) {
-    Card(
-        shape = RoundedCornerShape(28.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
-        colors = CardDefaults.cardColors(containerColor = DateMateWhite),
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(176.dp)
-            .border(1.2.dp, DateMateSoftBorder, RoundedCornerShape(28.dp))
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Image(
-                painter = painterResource(id = R.drawable.img_datemate_hero_banner_1795008182368),
-                contentDescription = stringResource(R.string.hero_headline),
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                Color(0xFF25212A).copy(alpha = 0.84f),
-                                Color(0xFF25212A).copy(alpha = 0.45f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-            Column(
-                verticalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(18.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(999.dp),
-                        color = DateMateWhite.copy(alpha = 0.94f)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Favorite,
-                                contentDescription = null,
-                                tint = DateMatePrimaryPink,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = stringResource(R.string.hero_subtitle),
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    color = DateMatePrimaryPink,
-                                    fontWeight = FontWeight.Bold
-                                )
+                    } else if (gridProfiles.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "grid_section_header") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp)
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "${stringResource(R.string.grid_companions_title)} (${gridProfiles.size})",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = DateMateDarkText
+                                    )
+                                    Text(
+                                        text = if (userCity.isNotBlank()) {
+                                            "Showing nearby $userCity matches first · 3D Glow"
+                                        } else {
+                                            "Set city & GF/BF preference in Profile for nearby matches"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = DateMateSecondaryText
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = DateMateSoftBlush,
+                                    border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.45f))
+                                ) {
+                                    Text(
+                                        text = "3D · 2×2",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = DateMatePrimaryPink,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                        items(gridProfiles, key = { it.id }) { profile ->
+                            val isNearby = remember(profile.id, profile.city, userCity, userAddress) {
+                                GalleryViewModel.isProfileNearby(profile, userCity, userAddress)
+                            }
+                            GalleryGridCard(
+                                image = profile,
+                                isBookmarked = bookmarkedIds.contains(profile.id),
+                                isNearby = isNearby,
+                                onClick = { onProfileClick(profile) },
+                                onChatClick = { onChatClick(profile) },
+                                onToggleBookmark = { onToggleBookmark(profile) }
                             )
                         }
                     }
-
-                    Surface(
-                        onClick = onTestPushClick,
-                        shape = RoundedCornerShape(999.dp),
-                        color = Color(0xDD25212A),
-                        border = BorderStroke(1.dp, DateMateSecondaryPink.copy(alpha = 0.7f))
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.NotificationsActive,
-                                contentDescription = "Test Push Alert",
-                                tint = DateMateSecondaryPink,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Push Live",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    color = DateMateWhite,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            )
-                        }
-                    }
-                }
-
-                Column {
-                    Text(
-                        text = stringResource(R.string.hero_headline),
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            color = DateMateWhite,
-                            fontWeight = FontWeight.ExtraBold,
-                            lineHeight = 25.sp
-                        ),
-                        modifier = Modifier.fillMaxWidth(0.78f)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Coffee Dates • Travel Buddies • Private Chat • Live Voice",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = DateMateWhite.copy(alpha = 0.92f)
-                        )
-                    )
                 }
             }
         }
@@ -488,7 +415,7 @@ private fun DateMateExploreHeroCard(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DateMateLuxuryHomeHeader(
+private fun DateMateScrollableHomeHeader(
     totalCount: Int,
     isStaffTheme: Boolean,
     onSecretAdminTrigger: () -> Unit,
@@ -498,13 +425,16 @@ private fun DateMateLuxuryHomeHeader(
     categories: List<String>,
     selectedCategory: String,
     onSelectCategory: (String) -> Unit,
-    selectedVibe: String,
-    onSelectVibe: (String) -> Unit,
+    smartFilters: List<String>,
+    selectedSmartFilter: String,
+    onSelectSmartFilter: (String) -> Unit,
+    userCity: String,
+    userGenderPreference: String,
 ) {
     val pulseTransition = rememberInfiniteTransition(label = "live_pulse")
     val pulseScale by pulseTransition.animateFloat(
         initialValue = 0.93f,
-        targetValue = 1.07f,
+        targetValue = 1.08f,
         animationSpec = infiniteRepeatable(
             animation = tween(1150, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
@@ -527,16 +457,14 @@ private fun DateMateLuxuryHomeHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 12.dp)
+            .padding(top = 6.dp)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 3D Pulsing DateMate Heart Emblem + Brand Title (5-tap opens Admin Studio!)
+            // 3D Glowing Pulsing DateMate Heart Emblem + Brand Title (5-tap opens Admin Studio!)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -560,14 +488,24 @@ private fun DateMateLuxuryHomeHeader(
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = DateMateWhite,
-                    shadowElevation = 10.dp,
+                    shadowElevation = 12.dp,
                     modifier = Modifier
                         .size(46.dp)
+                        .shadow(
+                            elevation = 12.dp,
+                            shape = RoundedCornerShape(16.dp),
+                            ambientColor = DateMatePrimaryPink.copy(alpha = 0.45f),
+                            spotColor = DateMateSecondaryPink.copy(alpha = 0.55f)
+                        )
                         .graphicsLayer {
                             scaleX = pulseScale
                             scaleY = pulseScale
                         }
-                        .border(1.2.dp, DateMateSoftBorder, RoundedCornerShape(16.dp))
+                        .border(
+                            1.5.dp,
+                            Brush.linearGradient(listOf(DateMatePrimaryPink, DateMateSecondaryPink)),
+                            RoundedCornerShape(16.dp)
+                        )
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
@@ -635,12 +573,18 @@ private fun DateMateLuxuryHomeHeader(
                             }
                         }
                     }
+                    val subtitle = when {
+                        userCity.isNotBlank() && userGenderPreference.isNotBlank() -> "$userCity · $userGenderPreference"
+                        userCity.isNotBlank() -> "Near $userCity · 3D Verified"
+                        else -> stringResource(R.string.brand_tagline)
+                    }
                     Text(
-                        text = stringResource(R.string.brand_tagline),
+                        text = subtitle,
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = DateMatePrimaryPink,
                             fontWeight = FontWeight.SemiBold
-                        )
+                        ),
+                        maxLines = 1
                     )
                 }
             }
@@ -649,13 +593,12 @@ private fun DateMateLuxuryHomeHeader(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Live Push Notification Bell Button (1000% active on Home Page)
                 Surface(
                     onClick = onPushBellClick,
                     shape = CircleShape,
                     color = DateMateSoftBlush,
-                    shadowElevation = 6.dp,
-                    border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.45f)),
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(1.2.dp, DateMatePrimaryPink.copy(alpha = 0.55f)),
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
                         .size(40.dp)
@@ -680,13 +623,12 @@ private fun DateMateLuxuryHomeHeader(
                     }
                 }
 
-                // Live Verified Pill
                 Surface(
                     onClick = onPushBellClick,
                     shape = RoundedCornerShape(999.dp),
                     color = DateMateWhite,
-                    shadowElevation = 6.dp,
-                    border = BorderStroke(1.dp, DateMateSoftBorder)
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.35f))
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
@@ -717,7 +659,7 @@ private fun DateMateLuxuryHomeHeader(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Luxury Rounded White & Rose-Pink Search Bar
+        // Glowing 3D Search Bar (scrolls smoothly upward with the header!)
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
@@ -756,28 +698,26 @@ private fun DateMateLuxuryHomeHeader(
                 focusedContainerColor = DateMateWhite,
                 unfocusedContainerColor = DateMateWhite,
                 focusedBorderColor = DateMatePrimaryPink,
-                unfocusedBorderColor = DateMateSoftBorder,
+                unfocusedBorderColor = DateMatePrimaryPink.copy(alpha = 0.32f),
                 focusedTextColor = DateMateDarkText,
                 unfocusedTextColor = DateMateDarkText,
                 cursorColor = DateMatePrimaryPink,
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
                 .shadow(
-                    elevation = 6.dp,
+                    elevation = 10.dp,
                     shape = RoundedCornerShape(22.dp),
-                    ambientColor = DateMatePrimaryPink.copy(alpha = 0.12f),
-                    spotColor = DateMatePrimaryPink.copy(alpha = 0.16f)
+                    ambientColor = DateMatePrimaryPink.copy(alpha = 0.20f),
+                    spotColor = DateMatePrimaryPink.copy(alpha = 0.25f)
                 )
                 .testTag("search_input")
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Role & Category Chips
+        // Role & Category Chips (All / GF / BF / ...)
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -814,36 +754,54 @@ private fun DateMateLuxuryHomeHeader(
             }
         }
 
-        // Lifestyle Vibe & Mood Matcher Row (Social & Companionship experiences beyond GF/BF)
+        // Smart Filters Row: Nearby You, Budget (≤₹399), Premium, Verified + Admin Custom Filters
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            items(GalleryViewModel.LIFESTYLE_VIBES, key = { "vibe_$it" }) { vibe ->
-                val selected = vibe == selectedVibe
+            items(smartFilters, key = { "smart_$it" }) { filter ->
+                val selected = filter == selectedSmartFilter
+                val leadingIcon = when {
+                    filter.equals(GalleryViewModel.FILTER_NEARBY, ignoreCase = true) -> Icons.Rounded.LocationOn
+                    filter.equals(GalleryViewModel.FILTER_BUDGET, ignoreCase = true) ||
+                        filter.contains("₹") || filter.contains("Under", ignoreCase = true) -> Icons.Rounded.CurrencyRupee
+                    filter.equals(GalleryViewModel.FILTER_PREMIUM, ignoreCase = true) -> Icons.Rounded.AutoAwesome
+                    filter.equals(GalleryViewModel.FILTER_VERIFIED, ignoreCase = true) -> Icons.Rounded.Verified
+                    filter.equals(GalleryViewModel.FILTER_ALL, ignoreCase = true) -> Icons.Rounded.Tune
+                    else -> Icons.Rounded.AutoAwesome
+                }
                 Surface(
-                    onClick = { onSelectVibe(vibe) },
+                    onClick = { onSelectSmartFilter(filter) },
                     shape = RoundedCornerShape(999.dp),
-                    color = if (selected) DateMateSoftBlush else DateMateWhite.copy(alpha = 0.9f),
+                    color = if (selected) DateMatePrimaryPink else DateMateWhite,
+                    shadowElevation = if (selected) 8.dp else 3.dp,
                     border = BorderStroke(
-                        1.dp,
-                        if (selected) DateMatePrimaryPink else DateMateSoftBorder
+                        width = if (selected) 1.4.dp else 1.dp,
+                        color = if (selected) Color(0xFFFF80AB) else DateMateSoftBorder
                     ),
-                    modifier = Modifier.testTag("vibe_chip_$vibe")
+                    modifier = Modifier.testTag("smart_filter_chip_$filter")
                 ) {
-                    Text(
-                        text = vibe,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (selected) DateMatePrimaryPink else DateMateSecondaryText
-                        ),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                    ) {
+                        Icon(
+                            imageVector = leadingIcon,
+                            contentDescription = null,
+                            tint = if (selected) DateMateWhite else DateMatePrimaryPink,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = filter,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                color = if (selected) DateMateWhite else DateMateDarkText
+                            )
+                        )
+                    }
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(4.dp))
     }
 }

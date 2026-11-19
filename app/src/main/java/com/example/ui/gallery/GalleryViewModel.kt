@@ -17,7 +17,9 @@ import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.preferences.ThemePreferencesRepository
 import com.example.data.repository.GalleryRepository
+import com.example.data.repository.UserCrmRepository
 import com.example.ui.theme.ThemeMode
+import com.example.util.LocationAddressFetcher
 import com.example.workers.BackgroundSyncScheduler
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -54,16 +56,28 @@ class GalleryViewModel(
     private val prefsRepository: ThemePreferencesRepository,
     private val notifiedImagesStore: NotifiedImagesStore,
     private val hiddenRevealStateStore: HiddenRevealStateStore? = null,
+    private val userCrmRepository: UserCrmRepository? = null,
 ) : ViewModel() {
 
     private val _selectedCategory = MutableStateFlow(CATEGORY_ALL)
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
-    private val _selectedVibe = MutableStateFlow(VIBE_ALL)
+    private val _selectedVibe = MutableStateFlow(FILTER_ALL)
     val selectedVibe: StateFlow<String> = _selectedVibe.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _userCity = MutableStateFlow("")
+    val userCity: StateFlow<String> = _userCity.asStateFlow()
+
+    private val _userAddress = MutableStateFlow("")
+    val userAddress: StateFlow<String> = _userAddress.asStateFlow()
+
+    private val _userGenderPreference = MutableStateFlow("")
+    val userGenderPreference: StateFlow<String> = _userGenderPreference.asStateFlow()
+
+    private var lastAppliedPreference: String = ""
 
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val events: SharedFlow<String> = _events.asSharedFlow()
@@ -325,31 +339,72 @@ class GalleryViewModel(
             initialValue = listOf(CATEGORY_ALL, "GF", "BF"),
         )
 
-    val vipProfiles: StateFlow<List<GalleryImage>> = galleryState
-        .map { state ->
-            val items = (state as? UiState.Success)?.data ?: return@map emptyList()
-            items.filter { it.tier == ProfileTier.VIP_16_9 }
-        }
+    val customHomeFilters: StateFlow<List<String>> = (userCrmRepository?.observeHomeFilters() ?: flowOf(emptyList()))
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
             initialValue = emptyList(),
         )
 
-    val filteredGridProfiles: StateFlow<UiState<List<GalleryImage>>> = combine(
+    val homeFilterOptions: StateFlow<List<String>> = customHomeFilters
+        .map { adminFilters ->
+            (DEFAULT_SMART_FILTERS + adminFilters)
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinctBy { it.lowercase() }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = DEFAULT_SMART_FILTERS,
+        )
+
+    val vipProfiles: StateFlow<List<GalleryImage>> = combine(
         galleryState,
+        _userCity,
+        _userAddress,
+    ) { state, city, address ->
+        val items = (state as? UiState.Success)?.data ?: return@combine emptyList()
+        items.filter { it.tier == ProfileTier.VIP_16_9 }
+            .sortedByDescending { nearbyMatchScore(it, city, address) }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = emptyList(),
+    )
+
+    private data class FilterInputs(
+        val category: String,
+        val smartFilter: String,
+        val query: String,
+        val userCity: String,
+        val userAddress: String,
+    )
+
+    private val filterInputsFlow = combine(
         _selectedCategory,
         _selectedVibe,
         _searchQuery,
-    ) { state, category, vibe, query ->
+        _userCity,
+        _userAddress,
+    ) { category, smartFilter, query, city, address ->
+        FilterInputs(category, smartFilter, query, city, address)
+    }
+
+    val filteredGridProfiles: StateFlow<UiState<List<GalleryImage>>> = combine(
+        galleryState,
+        filterInputsFlow,
+    ) { state, inputs ->
         when (state) {
             is UiState.Loading -> UiState.Loading
             is UiState.Error -> state
             is UiState.Success -> {
-                val trimmedQuery = query.trim().lowercase()
+                val category = inputs.category
+                val smartFilter = inputs.smartFilter
+                val trimmedQuery = inputs.query.trim().lowercase()
                 val nonVipOnly = state.data.filter { it.tier != ProfileTier.VIP_16_9 }
-                val baseList = if (category == CATEGORY_ALL && vibe == VIBE_ALL && trimmedQuery.isEmpty()) {
-                    if (nonVipOnly.size >= 6) nonVipOnly else state.data
+                val baseList = if (category == CATEGORY_ALL && smartFilter == FILTER_ALL && trimmedQuery.isEmpty()) {
+                    if (nonVipOnly.size >= 4) nonVipOnly else state.data
                 } else {
                     state.data
                 }
@@ -361,20 +416,32 @@ class GalleryViewModel(
                         else -> item.category.equals(category, ignoreCase = true) ||
                             item.tags.any { it.equals(category, ignoreCase = true) }
                     }
-                    val matchesVibe = vibe == VIBE_ALL ||
-                        item.category.contains(vibe, ignoreCase = true) ||
-                        item.tags.any { it.contains(vibe, ignoreCase = true) } ||
-                        item.description.contains(vibe, ignoreCase = true)
+                    val matchesSmartFilter = matchesSmartFilter(
+                        item = item,
+                        filter = smartFilter,
+                        userCity = inputs.userCity,
+                        userAddress = inputs.userAddress,
+                    )
                     val matchesQuery = trimmedQuery.isEmpty() ||
                         item.title.lowercase().contains(trimmedQuery) ||
                         item.description.lowercase().contains(trimmedQuery) ||
                         item.category.lowercase().contains(trimmedQuery) ||
+                        item.city.lowercase().contains(trimmedQuery) ||
                         item.role.lowercase().contains(trimmedQuery) ||
                         item.price.lowercase().contains(trimmedQuery) ||
                         item.tags.any { it.lowercase().contains(trimmedQuery) }
-                    matchesCategory && matchesVibe && matchesQuery
+                    matchesCategory && matchesSmartFilter && matchesQuery
                 }
-                UiState.Success(filtered)
+
+                // Nearby profiles matching user's city/address ALWAYS appear first
+                val prioritized = filtered.sortedWith(
+                    compareByDescending<GalleryImage> {
+                        nearbyMatchScore(it, inputs.userCity, inputs.userAddress)
+                    }.thenByDescending {
+                        it.createdAt?.seconds ?: 0L
+                    }
+                )
+                UiState.Success(prioritized)
             }
         }
     }.stateIn(
@@ -382,6 +449,29 @@ class GalleryViewModel(
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
         initialValue = UiState.Loading,
     )
+
+    fun updateUserMatchingContext(
+        genderPreference: String,
+        city: String,
+        address: String,
+    ) {
+        val cleanPref = genderPreference.trim()
+        val cleanCity = city.trim()
+        val cleanAddress = address.trim()
+        _userCity.value = cleanCity
+        _userAddress.value = cleanAddress
+        _userGenderPreference.value = cleanPref
+
+        if (cleanPref.isNotEmpty() && cleanPref != lastAppliedPreference) {
+            lastAppliedPreference = cleanPref
+            val mappedCategory = when {
+                cleanPref.contains("GF", ignoreCase = true) && !cleanPref.contains("Both", ignoreCase = true) -> "GF"
+                cleanPref.contains("BF", ignoreCase = true) && !cleanPref.contains("Both", ignoreCase = true) -> "BF"
+                else -> CATEGORY_ALL
+            }
+            _selectedCategory.value = mappedCategory
+        }
+    }
 
     fun selectCategory(category: String) {
         _selectedCategory.value = category
@@ -397,7 +487,7 @@ class GalleryViewModel(
 
     fun resetFilters() {
         _selectedCategory.value = CATEGORY_ALL
-        _selectedVibe.value = VIBE_ALL
+        _selectedVibe.value = FILTER_ALL
         _searchQuery.value = ""
     }
 
@@ -538,18 +628,102 @@ class GalleryViewModel(
 
     companion object {
         const val CATEGORY_ALL = "All"
-        const val VIBE_ALL = "All Vibes"
-        val LIFESTYLE_VIBES = listOf(
-            VIBE_ALL,
-            "Coffee & Chat",
-            "Fine Dining",
-            "Live Music",
-            "Travel Buddy",
-            "Art & Culture",
-            "Movie Night",
-            "Fitness Partner",
-            "Book Club",
+        const val FILTER_ALL = "All"
+        const val VIBE_ALL = FILTER_ALL
+        const val FILTER_NEARBY = "Nearby You"
+        const val FILTER_BUDGET = "Budget (≤₹399)"
+        const val FILTER_PREMIUM = "Premium"
+        const val FILTER_VERIFIED = "Verified"
+
+        val DEFAULT_SMART_FILTERS = listOf(
+            FILTER_ALL,
+            FILTER_NEARBY,
+            FILTER_BUDGET,
+            FILTER_PREMIUM,
+            FILTER_VERIFIED,
         )
+
+        fun parseNumericPrice(price: String): Int? {
+            val digits = price.filter { it.isDigit() }
+            return digits.toIntOrNull()
+        }
+
+        fun nearbyMatchScore(
+            item: GalleryImage,
+            userCity: String,
+            userAddress: String,
+        ): Int {
+            val userTokens = LocationAddressFetcher.extractLocationTokens(userCity, userAddress)
+            if (userTokens.isEmpty()) return 0
+            val profileHaystack = buildString {
+                append(item.city).append(' ')
+                append(item.tags.joinToString(" ")).append(' ')
+                append(item.description)
+            }.lowercase()
+            var score = 0
+            if (userCity.trim().length >= 3 && item.city.contains(userCity.trim(), ignoreCase = true)) {
+                score += 10
+            }
+            for (token in userTokens) {
+                if (profileHaystack.contains(token)) {
+                    score += 3
+                }
+            }
+            return score
+        }
+
+        fun isProfileNearby(
+            item: GalleryImage,
+            userCity: String,
+            userAddress: String,
+        ): Boolean = nearbyMatchScore(item, userCity, userAddress) > 0
+
+        fun matchesSmartFilter(
+            item: GalleryImage,
+            filter: String,
+            userCity: String,
+            userAddress: String,
+        ): Boolean {
+            if (filter.equals(FILTER_ALL, ignoreCase = true)) return true
+            return when {
+                filter.equals(FILTER_NEARBY, ignoreCase = true) -> {
+                    val userTokens = LocationAddressFetcher.extractLocationTokens(userCity, userAddress)
+                    if (userTokens.isEmpty()) true else isProfileNearby(item, userCity, userAddress)
+                }
+                filter.equals(FILTER_BUDGET, ignoreCase = true) -> {
+                    val numeric = parseNumericPrice(item.price)
+                    (numeric != null && numeric <= 399) || item.tags.any { it.equals("Budget", ignoreCase = true) }
+                }
+                filter.equals(FILTER_PREMIUM, ignoreCase = true) -> {
+                    val numeric = parseNumericPrice(item.price)
+                    item.isVip || (numeric != null && numeric >= 449) || item.tags.any { it.equals("Premium", ignoreCase = true) }
+                }
+                filter.equals(FILTER_VERIFIED, ignoreCase = true) -> {
+                    item.tags.any { it.contains("Verified", ignoreCase = true) } ||
+                        item.category.contains("Verified", ignoreCase = true) ||
+                        item.ownerUid.isNotBlank() ||
+                        item.uploadedBy.isNotBlank()
+                }
+                else -> {
+                    // Support Admin-created custom filters including price caps like "Under ₹299" or city/tag/category keywords
+                    val underMatch = Regex("under\\s*[₹rs.]*\\s*(\\d+)", RegexOption.IGNORE_CASE).find(filter)
+                    if (underMatch != null) {
+                        val cap = underMatch.groupValues[1].toIntOrNull()
+                        val numeric = parseNumericPrice(item.price)
+                        cap != null && numeric != null && numeric <= cap
+                    } else {
+                        item.category.contains(filter, ignoreCase = true) ||
+                            item.city.contains(filter, ignoreCase = true) ||
+                            item.role.equals(filter, ignoreCase = true) ||
+                            item.title.contains(filter, ignoreCase = true) ||
+                            item.description.contains(filter, ignoreCase = true) ||
+                            item.price.contains(filter, ignoreCase = true) ||
+                            item.tags.any { it.contains(filter, ignoreCase = true) }
+                    }
+                }
+            }
+        }
+
         const val HIDDEN_REVEAL_TTL_MS = 40_000L
         private const val TAG = "GalleryVM"
         private const val STOP_TIMEOUT_MILLIS = 5000L

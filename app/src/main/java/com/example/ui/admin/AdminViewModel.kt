@@ -25,6 +25,7 @@ import com.example.data.repository.ChatRepository
 import com.example.data.repository.GalleryRepository
 import com.example.data.repository.UserCrmRepository
 import com.example.notifications.OneSignalPushManager
+import com.example.util.LocationAddressFetcher
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -114,6 +115,9 @@ class AdminViewModel(
 
     val launchBanner: StateFlow<LaunchBannerConfig?> = userCrmRepository.observeLaunchBanner()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), null)
+
+    val customHomeFilters: StateFlow<List<String>> = userCrmRepository.observeHomeFilters()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
 
     private val authListener = FirebaseAuth.AuthStateListener { auth ->
         _authUser.value = auth.currentUser
@@ -512,6 +516,7 @@ class AdminViewModel(
                     age = cleanAge,
                     role = role,
                     tier = tier,
+                    city = LocationAddressFetcher.extractPublicCityFromAddress(address),
                     featured = tier == ProfileTier.VIP_16_9,
                     isHidden = hiddenTimed,
                     refreshEpochMs = System.currentTimeMillis(),
@@ -791,6 +796,32 @@ class AdminViewModel(
                 onSuccess()
             }.onFailure { err ->
                 _events.tryEmit(err.localizedMessage ?: "Failed to remove launch image")
+            }
+        }
+    }
+
+    fun addCustomHomeFilter(label: String) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.addHomeFilter(label)
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("Home filter added: ${label.trim()}")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to add home filter")
+            }
+        }
+    }
+
+    fun removeCustomHomeFilter(label: String) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.removeHomeFilter(label)
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("Home filter removed: $label")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to remove home filter")
             }
         }
     }

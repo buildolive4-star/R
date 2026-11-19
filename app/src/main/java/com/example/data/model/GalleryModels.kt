@@ -49,6 +49,7 @@ data class CompanionProfile(
     val category: String = "Companion",
     val tier: String = ProfileTier.GRID_9_16,
     val bio: String = "",
+    val city: String = "",
     val photoUrls: List<String> = emptyList(),
     val coverUrl: String = "",
     val aspectRatio: Double = 9.0 / 16.0,
@@ -87,6 +88,7 @@ data class CompanionProfile(
         age = age,
         role = role,
         tier = tier,
+        city = city,
         status = status,
         featured = isVip,
         uploadedBy = createdByUid,
@@ -235,6 +237,15 @@ data class LaunchBannerConfig(
 
 @Keep
 @IgnoreExtraProperties
+data class HomeFiltersConfig(
+    @DocumentId val id: String = "",
+    val filters: List<String> = emptyList(),
+    val updatedByEmail: String = "",
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+)
+
+@Keep
+@IgnoreExtraProperties
 data class ChatThread(
     @DocumentId val id: String = "",
     val clientUid: String = "",
@@ -299,6 +310,7 @@ data class GalleryImage(
     val age: Int = 21,
     val role: String = "GF",
     val tier: String = ProfileTier.GRID_9_16,
+    val city: String = "",
     val status: String = "published",
     val featured: Boolean = false,
     val uploadedBy: String = "",
@@ -408,6 +420,7 @@ data class SavedBookmark(
     val age: Int = 21,
     val role: String = "GF",
     val tier: String = ProfileTier.GRID_9_16,
+    val city: String = "",
     val uploaderName: String = "JustUs",
     val ownerUid: String = "",
     val tags: List<String> = emptyList(),
@@ -426,6 +439,7 @@ data class SavedBookmark(
         age = age,
         role = role,
         tier = tier,
+        city = city,
         uploaderName = uploaderName,
         ownerUid = ownerUid,
         tags = tags,

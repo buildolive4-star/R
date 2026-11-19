@@ -23,18 +23,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteSweep
-import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.NotificationsActive
-import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -49,16 +44,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.UserAccount
-import com.example.ui.theme.ThemeMode
 import com.google.firebase.auth.FirebaseUser
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -73,7 +67,6 @@ fun SettingsScreen(
     oneSignalPushConfigured: Boolean = false,
     backgroundSyncEnabled: Boolean,
     lastSyncCheckEpochMs: Long,
-    themeMode: ThemeMode,
     onSignInGoogle: () -> Unit,
     onSignOut: () -> Unit,
     onSaveProfile: (
@@ -92,7 +85,6 @@ fun SettingsScreen(
     onRequestNotificationPermission: () -> Unit,
     onToggleBackgroundSync: (Boolean) -> Unit,
     onCheckSyncNow: () -> Unit,
-    onThemeModeChange: (ThemeMode) -> Unit,
     onClearSaved: () -> Unit,
     onSecretAdminTrigger: () -> Unit,
     onSendTestAlert: () -> Unit = {},
@@ -107,7 +99,7 @@ fun SettingsScreen(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
                         MaterialTheme.colorScheme.background,
                         MaterialTheme.colorScheme.background,
                     )
@@ -125,6 +117,7 @@ fun SettingsScreen(
             Text(
                 text = stringResource(R.string.profile_title),
                 style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onBackground
             )
             Text(
@@ -166,16 +159,28 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Instant Heads-Up Alerts Card
+            // Instant Heads-Up Push Alerts Card (Sound + Vibration)
             Card(
-                shape = MaterialTheme.shapes.large,
+                shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 border = BorderStroke(
-                    1.dp,
-                    if (hasNotificationPermission) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.45f)
-                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                    1.3.dp,
+                    Brush.linearGradient(
+                        listOf(
+                            if (hasNotificationPermission) Color(0xFF00BFA5) else MaterialTheme.colorScheme.primary,
+                            Color(0xFFFF80AB).copy(alpha = 0.65f)
+                        )
+                    )
                 ),
-                modifier = Modifier.fillMaxWidth()
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 10.dp,
+                        shape = RoundedCornerShape(24.dp),
+                        ambientColor = Color(0xFFE91E63).copy(alpha = 0.16f),
+                        spotColor = Color(0xFFE91E63).copy(alpha = 0.22f)
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -183,14 +188,14 @@ fun SettingsScreen(
                             shape = CircleShape,
                             color = (if (hasNotificationPermission) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary)
                                 .copy(alpha = 0.16f),
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(42.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Rounded.NotificationsActive,
                                     contentDescription = null,
                                     tint = if (hasNotificationPermission) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(21.dp)
                                 )
                             }
                         }
@@ -198,15 +203,16 @@ fun SettingsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = if (hasNotificationPermission) {
-                                    stringResource(R.string.alerts_enabled_badge)
+                                    "Push Alerts Active (Sound + Vibration)"
                                 } else {
                                     stringResource(R.string.enable_alerts_title)
                                 },
                                 style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = stringResource(R.string.notification_channel_desc),
+                                text = "Instant system push alerts with notification chime & vibration even outside the app.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -215,7 +221,7 @@ fun SettingsScreen(
                                 text = if (oneSignalPushConfigured) {
                                     stringResource(R.string.onesignal_push_active)
                                 } else {
-                                    stringResource(R.string.onesignal_push_pending)
+                                    "Live Background Push Engine Active ✓"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
@@ -227,7 +233,7 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = onRequestNotificationPermission,
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .minimumInteractiveComponentSize()
@@ -235,68 +241,6 @@ fun SettingsScreen(
                         ) {
                             Text(text = stringResource(R.string.enable_alerts_button))
                         }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Theme selector
-            Card(
-                shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Rounded.Palette,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.theme_preference_title),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OptionChip(
-                            label = stringResource(R.string.theme_dark),
-                            icon = Icons.Rounded.DarkMode,
-                            selected = themeMode == ThemeMode.DARK,
-                            onClick = { onThemeModeChange(ThemeMode.DARK) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("theme_dark_chip")
-                        )
-                        OptionChip(
-                            label = stringResource(R.string.theme_light),
-                            icon = Icons.Rounded.LightMode,
-                            selected = themeMode == ThemeMode.LIGHT,
-                            onClick = { onThemeModeChange(ThemeMode.LIGHT) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("theme_light_chip")
-                        )
-                        OptionChip(
-                            label = stringResource(R.string.theme_system),
-                            icon = null,
-                            selected = themeMode == ThemeMode.SYSTEM,
-                            onClick = { onThemeModeChange(ThemeMode.SYSTEM) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("theme_system_chip")
-                        )
                     }
                 }
             }
@@ -393,16 +337,30 @@ private fun StatCard(
     modifier: Modifier = Modifier,
 ) {
     Card(
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier
+        border = BorderStroke(
+            1.2.dp,
+            Brush.linearGradient(
+                listOf(
+                    Color(0xFFE91E63).copy(alpha = 0.45f),
+                    Color(0xFFFF80AB).copy(alpha = 0.35f)
+                )
+            )
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        modifier = modifier.shadow(
+            elevation = 8.dp,
+            shape = RoundedCornerShape(22.dp),
+            ambientColor = Color(0xFFE91E63).copy(alpha = 0.14f),
+            spotColor = Color(0xFFE91E63).copy(alpha = 0.18f)
+        )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = value,
                 style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(2.dp))
@@ -413,41 +371,4 @@ private fun StatCard(
             )
         }
     }
-}
-
-@Composable
-private fun OptionChip(
-    label: String,
-    icon: ImageVector?,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        leadingIcon = if (icon != null) {
-            {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        } else null,
-        label = {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        },
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary
-        ),
-        modifier = modifier.minimumInteractiveComponentSize()
-    )
 }

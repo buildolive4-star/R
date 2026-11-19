@@ -8,6 +8,7 @@ import com.example.data.model.CompanionPrivateContact
 import com.example.data.model.CompanionProfile
 import com.example.data.model.GalleryImage
 import com.example.data.model.ProfileTier
+import com.example.util.LocationAddressFetcher
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.auth
@@ -134,6 +135,7 @@ class GalleryRepository(
             }
             docPath = docRef.path
 
+            val publicCity = LocationAddressFetcher.extractPublicCityFromAddress(address)
             val publicPayload = hashMapOf<String, Any>(
                 "name" to safeName,
                 "age" to safeAge,
@@ -142,6 +144,7 @@ class GalleryRepository(
                 "category" to safeCategory,
                 "tier" to safeTier,
                 "bio" to safeBio,
+                "city" to publicCity,
                 "photoUrls" to safePhotos,
                 "coverUrl" to safePhotos.first(),
                 "aspectRatio" to ratio,
@@ -209,21 +212,23 @@ class GalleryRepository(
             require(profileId.isNotBlank()) { "Profile ID required" }
             val safeTier = if (tier == ProfileTier.VIP_16_9) ProfileTier.VIP_16_9 else ProfileTier.GRID_9_16
             val ratio = if (safeTier == ProfileTier.VIP_16_9) 16.0 / 9.0 else 9.0 / 16.0
-            db.document(docPath).update(
-                mapOf(
-                    "name" to name.trim().take(80),
-                    "age" to age.coerceIn(18, 80),
-                    "price" to price.trim().ifBlank { "₹299" }.take(32),
-                    "role" to role.trim().ifBlank { "GF" },
-                    "category" to category.trim().ifBlank { "Companion" }.take(40),
-                    "tier" to safeTier,
-                    "aspectRatio" to ratio,
-                    "bio" to bio.trim().take(600),
-                    "hiddenTimed" to hiddenTimed,
-                    "status" to if (status == "archived") "archived" else "published",
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                )
-            ).await()
+            val updates = hashMapOf<String, Any>(
+                "name" to name.trim().take(80),
+                "age" to age.coerceIn(18, 80),
+                "price" to price.trim().ifBlank { "₹299" }.take(32),
+                "role" to role.trim().ifBlank { "GF" },
+                "category" to category.trim().ifBlank { "Companion" }.take(40),
+                "tier" to safeTier,
+                "aspectRatio" to ratio,
+                "bio" to bio.trim().take(600),
+                "hiddenTimed" to hiddenTimed,
+                "status" to if (status == "archived") "archived" else "published",
+                "updatedAt" to FieldValue.serverTimestamp(),
+            )
+            if (address != null) {
+                updates["city"] = LocationAddressFetcher.extractPublicCityFromAddress(address)
+            }
+            db.document(docPath).update(updates).await()
 
             if (phone != null || address != null) {
                 val contactPath = "$docPath/private/contact"

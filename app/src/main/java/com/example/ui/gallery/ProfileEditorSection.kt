@@ -1,5 +1,6 @@
 package com.example.ui.gallery
 
+import android.Manifest
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.HourglassTop
+import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Verified
@@ -58,6 +60,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,8 +76,10 @@ import coil.request.ImageRequest
 import com.example.data.model.StaffStatus
 import com.example.data.model.UserAccount
 import com.example.ui.components.PixoraNetworkImage
+import com.example.util.LocationAddressFetcher
 import com.example.util.ProfileCompletionCalculator
 import com.google.firebase.auth.FirebaseUser
+import kotlinx.coroutines.launch
 
 private val PREFERENCE_ROLES = listOf("Looking for GF", "Looking for BF", "Open to Both")
 private val STAFF_ROLES = listOf("GF", "BF")
@@ -104,6 +109,7 @@ fun ProfileEditorSection(
     authErrorMessage: String? = null,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var name by remember(userAccount?.uid, userAccount?.name, firebaseUser?.displayName) {
         mutableStateOf(userAccount?.name?.ifBlank { firebaseUser?.displayName ?: "" } ?: (firebaseUser?.displayName ?: ""))
     }
@@ -131,12 +137,50 @@ fun ProfileEditorSection(
 
     var selectedAvatarUri by remember { mutableStateOf<Uri?>(null) }
     var selectedGalleryUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var isFetchingLocation by remember { mutableStateOf(false) }
+    var locationStatusHint by remember { mutableStateOf<String?>(null) }
 
     var staffRole by remember(userAccount?.staffRole) {
         mutableStateOf(userAccount?.staffRole?.ifBlank { "GF" } ?: "GF")
     }
     var staffPrice by remember(userAccount?.staffPrice) {
         mutableStateOf(userAccount?.staffPrice?.ifBlank { "₹499" } ?: "₹499")
+    }
+
+    fun performLocationAutoFetch() {
+        if (isFetchingLocation) return
+        scope.launch {
+            isFetchingLocation = true
+            locationStatusHint = "Detecting your city & address…"
+            val res = LocationAddressFetcher.fetchCurrentAddress(context)
+            isFetchingLocation = false
+            res.onSuccess { fetched ->
+                if (fetched.city.isNotBlank()) city = fetched.city
+                if (fetched.fullAddress.isNotBlank()) address = fetched.fullAddress
+                locationStatusHint = "Location auto-filled: ${fetched.city.ifBlank { fetched.fullAddress }}"
+            }.onFailure { err ->
+                locationStatusHint = err.localizedMessage ?: "Could not detect location. Please turn on Location/GPS."
+            }
+        }
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted ->
+            if (granted) {
+                performLocationAutoFetch()
+            } else {
+                locationStatusHint = "Location permission denied. You can still type your City & Address manually."
+            }
+        }
+    )
+
+    fun triggerAutoFetchAddress() {
+        if (LocationAddressFetcher.hasLocationPermission(context)) {
+            performLocationAutoFetch()
+        } else {
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
     }
 
     val avatarPicker = rememberLauncherForActivityResult(
@@ -511,6 +555,54 @@ fun ProfileEditorSection(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Location & Address",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    FilledTonalButton(
+                        onClick = { triggerAutoFetchAddress() },
+                        enabled = !isFetchingLocation,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("profile_autofetch_address_button")
+                    ) {
+                        if (isFetchingLocation) {
+                            CircularProgressIndicator(
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Fetching…", style = MaterialTheme.typography.labelMedium)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.MyLocation,
+                                contentDescription = "Auto-fetch current address",
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Auto-Fetch Address", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+                if (!locationStatusHint.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = locationStatusHint.orEmpty(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedTextField(
@@ -519,7 +611,9 @@ fun ProfileEditorSection(
                         singleLine = true,
                         label = { Text("City *") },
                         shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("profile_city_input")
                     )
                     OutlinedTextField(
                         value = interests,
@@ -540,7 +634,9 @@ fun ProfileEditorSection(
                     singleLine = true,
                     label = { Text("Full Address *") },
                     shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("profile_address_input")
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -561,7 +657,13 @@ fun ProfileEditorSection(
                 Text(
                     text = "Preference",
                     style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Home Page automatically shows matching GF/BF profiles & nearby city first.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 FlowRow(
@@ -818,6 +920,33 @@ fun ProfileEditorSection(
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier.weight(0.7f)
                                     )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                FilledTonalButton(
+                                    onClick = { triggerAutoFetchAddress() },
+                                    enabled = !isFetchingLocation,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("join_autofetch_address_button")
+                                ) {
+                                    if (isFetchingLocation) {
+                                        CircularProgressIndicator(
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Detecting Current Address…")
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Rounded.MyLocation,
+                                            contentDescription = "Auto-fetch current address",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Auto-Fetch City & Address")
+                                    }
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Row(
