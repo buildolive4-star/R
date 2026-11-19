@@ -11,6 +11,7 @@ import com.example.data.model.AdminEmailEntry
 import com.example.data.model.AdminMemberProfile
 import com.example.data.model.AdminUserFilter
 import com.example.data.model.AppShareConfig
+import com.example.data.model.AppUpdateConfig
 import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
 import com.example.data.model.CompanionProfile
@@ -21,6 +22,7 @@ import com.example.data.model.LaunchBannerConfig
 import com.example.data.model.PaymentServerConfig
 import com.example.data.model.PayoutStatus
 import com.example.data.model.ProfileTier
+import com.example.data.model.PromoTickerConfig
 import com.example.data.model.StaffStatus
 import com.example.data.model.UserAccount
 import com.example.data.model.UserComplaint
@@ -156,6 +158,12 @@ class AdminViewModel(
 
     val appShareConfig: StateFlow<AppShareConfig> = userCrmRepository.observeAppShareConfig()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), AppShareConfig())
+
+    val appUpdateConfig: StateFlow<AppUpdateConfig> = userCrmRepository.observeAppUpdateConfig()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), AppUpdateConfig())
+
+    val promoTickerConfig: StateFlow<PromoTickerConfig> = userCrmRepository.observePromoTickerConfig()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), PromoTickerConfig())
 
     val changeRequests: StateFlow<List<AdminChangeRequest>> = combine(
         _isVerifiedAdmin,
@@ -1058,6 +1066,57 @@ class AdminViewModel(
                 onSaved()
             }.onFailure { err ->
                 _events.tryEmit(err.localizedMessage ?: "Failed to save App Share Link")
+            }
+        }
+    }
+
+    fun saveAppUpdateConfig(
+        latestVersionCode: Int,
+        latestVersionName: String,
+        apkDownloadUrl: String,
+        releaseNotes: String,
+        forceUpdate: Boolean,
+        onSaved: () -> Unit = {},
+    ) {
+        if (!requireMainAdminAction("Publish App Update")) return
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.saveAppUpdateConfig(
+                latestVersionCode = latestVersionCode,
+                latestVersionName = latestVersionName,
+                apkDownloadUrl = apkDownloadUrl,
+                releaseNotes = releaseNotes,
+                forceUpdate = forceUpdate,
+            )
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("App Update v$latestVersionName (code $latestVersionCode) published live ✓")
+                onSaved()
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to publish App Update")
+            }
+        }
+    }
+
+    fun savePromoTickerConfig(
+        active: Boolean,
+        badgeLabel: String,
+        text: String,
+        onSaved: () -> Unit = {},
+    ) {
+        if (!requireMainAdminAction("Edit Live Offer Ticker")) return
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.savePromoTickerConfig(active, badgeLabel, text)
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit(
+                    if (active) "Live Offer Ticker published to Home ✓"
+                    else "Live Offer Ticker hidden ✓"
+                )
+                onSaved()
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to save Offer Ticker")
             }
         }
     }

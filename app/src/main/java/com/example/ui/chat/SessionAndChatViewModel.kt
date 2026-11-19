@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.GoogleAuthHelper
 import com.example.data.model.ActiveCallUi
 import com.example.data.model.AppShareConfig
+import com.example.data.model.AppUpdateConfig
 import com.example.data.model.CallSession
 import com.example.data.model.CallStatus
 import com.example.data.model.ChatMessage
@@ -15,6 +16,7 @@ import com.example.data.model.GalleryImage
 import com.example.data.model.LaunchBannerConfig
 import com.example.data.model.ModerationStatus
 import com.example.data.model.PresenceStatus
+import com.example.data.model.PromoTickerConfig
 import com.example.data.model.UserAccount
 import com.example.data.remote.ImgBbApiService
 import com.example.data.remote.ImgBbUploadHelper
@@ -167,6 +169,20 @@ class SessionAndChatViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000L),
             initialValue = AppShareConfig(),
+        )
+
+    val appUpdateConfig: StateFlow<AppUpdateConfig> = userCrmRepository.observeAppUpdateConfig()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = AppUpdateConfig(),
+        )
+
+    val promoTickerConfig: StateFlow<PromoTickerConfig> = userCrmRepository.observePromoTickerConfig()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = PromoTickerConfig(),
         )
 
     init {

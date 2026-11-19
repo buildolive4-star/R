@@ -276,3 +276,44 @@ data class AdminChangeRequest(
     @ServerTimestamp val updatedAt: Timestamp? = null,
 )
 
+@Keep
+@IgnoreExtraProperties
+data class AppUpdateConfig(
+    @DocumentId val id: String = "",
+    val latestVersionCode: Int = 1,
+    val latestVersionName: String = "1.0",
+    val apkDownloadUrl: String = "",
+    val releaseNotes: String = "",
+    val forceUpdate: Boolean = false,
+    val updatedByEmail: String = "",
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+    fun isUpdateAvailable(currentVersionCode: Int): Boolean {
+        val cleanUrl = apkDownloadUrl.trim()
+        return latestVersionCode > currentVersionCode &&
+            (cleanUrl.startsWith("https://") || cleanUrl.startsWith("http://"))
+    }
+}
+
+@Keep
+@IgnoreExtraProperties
+data class PromoTickerConfig(
+    @DocumentId val id: String = "",
+    val active: Boolean = false,
+    val badgeLabel: String = "LIVE OFFER",
+    val text: String = "",
+    val updatedByEmail: String = "",
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+    val isReadyToShow: Boolean
+        get() = active && text.trim().isNotBlank()
+}
+
+enum class ProfileSortMode(val label: String) {
+    RECOMMENDED("Online & Nearby"),
+    PRICE_LOW("Price: Low → High"),
+    PRICE_HIGH("Price: High → Low"),
+    AGE_YOUNG("Age: Youngest"),
+}
+
+

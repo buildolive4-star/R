@@ -87,6 +87,7 @@ import com.example.ui.components.DateMate3DGlowingIconButton
 import com.example.ui.components.DateMateMascot
 import com.example.ui.components.GlowButtonStyle
 import com.example.ui.components.PixoraNetworkImage
+import com.example.ui.components.LuxuryChatGiftTrayDialog
 import com.example.ui.components.PriceBadgePill
 import com.example.ui.theme.OnlineEmeraldDot
 import com.example.ui.theme.WhatsAppGreen
@@ -123,6 +124,8 @@ fun ChatRoomScreen(
     onStartVoiceCall: () -> Unit = {},
     onBack: () -> Unit,
     peerPresence: PresenceStatus? = null,
+    dateCoinsBalance: Int = 50,
+    onSpendCoinsForGift: (cost: Int, onAllowed: () -> Unit) -> Unit = { _, onAllowed -> onAllowed() },
     onDeleteMessages: (messageIds: List<String>, remainingMessages: List<ChatMessage>) -> Unit = { _, _ -> },
     onDeleteChat: () -> Unit = {},
 ) {
@@ -130,6 +133,7 @@ fun ChatRoomScreen(
     var showDeleteMessagesDialog by remember { mutableStateOf(false) }
     var showDeleteChatDialog by remember { mutableStateOf(false) }
     var showDatePlannerDialog by remember { mutableStateOf(false) }
+    var showGiftTrayDialog by remember { mutableStateOf(false) }
 
     BackHandler {
         if (selectedMessageIds.isNotEmpty()) {
@@ -519,6 +523,28 @@ fun ChatRoomScreen(
                             }
                         }
 
+                        item(key = "luxury_gift_tray_btn") {
+                            Surface(
+                                onClick = { showGiftTrayDialog = true },
+                                shape = RoundedCornerShape(999.dp),
+                                color = Color(0xFFFFF8E1),
+                                border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.65f)),
+                                modifier = Modifier.testTag("chat_open_gift_tray_button")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "🎁 Luxury Gifts",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFB45309)
+                                    )
+                                }
+                            }
+                        }
+
                         items(SMART_ICEBREAKERS, key = { it }) { icebreaker ->
                             Surface(
                                 onClick = { draft = icebreaker },
@@ -751,6 +777,22 @@ fun ChatRoomScreen(
                     Text("Close")
                 }
             }
+        )
+    }
+
+    if (showGiftTrayDialog) {
+        LuxuryChatGiftTrayDialog(
+            dateCoinsBalance = dateCoinsBalance,
+            onSelectGift = { gift ->
+                onSpendCoinsForGift(gift.coinCost) {
+                    onSendMessage(
+                        gift.chatText,
+                        { err -> leakWarning = err },
+                        {}
+                    )
+                }
+            },
+            onDismiss = { showGiftTrayDialog = false },
         )
     }
 

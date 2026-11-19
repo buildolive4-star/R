@@ -904,4 +904,70 @@ test("Verified Staff can self-toggle staffOnline on own user & companion_profile
   );
 });
 
+test("App Update and Promo Ticker rules allow public read and restrict writes to Main Admin only", async () => {
+  const superDb = testEnv
+    .authenticatedContext(SUPER_ADMIN_UID, {
+      email: SUPER_ADMIN_EMAIL,
+      email_verified: true,
+    })
+    .firestore();
+  const aliceDb = testEnv
+    .authenticatedContext(ALICE_UID, {
+      email: "alice@example.com",
+      email_verified: true,
+    })
+    .firestore();
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+  const past = new Date(Date.now() - 5000);
+
+  // Regular user CANNOT write app_update or promo_ticker
+  await assertFails(
+    aliceDb.collection("app_config").doc("app_update").set({
+      latestVersionCode: 2,
+      latestVersionName: "2.0",
+      apkDownloadUrl: "https://jaiambey.shop/datemate-v2.apk",
+      releaseNotes: "Fake update",
+      forceUpdate: true,
+      updatedByEmail: "alice@example.com",
+      updatedAt: past,
+    })
+  );
+  await assertFails(
+    aliceDb.collection("app_config").doc("promo_ticker").set({
+      active: true,
+      badgeLabel: "OFFER",
+      text: "Fake offer",
+      updatedByEmail: "alice@example.com",
+      updatedAt: past,
+    })
+  );
+
+  // Main Admin CAN publish app_update and promo_ticker
+  await assertSucceeds(
+    superDb.collection("app_config").doc("app_update").set({
+      latestVersionCode: 2,
+      latestVersionName: "2.0",
+      apkDownloadUrl: "https://jaiambey.shop/datemate-v2.apk",
+      releaseNotes: "• 10 new luxury features\n• Faster live updates",
+      forceUpdate: true,
+      updatedByEmail: SUPER_ADMIN_EMAIL,
+      updatedAt: past,
+    })
+  );
+  await assertSucceeds(
+    superDb.collection("app_config").doc("promo_ticker").set({
+      active: true,
+      badgeLabel: "FLASH OFFER",
+      text: "Weekend VIP Special: Flat ₹100 OFF on Dinner Advance Booking!",
+      updatedByEmail: SUPER_ADMIN_EMAIL,
+      updatedAt: past,
+    })
+  );
+
+  // Public / any user CAN read both configs
+  await assertSucceeds(publicDb.collection("app_config").doc("app_update").get());
+  await assertSucceeds(publicDb.collection("app_config").doc("promo_ticker").get());
+});
+
+
 

@@ -140,6 +140,8 @@ import com.example.ui.chat.ChatOnboardingSheet
 import com.example.ui.chat.ChatRoomScreen
 import com.example.ui.chat.ChatsScreen
 import com.example.ui.chat.SessionAndChatViewModel
+import com.example.ui.components.AppUpdateModalDialog
+import com.example.ui.components.ForceUpdateHardBlockScreen
 import com.example.ui.components.InAppBannerEvent
 import com.example.ui.components.InAppNotificationBanner
 import com.example.ui.components.LaunchBannerOverlay
@@ -462,6 +464,8 @@ fun JustUsAppRoot(
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val selectedVibe by viewModel.selectedVibe.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val sortMode by viewModel.sortMode.collectAsStateWithLifecycle()
+    val engagementPrefs by viewModel.engagementPrefs.collectAsStateWithLifecycle()
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     val bookmarkedIds by viewModel.bookmarkedIds.collectAsStateWithLifecycle()
     val backgroundSyncEnabled by viewModel.backgroundSyncEnabled.collectAsStateWithLifecycle()
@@ -473,6 +477,19 @@ fun JustUsAppRoot(
     val clientChats by sessionViewModel.clientChats.collectAsStateWithLifecycle()
     val staffInboxChats by sessionViewModel.staffInboxChats.collectAsStateWithLifecycle()
     val pendingChatProfile by sessionViewModel.pendingChatProfile.collectAsStateWithLifecycle()
+    val appUpdateConfig by sessionViewModel.appUpdateConfig.collectAsStateWithLifecycle()
+    val cachedAppUpdateConfig by viewModel.cachedAppUpdateConfig.collectAsStateWithLifecycle()
+    val hasLiveUpdateSnapshot = appUpdateConfig.id.isNotBlank() || appUpdateConfig.updatedByEmail.isNotBlank()
+    LaunchedEffect(appUpdateConfig, hasLiveUpdateSnapshot) {
+        if (hasLiveUpdateSnapshot) {
+            viewModel.cacheAppUpdateConfig(appUpdateConfig)
+        }
+    }
+    val effectiveUpdateConfig = if (hasLiveUpdateSnapshot) appUpdateConfig else cachedAppUpdateConfig
+    val promoTickerConfig by sessionViewModel.promoTickerConfig.collectAsStateWithLifecycle()
+    var dismissedOptionalUpdateCode by rememberSaveable { mutableStateOf(0) }
+    var showManualUpdateDialog by remember { mutableStateOf(false) }
+    var adminBypassFromUpdateLock by rememberSaveable { mutableStateOf(false) }
     val authErrorMessage by sessionViewModel.authErrorMessage.collectAsStateWithLifecycle()
     val activeCallUi by sessionViewModel.activeCallUi.collectAsStateWithLifecycle()
     val isVerifiedAdminForCalls by sessionViewModel.isVerifiedAdminForCalls.collectAsStateWithLifecycle()
@@ -517,6 +534,18 @@ fun JustUsAppRoot(
     val currentViewingChatId = backStackEntry?.arguments?.getString("chatId").orEmpty()
     val currentViewingChatRole = backStackEntry?.arguments?.getString("senderRole").orEmpty()
     val isTopLevelRoute = currentRoute in TopTabs.map { it.route }
+    val isHardForceUpdateLocked = effectiveUpdateConfig.isUpdateAvailable(BuildConfig.VERSION_CODE) &&
+        effectiveUpdateConfig.forceUpdate &&
+        !adminBypassFromUpdateLock &&
+        currentRoute != ROUTE_ADMIN
+
+    LaunchedEffect(adminBypassFromUpdateLock) {
+        if (adminBypassFromUpdateLock) {
+            navController.navigate(ROUTE_ADMIN) {
+                launchSingleTop = true
+            }
+        }
+    }
 
     val oneSignalDeepLinkImageId by OneSignalPushManager.deepLinkImageId.collectAsStateWithLifecycle()
     val oneSignalDeepLinkChat by OneSignalPushManager.deepLinkChat.collectAsStateWithLifecycle()
@@ -530,12 +559,14 @@ fun JustUsAppRoot(
     LaunchedEffect(bookingViewModel) {
         bookingViewModel.events.collect { msg -> snackbarHostState.showSnackbar(msg) }
     }
-    LaunchedEffect(bookingViewModel) {
+    LaunchedEffect(bookingViewModel, isHardForceUpdateLocked) {
         bookingViewModel.navigateToBookings.collect {
-            navController.navigate(ROUTE_BOOKINGS) {
-                popUpTo(ROUTE_EXPLORE) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
+            if (!isHardForceUpdateLocked) {
+                navController.navigate(ROUTE_BOOKINGS) {
+                    popUpTo(ROUTE_EXPLORE) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
             }
         }
     }
@@ -545,8 +576,8 @@ fun JustUsAppRoot(
             onConsumePaymentResultUri()
         }
     }
-    LaunchedEffect(openBookingsTab) {
-        if (openBookingsTab) {
+    LaunchedEffect(openBookingsTab, isHardForceUpdateLocked) {
+        if (openBookingsTab && !isHardForceUpdateLocked) {
             navController.navigate(ROUTE_BOOKINGS) {
                 popUpTo(ROUTE_EXPLORE) { saveState = true }
                 launchSingleTop = true
@@ -568,10 +599,12 @@ fun JustUsAppRoot(
             }
         }
     }
-    LaunchedEffect(sessionViewModel) {
+    LaunchedEffect(sessionViewModel, isHardForceUpdateLocked) {
         sessionViewModel.navigateToChatId.collect { chatId ->
-            navController.navigate("chat/$chatId/client") {
-                launchSingleTop = true
+            if (!isHardForceUpdateLocked) {
+                navController.navigate("chat/$chatId/client") {
+                    launchSingleTop = true
+                }
             }
         }
     }
@@ -732,7 +765,8 @@ fun JustUsAppRoot(
         }
     }
 
-    LaunchedEffect(deepLinkImageId, oneSignalDeepLinkImageId) {
+    LaunchedEffect(deepLinkImageId, oneSignalDeepLinkImageId, isHardForceUpdateLocked) {
+        if (isHardForceUpdateLocked) return@LaunchedEffect
         val targetImageId = deepLinkImageId?.takeIf { it.isNotBlank() } ?: oneSignalDeepLinkImageId
         if (!targetImageId.isNullOrBlank()) {
             navController.navigate("detail/$targetImageId") { launchSingleTop = true }
@@ -741,7 +775,8 @@ fun JustUsAppRoot(
         }
     }
 
-    LaunchedEffect(deepLinkChat, oneSignalDeepLinkChat) {
+    LaunchedEffect(deepLinkChat, oneSignalDeepLinkChat, isHardForceUpdateLocked) {
+        if (isHardForceUpdateLocked) return@LaunchedEffect
         val targetChat = deepLinkChat ?: oneSignalDeepLinkChat
         if (targetChat != null) {
             navController.navigate("chat/${targetChat.first}/${targetChat.second}") {
@@ -755,6 +790,13 @@ fun JustUsAppRoot(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val useRail = maxWidth >= 600.dp
 
+        if (isHardForceUpdateLocked) {
+            // 100% Hard-Block Wall: Home/Chats/Bookings/NavHost are NEVER mounted until user installs new APK
+            ForceUpdateHardBlockScreen(
+                updateConfig = effectiveUpdateConfig,
+                onSecretAdminTrigger = { showAdminPasscodeSheet = true },
+            )
+        } else {
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
                 snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -898,11 +940,18 @@ fun JustUsAppRoot(
                                         if (img.isDeletedBlurred) {
                                             viewModel.notifyExpiredBlurredTap()
                                         } else {
+                                            viewModel.recordProfileViewed(img.id)
                                             navController.navigate("detail/${img.id}")
                                         }
                                     },
                                     onChatClick = sessionViewModel::requestChatWithProfile,
                                     onToggleBookmark = viewModel::toggleBookmark,
+                                    promoTickerConfig = promoTickerConfig,
+                                    sortMode = sortMode,
+                                    onSelectSortMode = viewModel::selectSortMode,
+                                    engagementPrefs = engagementPrefs,
+                                    onClaimDailySpin = viewModel::claimDailySpinReward,
+                                    onSaveVibePersonality = viewModel::saveVibePersonality,
                                 )
                             }
 
@@ -996,8 +1045,22 @@ fun JustUsAppRoot(
                                     lastSyncCheckEpochMs = lastSyncCheckEpochMs,
                                     currentLookTheme = appLookTheme,
                                     appShareConfig = appShareConfig,
+                                    appUpdateConfig = effectiveUpdateConfig,
+                                    engagementPrefs = engagementPrefs,
                                     myComplaints = myComplaints,
                                     onSelectLookTheme = viewModel::setAppLookTheme,
+                                    onCheckAppUpdateClick = {
+                                        if (effectiveUpdateConfig.isUpdateAvailable(BuildConfig.VERSION_CODE)) {
+                                            showManualUpdateDialog = true
+                                        } else {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("You are on the latest DateMate v${BuildConfig.VERSION_NAME} ✓")
+                                            }
+                                        }
+                                    },
+                                    onClaimDailySpin = viewModel::claimDailySpinReward,
+                                    onSaveVibePersonality = viewModel::saveVibePersonality,
+                                    onSaveEmergencyContact = viewModel::saveEmergencyContact,
                                     onSubmitComplaint = { subj, msg, done ->
                                         bookingViewModel.submitUserComplaint(userAccount, subj, msg, done)
                                     },
@@ -1065,6 +1128,10 @@ fun JustUsAppRoot(
                                     onChatClick = sessionViewModel::requestChatWithProfile,
                                     onBookClick = { selected -> bookingTargetProfile = selected },
                                     defaultAdvanceInr = paymentServerConfig.defaultAdvanceInr,
+                                    appShareConfig = appShareConfig,
+                                    emergencyContactName = engagementPrefs.emergencyContactName,
+                                    emergencyContactPhone = engagementPrefs.emergencyContactPhone,
+                                    onSaveEmergencyContact = viewModel::saveEmergencyContact,
                                     onBack = { navController.popBackStack() }
                                 )
                             }
@@ -1114,6 +1181,12 @@ fun JustUsAppRoot(
                                     },
                                     onBack = { navController.popBackStack() },
                                     peerPresence = peerPresence,
+                                    dateCoinsBalance = engagementPrefs.dateCoins,
+                                    onSpendCoinsForGift = { cost, onAllowed ->
+                                        viewModel.spendDateCoinsForGift(cost) { ok ->
+                                            if (ok) onAllowed()
+                                        }
+                                    },
                                     onDeleteMessages = { messageIds, remainingMessages ->
                                         val active = chatThread ?: return@ChatRoomScreen
                                         sessionViewModel.deleteChatMessages(
@@ -1171,6 +1244,8 @@ fun JustUsAppRoot(
                                 val adminFilterTaxonomy by adminViewModel.filterTaxonomy.collectAsStateWithLifecycle()
                                 val adminPaymentConfig by adminViewModel.paymentServerConfig.collectAsStateWithLifecycle()
                                 val adminAppShareConfig by adminViewModel.appShareConfig.collectAsStateWithLifecycle()
+                                val adminAppUpdateConfig by adminViewModel.appUpdateConfig.collectAsStateWithLifecycle()
+                                val adminPromoTickerConfig by adminViewModel.promoTickerConfig.collectAsStateWithLifecycle()
                                 val adminBookings by adminViewModel.allBookings.collectAsStateWithLifecycle()
                                 val adminComplaints by adminViewModel.allComplaints.collectAsStateWithLifecycle()
                                 val adminChangeRequests by adminViewModel.changeRequests.collectAsStateWithLifecycle()
@@ -1277,7 +1352,10 @@ fun JustUsAppRoot(
                                             launchSingleTop = true
                                         }
                                     },
-                                    onBack = { navController.popBackStack() },
+                                    onBack = {
+                                        adminBypassFromUpdateLock = false
+                                        navController.popBackStack()
+                                    },
                                     snackbarHostState = snackbarHostState,
                                     authErrorMessage = adminAuthError,
                                     launchBanner = adminLaunchBanner,
@@ -1298,6 +1376,8 @@ fun JustUsAppRoot(
                                     filterTaxonomy = adminFilterTaxonomy,
                                     paymentServerConfig = adminPaymentConfig,
                                     appShareConfig = adminAppShareConfig,
+                                    appUpdateConfig = adminAppUpdateConfig,
+                                    promoTickerConfig = adminPromoTickerConfig,
                                     allBookings = adminBookings,
                                     allComplaints = adminComplaints,
                                     changeRequests = adminChangeRequests,
@@ -1305,6 +1385,8 @@ fun JustUsAppRoot(
                                     onSavePaymentServerConfig = adminViewModel::savePaymentServerConfig,
                                     onTestPaymentServer = adminViewModel::testPaymentServerHealth,
                                     onSaveAppShareConfig = adminViewModel::saveAppShareConfig,
+                                    onSaveAppUpdateConfig = adminViewModel::saveAppUpdateConfig,
+                                    onSavePromoTickerConfig = adminViewModel::savePromoTickerConfig,
                                     onSubmitChangeRequest = adminViewModel::submitChangeRequest,
                                     onReviewChangeRequest = adminViewModel::reviewChangeRequest,
                                     onApproveStaffPayout = adminViewModel::approveStaffPayout,
@@ -1353,10 +1435,11 @@ fun JustUsAppRoot(
                 )
             }
         }
+        }
     }
 
     val onboardingTarget = pendingChatProfile
-    if (onboardingTarget != null) {
+    if (onboardingTarget != null && !isHardForceUpdateLocked) {
         ChatOnboardingSheet(
             targetProfile = onboardingTarget,
             existingAccount = userAccount,
@@ -1378,7 +1461,7 @@ fun JustUsAppRoot(
     }
 
     val bookingProfile = bookingTargetProfile
-    if (bookingProfile != null) {
+    if (bookingProfile != null && !isHardForceUpdateLocked) {
         BookingCheckoutSheet(
             profile = bookingProfile,
             defaultAdvanceInr = paymentServerConfig.defaultAdvanceInr,
@@ -1420,10 +1503,32 @@ fun JustUsAppRoot(
             onUnlocked = {
                 showAdminPasscodeSheet = false
                 sessionViewModel.unlockPinAdminAndRefreshMonitoring()
-                navController.navigate(ROUTE_ADMIN) {
-                    launchSingleTop = true
+                if (isHardForceUpdateLocked) {
+                    adminBypassFromUpdateLock = true
+                } else {
+                    navController.navigate(ROUTE_ADMIN) {
+                        launchSingleTop = true
+                    }
                 }
             }
+        )
+    }
+
+    val isUpdateAvailable = effectiveUpdateConfig.isUpdateAvailable(BuildConfig.VERSION_CODE)
+    val shouldShowOptionalUpdate = !isHardForceUpdateLocked &&
+        isUpdateAvailable &&
+        !effectiveUpdateConfig.forceUpdate &&
+        currentRoute != ROUTE_ADMIN &&
+        dismissedOptionalUpdateCode != effectiveUpdateConfig.latestVersionCode
+    if (shouldShowOptionalUpdate || (!isHardForceUpdateLocked && showManualUpdateDialog && isUpdateAvailable)) {
+        AppUpdateModalDialog(
+            updateConfig = effectiveUpdateConfig,
+            onDismiss = {
+                showManualUpdateDialog = false
+                if (!effectiveUpdateConfig.forceUpdate) {
+                    dismissedOptionalUpdateCode = effectiveUpdateConfig.latestVersionCode
+                }
+            },
         )
     }
 }

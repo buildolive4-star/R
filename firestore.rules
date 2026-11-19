@@ -538,8 +538,27 @@ service cloud.firestore {
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
+    function isValidAppUpdateConfig(data) {
+      return data.latestVersionCode is int && data.latestVersionCode >= 1 && data.latestVersionCode <= 100000 &&
+             data.latestVersionName is string && data.latestVersionName.size() >= 1 && data.latestVersionName.size() <= 32 &&
+             data.apkDownloadUrl is string && data.apkDownloadUrl.size() <= 600 &&
+             (data.apkDownloadUrl == '' || data.apkDownloadUrl.matches('^https?://.*')) &&
+             data.releaseNotes is string && data.releaseNotes.size() <= 600 &&
+             data.forceUpdate is bool &&
+             data.updatedByEmail is string && data.updatedByEmail.size() <= 120 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPromoTickerConfig(data) {
+      return data.active is bool &&
+             data.badgeLabel is string && data.badgeLabel.size() >= 1 && data.badgeLabel.size() <= 32 &&
+             data.text is string && data.text.size() <= 240 &&
+             data.updatedByEmail is string && data.updatedByEmail.size() <= 120 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
     match /app_config/{docId} {
-      allow get: if docId in ['launch_banner', 'home_filters', 'filter_taxonomy', 'payment_config', 'share_config'];
+      allow get: if docId in ['launch_banner', 'home_filters', 'filter_taxonomy', 'payment_config', 'share_config', 'app_update', 'promo_ticker'];
       allow list: if false;
       allow create, update: if isSuperAdmin() && (
         (
@@ -567,9 +586,19 @@ service cloud.firestore {
           isValidShareConfig(incoming()) &&
           incoming().keys().hasAll(['shareUrl', 'shareMessage', 'updatedByEmail', 'updatedAt']) &&
           incoming().keys().hasOnly(['shareUrl', 'shareMessage', 'updatedByEmail', 'updatedAt'])
+        ) || (
+          docId == 'app_update' &&
+          isValidAppUpdateConfig(incoming()) &&
+          incoming().keys().hasAll(['latestVersionCode', 'latestVersionName', 'apkDownloadUrl', 'releaseNotes', 'forceUpdate', 'updatedByEmail', 'updatedAt']) &&
+          incoming().keys().hasOnly(['latestVersionCode', 'latestVersionName', 'apkDownloadUrl', 'releaseNotes', 'forceUpdate', 'updatedByEmail', 'updatedAt'])
+        ) || (
+          docId == 'promo_ticker' &&
+          isValidPromoTickerConfig(incoming()) &&
+          incoming().keys().hasAll(['active', 'badgeLabel', 'text', 'updatedByEmail', 'updatedAt']) &&
+          incoming().keys().hasOnly(['active', 'badgeLabel', 'text', 'updatedByEmail', 'updatedAt'])
         )
       );
-      allow delete: if isSuperAdmin() && docId in ['launch_banner', 'home_filters', 'filter_taxonomy', 'payment_config', 'share_config'];
+      allow delete: if isSuperAdmin() && docId in ['launch_banner', 'home_filters', 'filter_taxonomy', 'payment_config', 'share_config', 'app_update', 'promo_ticker'];
     }
 
     function isValidBooking(data) {

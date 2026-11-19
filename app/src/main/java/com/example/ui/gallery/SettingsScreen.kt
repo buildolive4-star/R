@@ -27,6 +27,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
@@ -38,6 +40,8 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PrivacyTip
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -71,16 +75,22 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.BuildConfig
 import com.example.R
 import com.example.data.model.AppShareConfig
+import com.example.data.model.AppUpdateConfig
 import com.example.data.model.UserAccount
 import com.example.data.model.UserComplaint
+import com.example.data.preferences.UserEngagementPrefs
 import com.example.ui.components.Animated3DMascotOrb
 import com.example.ui.components.Animated3DPageBackdrop
+import com.example.ui.components.DailyCheckInSpinDialog
 import com.example.ui.components.DateMate3DGlowingButton
 import com.example.ui.components.DateMate3DGlowingIconButton
 import com.example.ui.components.DateMateMascot
+import com.example.ui.components.DateSafetyToolkitDialog
 import com.example.ui.components.GlowButtonStyle
+import com.example.ui.components.LoveVibeQuizDialog
 import com.example.ui.theme.AppLookTheme
 import com.google.firebase.auth.FirebaseUser
 
@@ -98,8 +108,14 @@ fun SettingsScreen(
     lastSyncCheckEpochMs: Long,
     currentLookTheme: AppLookTheme = AppLookTheme.DEFAULT,
     appShareConfig: AppShareConfig = AppShareConfig(),
+    appUpdateConfig: AppUpdateConfig = AppUpdateConfig(),
+    engagementPrefs: UserEngagementPrefs = UserEngagementPrefs(),
     myComplaints: List<UserComplaint> = emptyList(),
     onSelectLookTheme: (AppLookTheme) -> Unit = {},
+    onCheckAppUpdateClick: () -> Unit = {},
+    onClaimDailySpin: (coins: Int, rewardTitle: String) -> Unit = { _, _ -> },
+    onSaveVibePersonality: (vibeName: String, filterKeyword: String) -> Unit = { _, _ -> },
+    onSaveEmergencyContact: (name: String, phone: String) -> Unit = { _, _ -> },
     onSubmitComplaint: (subject: String, message: String, onDone: () -> Unit) -> Unit = { _, _, _ -> },
     onSignInGoogle: () -> Unit,
     onSignOut: () -> Unit,
@@ -132,6 +148,10 @@ fun SettingsScreen(
     var showComplaintDialog by remember { mutableStateOf(false) }
     var showTermsDialog by remember { mutableStateOf(false) }
     var showPrivacyDialog by remember { mutableStateOf(false) }
+    var showDailySpinDialog by remember { mutableStateOf(false) }
+    var showVibeQuizDialog by remember { mutableStateOf(false) }
+    var showSafetySosDialog by remember { mutableStateOf(false) }
+    val hasLiveUpdate = appUpdateConfig.isUpdateAvailable(BuildConfig.VERSION_CODE)
 
     val shareDateMateApp: () -> Unit = {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -270,6 +290,50 @@ fun SettingsScreen(
                             subtitle = "Active Look: $themeDisplayName (Default · Gold · Silver)",
                             onClick = { showSettingsSheet = true },
                             testTag = "profile_theme_settings_row"
+                        )
+
+                        ProfileActionRow(
+                            icon = Icons.Rounded.SystemUpdate,
+                            title = if (hasLiveUpdate) "New Update Ready (v${appUpdateConfig.latestVersionName}) 🔥" else "Check for App Updates",
+                            subtitle = if (hasLiveUpdate) {
+                                "Tap to download latest DateMate APK (v${BuildConfig.VERSION_NAME} → v${appUpdateConfig.latestVersionName})"
+                            } else {
+                                "Installed: v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE}) · Tap to check"
+                            },
+                            onClick = onCheckAppUpdateClick,
+                            testTag = "profile_check_update_row"
+                        )
+
+                        ProfileActionRow(
+                            icon = Icons.Rounded.CardGiftcard,
+                            title = "Daily Lucky Spin & DateCoins (🪙 ${engagementPrefs.dateCoins})",
+                            subtitle = "Streak: 🔥 ${engagementPrefs.streakCount} day(s) · Earn free coins for luxury chat gifts",
+                            onClick = { showDailySpinDialog = true },
+                            testTag = "profile_daily_spin_row"
+                        )
+
+                        ProfileActionRow(
+                            icon = Icons.Rounded.AutoAwesome,
+                            title = "Love Vibe Personality",
+                            subtitle = if (engagementPrefs.vibePersonality.isNotBlank()) {
+                                "Your Vibe: ${engagementPrefs.vibePersonality} ✨ · Tap to retake quiz"
+                            } else {
+                                "Take 3-question quiz to find your ideal companion vibe"
+                            },
+                            onClick = { showVibeQuizDialog = true },
+                            testTag = "profile_vibe_quiz_row"
+                        )
+
+                        ProfileActionRow(
+                            icon = Icons.Rounded.Shield,
+                            title = "Date Safety SOS & Trusted Contact",
+                            subtitle = if (engagementPrefs.emergencyContactName.isNotBlank()) {
+                                "Trusted Contact: ${engagementPrefs.emergencyContactName} · 1-Tap Live Check-In"
+                            } else {
+                                "Save a trusted friend for 1-tap meetup safety check-ins"
+                            },
+                            onClick = { showSafetySosDialog = true },
+                            testTag = "profile_safety_sos_row"
                         )
 
                         ProfileActionRow(
@@ -453,6 +517,31 @@ fun SettingsScreen(
                 }
             },
             onDismiss = { showComplaintDialog = false }
+        )
+    }
+
+    if (showDailySpinDialog) {
+        DailyCheckInSpinDialog(
+            engagementPrefs = engagementPrefs,
+            onClaimReward = onClaimDailySpin,
+            onDismiss = { showDailySpinDialog = false },
+        )
+    }
+
+    if (showVibeQuizDialog) {
+        LoveVibeQuizDialog(
+            currentVibe = engagementPrefs.vibePersonality,
+            onSaveVibeAndMatch = onSaveVibePersonality,
+            onDismiss = { showVibeQuizDialog = false },
+        )
+    }
+
+    if (showSafetySosDialog) {
+        DateSafetyToolkitDialog(
+            savedContactName = engagementPrefs.emergencyContactName,
+            savedContactPhone = engagementPrefs.emergencyContactPhone,
+            onSaveContact = onSaveEmergencyContact,
+            onDismiss = { showSafetySosDialog = false },
         )
     }
 

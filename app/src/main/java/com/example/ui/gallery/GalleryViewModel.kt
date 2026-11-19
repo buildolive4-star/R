@@ -4,10 +4,12 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.model.AppUpdateConfig
 import com.example.data.model.CategoryCollection
 import com.example.data.model.FilterCategoryGroup
 import com.example.data.model.GalleryImage
 import com.example.data.model.PhotoRevealState
+import com.example.data.model.ProfileSortMode
 import com.example.data.model.ProfileTier
 import com.example.data.model.SavedBookmark
 import com.example.data.model.UiState
@@ -17,6 +19,7 @@ import com.example.data.preferences.LocalBookmarksRepository
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.preferences.ThemePreferencesRepository
+import com.example.data.preferences.UserEngagementPrefs
 import com.example.data.repository.BookingRepository
 import com.example.data.repository.GalleryRepository
 import com.example.data.repository.UserCrmRepository
@@ -71,6 +74,9 @@ class GalleryViewModel(
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _sortMode = MutableStateFlow(ProfileSortMode.RECOMMENDED)
+    val sortMode: StateFlow<ProfileSortMode> = _sortMode.asStateFlow()
 
     private val _userCity = MutableStateFlow("")
     val userCity: StateFlow<String> = _userCity.asStateFlow()
@@ -151,6 +157,20 @@ class GalleryViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
             initialValue = AppLookTheme.DEFAULT,
+        )
+
+    val engagementPrefs: StateFlow<UserEngagementPrefs> = prefsRepository.engagementPrefs
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = UserEngagementPrefs(),
+        )
+
+    val cachedAppUpdateConfig: StateFlow<AppUpdateConfig> = prefsRepository.cachedAppUpdateConfig
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = AppUpdateConfig(),
         )
 
     val filterTaxonomy: StateFlow<List<FilterCategoryGroup>> = (
@@ -424,10 +444,35 @@ class GalleryViewModel(
         return matchesCategory && matchesSmartFilter && matchesQuery
     }
 
+    private fun sortProfiles(
+        list: List<GalleryImage>,
+        inputs: FilterInputs,
+        sortMode: ProfileSortMode,
+    ): List<GalleryImage> = when (sortMode) {
+        ProfileSortMode.RECOMMENDED -> list.sortedWith(
+            compareByDescending<GalleryImage> { if (it.staffOnline) 1 else 0 }
+                .thenByDescending { nearbyMatchScore(it, inputs.userCity, inputs.userAddress) }
+                .thenByDescending { it.createdAt?.seconds ?: 0L }
+        )
+        ProfileSortMode.PRICE_LOW -> list.sortedWith(
+            compareBy<GalleryImage> { parseNumericPrice(it.price) ?: Int.MAX_VALUE }
+                .thenByDescending { if (it.staffOnline) 1 else 0 }
+        )
+        ProfileSortMode.PRICE_HIGH -> list.sortedWith(
+            compareByDescending<GalleryImage> { parseNumericPrice(it.price) ?: 0 }
+                .thenByDescending { if (it.staffOnline) 1 else 0 }
+        )
+        ProfileSortMode.AGE_YOUNG -> list.sortedWith(
+            compareBy<GalleryImage> { it.age.coerceAtLeast(18) }
+                .thenByDescending { if (it.staffOnline) 1 else 0 }
+        )
+    }
+
     val vipProfiles: StateFlow<List<GalleryImage>> = combine(
         galleryState,
         filterInputsFlow,
-    ) { state, inputs ->
+        _sortMode,
+    ) { state, inputs, sortMode ->
         val items = (state as? UiState.Success)?.data ?: return@combine emptyList()
         val allVips = items.filter { it.tier == ProfileTier.VIP_16_9 }
         val filteredVips = allVips.filter { matchesProfileFilters(it, inputs) }
@@ -441,15 +486,7 @@ class GalleryViewModel(
         } else {
             filteredVips
         }
-        result.sortedWith(
-            compareByDescending<GalleryImage> {
-                if (it.staffOnline) 1 else 0
-            }.thenByDescending {
-                nearbyMatchScore(it, inputs.userCity, inputs.userAddress)
-            }.thenByDescending {
-                it.createdAt?.seconds ?: 0L
-            }
-        )
+        sortProfiles(result, inputs, sortMode)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
@@ -459,25 +496,15 @@ class GalleryViewModel(
     val filteredGridProfiles: StateFlow<UiState<List<GalleryImage>>> = combine(
         galleryState,
         filterInputsFlow,
-    ) { state, inputs ->
+        _sortMode,
+    ) { state, inputs, sortMode ->
         when (state) {
             is UiState.Loading -> UiState.Loading
             is UiState.Error -> state
             is UiState.Success -> {
                 val nonVipOnly = state.data.filter { it.tier != ProfileTier.VIP_16_9 }
                 val filtered = nonVipOnly.filter { matchesProfileFilters(it, inputs) }
-
-                // Online staff & nearby profiles matching user's city/address ALWAYS appear first
-                val prioritized = filtered.sortedWith(
-                    compareByDescending<GalleryImage> {
-                        if (it.staffOnline) 1 else 0
-                    }.thenByDescending {
-                        nearbyMatchScore(it, inputs.userCity, inputs.userAddress)
-                    }.thenByDescending {
-                        it.createdAt?.seconds ?: 0L
-                    }
-                )
-                UiState.Success(prioritized)
+                UiState.Success(sortProfiles(filtered, inputs, sortMode))
             }
         }
     }.stateIn(
@@ -521,10 +548,66 @@ class GalleryViewModel(
         _searchQuery.value = query
     }
 
+    fun selectSortMode(mode: ProfileSortMode) {
+        _sortMode.value = mode
+    }
+
     fun resetFilters() {
         _selectedCategory.value = CATEGORY_ALL
         _selectedVibe.value = FILTER_ALL
         _searchQuery.value = ""
+        _sortMode.value = ProfileSortMode.RECOMMENDED
+    }
+
+    fun claimDailySpinReward(coinsWon: Int, rewardTitle: String) {
+        viewModelScope.launch {
+            val todayDay = System.currentTimeMillis() / 86_400_000L
+            val ok = prefsRepository.claimDailySpinReward(coinsWon, rewardTitle, todayDay)
+            if (ok) {
+                _events.tryEmit("Daily Bonus Claimed: +$coinsWon DateCoins · $rewardTitle ✨")
+            } else {
+                _events.tryEmit("Today's lucky bonus is already claimed! Come back tomorrow ❤️")
+            }
+        }
+    }
+
+    fun spendDateCoinsForGift(cost: Int, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = prefsRepository.spendDateCoins(cost)
+            if (!ok) {
+                _events.tryEmit("Not enough DateCoins! Spin Daily Bonus to earn free coins.")
+            }
+            onResult(ok)
+        }
+    }
+
+    fun saveVibePersonality(vibe: String, autoFilterKeyword: String = "") {
+        viewModelScope.launch {
+            prefsRepository.setVibePersonality(vibe)
+            if (autoFilterKeyword.isNotBlank()) {
+                _selectedVibe.value = autoFilterKeyword
+            }
+            _events.tryEmit("Your Date Vibe: $vibe ✨")
+        }
+    }
+
+    fun saveEmergencyContact(name: String, phone: String) {
+        viewModelScope.launch {
+            prefsRepository.setEmergencyContact(name, phone)
+            _events.tryEmit("Trusted Safety Contact saved ✓")
+        }
+    }
+
+    fun recordProfileViewed(profileId: String) {
+        viewModelScope.launch {
+            prefsRepository.recordRecentlyViewed(profileId)
+        }
+    }
+
+    fun cacheAppUpdateConfig(config: AppUpdateConfig) {
+        viewModelScope.launch {
+            prefsRepository.cacheAppUpdateConfig(config)
+        }
     }
 
     fun setThemeMode(mode: ThemeMode) {

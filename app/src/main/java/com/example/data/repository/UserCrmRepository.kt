@@ -11,12 +11,14 @@ import com.example.data.model.AdminChangeRequestType
 import com.example.data.model.AdminEmailEntry
 import com.example.data.model.AdminMemberProfile
 import com.example.data.model.AppShareConfig
+import com.example.data.model.AppUpdateConfig
 import com.example.data.model.HomeFiltersConfig
 import com.example.data.model.LeadTag
 import com.example.data.model.LaunchBannerConfig
 import com.example.data.model.ModerationStatus
 import com.example.data.model.PresenceStatus
 import com.example.data.model.ProfileTier
+import com.example.data.model.PromoTickerConfig
 import com.example.data.model.StaffStatus
 import com.example.data.model.UserAccount
 import com.example.util.ProfileCompletionCalculator
@@ -1193,6 +1195,119 @@ class UserCrmRepository(
     }
 
     // ========================================================================
+    // Live App Update Manager (Option 1) & Home Live Promo Ticker
+    // ========================================================================
+
+    fun observeAppUpdateConfig(): Flow<AppUpdateConfig> {
+        val ref = db.collection(COLLECTION_APP_CONFIG).document(DOC_APP_UPDATE)
+        return ref.snapshots()
+            .map { snap ->
+                if (!snap.exists()) AppUpdateConfig()
+                else snap.toObject(
+                    AppUpdateConfig::class.java,
+                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                ) ?: AppUpdateConfig()
+            }
+            .catch { emit(AppUpdateConfig()) }
+    }
+
+    suspend fun saveAppUpdateConfig(
+        latestVersionCode: Int,
+        latestVersionName: String,
+        apkDownloadUrl: String,
+        releaseNotes: String,
+        forceUpdate: Boolean,
+    ): Result<Unit> {
+        val path = "$COLLECTION_APP_CONFIG/$DOC_APP_UPDATE"
+        return try {
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Main Admin first")
+            require(currentEmail == SUPER_ADMIN_EMAIL) {
+                "Only Main Admin ($SUPER_ADMIN_EMAIL) can publish App Updates."
+            }
+            val safeCode = latestVersionCode.coerceIn(1, 100_000)
+            val safeName = latestVersionName.trim().ifBlank { "$safeCode.0" }.take(32)
+            val rawUrl = apkDownloadUrl.trim().take(600)
+            val normalizedUrl = when {
+                rawUrl.isBlank() -> ""
+                rawUrl.startsWith("http://") || rawUrl.startsWith("https://") -> rawUrl
+                else -> "https://$rawUrl"
+            }
+            if (normalizedUrl.isNotBlank()) {
+                require(normalizedUrl.startsWith("https://") || normalizedUrl.startsWith("http://")) {
+                    "Enter a valid https:// APK download link."
+                }
+            }
+            val cleanNotes = releaseNotes.trim().take(600)
+            db.document(path).set(
+                mapOf(
+                    "latestVersionCode" to safeCode,
+                    "latestVersionName" to safeName,
+                    "apkDownloadUrl" to normalizedUrl,
+                    "releaseNotes" to cleanNotes,
+                    "forceUpdate" to forceUpdate,
+                    "updatedByEmail" to currentEmail,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, path)
+            Result.failure(e)
+        }
+    }
+
+    fun observePromoTickerConfig(): Flow<PromoTickerConfig> {
+        val ref = db.collection(COLLECTION_APP_CONFIG).document(DOC_PROMO_TICKER)
+        return ref.snapshots()
+            .map { snap ->
+                if (!snap.exists()) PromoTickerConfig()
+                else snap.toObject(
+                    PromoTickerConfig::class.java,
+                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                ) ?: PromoTickerConfig()
+            }
+            .catch { emit(PromoTickerConfig()) }
+    }
+
+    suspend fun savePromoTickerConfig(
+        active: Boolean,
+        badgeLabel: String,
+        text: String,
+    ): Result<Unit> {
+        val path = "$COLLECTION_APP_CONFIG/$DOC_PROMO_TICKER"
+        return try {
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Main Admin first")
+            require(currentEmail == SUPER_ADMIN_EMAIL) {
+                "Only Main Admin ($SUPER_ADMIN_EMAIL) can update the Live Offer Ticker."
+            }
+            val cleanBadge = badgeLabel.trim().ifBlank { "LIVE OFFER" }.take(32)
+            val cleanText = text.trim().take(240)
+            if (active) {
+                require(cleanText.length >= 4) { "Enter offer/announcement text (min 4 characters)." }
+            }
+            db.document(path).set(
+                mapOf(
+                    "active" to active,
+                    "badgeLabel" to cleanBadge,
+                    "text" to cleanText,
+                    "updatedByEmail" to currentEmail,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, path)
+            Result.failure(e)
+        }
+    }
+
+    // ========================================================================
     // Co-Admin -> Main Admin Change Request Workflow
     // ========================================================================
 
@@ -1349,6 +1464,8 @@ class UserCrmRepository(
         const val DOC_LAUNCH_BANNER = "launch_banner"
         const val DOC_HOME_FILTERS = "home_filters"
         const val DOC_SHARE_CONFIG = "share_config"
+        const val DOC_APP_UPDATE = "app_update"
+        const val DOC_PROMO_TICKER = "promo_ticker"
         const val ADMIN_PRESENCE_ID = "admin_concierge"
         const val SUPER_ADMIN_EMAIL = "buildolive4@gmail.com"
         private val ACCESS_CODE_REGEX = Regex("^[A-Z0-9_\\-]{4,24}$")

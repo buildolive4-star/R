@@ -46,11 +46,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Campaign
+import androidx.compose.material.icons.rounded.CardGiftcard
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CurrencyRupee
 import androidx.compose.material.icons.rounded.FilterList
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,6 +65,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -87,10 +93,14 @@ import androidx.core.content.ContextCompat
 import com.example.R
 import com.example.data.model.FilterCategoryGroup
 import com.example.data.model.GalleryImage
+import com.example.data.model.ProfileSortMode
+import com.example.data.model.PromoTickerConfig
 import com.example.data.model.UiState
+import com.example.data.preferences.UserEngagementPrefs
 import com.example.ui.components.Animated3DMascotOrb
 import com.example.ui.components.Animated3DPageBackdrop
 import com.example.ui.components.CupidLikeSuccessOverlay
+import com.example.ui.components.DailyCheckInSpinDialog
 import com.example.ui.components.DateMate3DGlowingButton
 import com.example.ui.components.DateMate3DGlowingIconButton
 import com.example.ui.components.DateMateMascot
@@ -98,6 +108,8 @@ import com.example.ui.components.EmptyGalleryState
 import com.example.ui.components.ErrorStateCard
 import com.example.ui.components.GalleryGridCard
 import com.example.ui.components.GlowButtonStyle
+import com.example.ui.components.LoveVibeQuizDialog
+import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.ShimmerBox
 import com.example.ui.components.VipShowcaseCarousel
 import com.example.ui.datemate.Floating3DHeartsBackground
@@ -131,14 +143,27 @@ fun ExploreScreen(
     userAddress: String = "",
     userGenderPreference: String = "",
     onLocationClick: () -> Unit = {},
+    promoTickerConfig: PromoTickerConfig = PromoTickerConfig(),
+    sortMode: ProfileSortMode = ProfileSortMode.RECOMMENDED,
+    onSelectSortMode: (ProfileSortMode) -> Unit = {},
+    engagementPrefs: UserEngagementPrefs = UserEngagementPrefs(),
+    onClaimDailySpin: (coins: Int, rewardTitle: String) -> Unit = { _, _ -> },
+    onSaveVibePersonality: (vibeName: String, filterKeyword: String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val allProfiles = (galleryState as? UiState.Success)?.data.orEmpty()
     val totalCount = allProfiles.size
     val onlineStaffCount = allProfiles.count { it.staffOnline }
+    val recentlyViewedProfiles = remember(allProfiles, engagementPrefs.recentlyViewedIds) {
+        val byId = allProfiles.associateBy { it.id }
+        engagementPrefs.recentlyViewedIds.mapNotNull { byId[it] }.filter { !it.isDeletedBlurred }
+    }
     val context = LocalContext.current
     var cupidCelebrationName by remember { mutableStateOf<String?>(null) }
     var showAllFiltersSheet by remember { mutableStateOf(false) }
+    var showInlineSearch by remember { mutableStateOf(false) }
+    var showDailySpinDialog by remember { mutableStateOf(false) }
+    var showVibeQuizDialog by remember { mutableStateOf(false) }
 
     val handleLikeToggle: (GalleryImage) -> Unit = { img ->
         val wasBookmarked = bookmarkedIds.contains(img.id)
@@ -307,6 +332,234 @@ fun ExploreScreen(
                             userCity = userCity,
                             userAddress = userAddress,
                         )
+                    }
+
+                    // Feature 2: Main Admin Live Flash Offer / Announcement Ticker
+                    if (promoTickerConfig.isReadyToShow) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "promo_ticker_banner") {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.13f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("home_promo_ticker_banner")
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = MaterialTheme.colorScheme.primary,
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Campaign,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = promoTickerConfig.badgeLabel.ifBlank { "LIVE" },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.onPrimary,
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = promoTickerConfig.text,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Features 3, 4 & 9: Compact Discovery Toolbar (On-Demand Search, Sort, Daily Bonus Spin & Vibe Quiz)
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "quick_discovery_toolbar") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                item(key = "quick_search_toggle") {
+                                    FilterChip(
+                                        selected = showInlineSearch || searchQuery.isNotBlank(),
+                                        onClick = {
+                                            showInlineSearch = !showInlineSearch
+                                            if (!showInlineSearch && searchQuery.isNotBlank()) {
+                                                onSearchQueryChange("")
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Rounded.Search, contentDescription = "Search", modifier = Modifier.size(16.dp))
+                                        },
+                                        label = { Text(if (searchQuery.isNotBlank()) "\"$searchQuery\"" else "Search") },
+                                        shape = RoundedCornerShape(999.dp),
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("home_quick_search_toggle")
+                                    )
+                                }
+                                item(key = "quick_sort_cycle") {
+                                    FilterChip(
+                                        selected = sortMode != ProfileSortMode.RECOMMENDED,
+                                        onClick = {
+                                            val values = ProfileSortMode.entries
+                                            val next = values[(values.indexOf(sortMode) + 1) % values.size]
+                                            onSelectSortMode(next)
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Rounded.SwapVert, contentDescription = "Sort", modifier = Modifier.size(16.dp))
+                                        },
+                                        label = { Text(sortMode.label) },
+                                        shape = RoundedCornerShape(999.dp),
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("home_sort_mode_chip")
+                                    )
+                                }
+                                item(key = "quick_daily_spin") {
+                                    FilterChip(
+                                        selected = false,
+                                        onClick = { showDailySpinDialog = true },
+                                        leadingIcon = {
+                                            Icon(Icons.Rounded.CardGiftcard, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFD97706))
+                                        },
+                                        label = { Text("🪙 ${engagementPrefs.dateCoins} · Spin") },
+                                        shape = RoundedCornerShape(999.dp),
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("home_daily_spin_chip")
+                                    )
+                                }
+                                item(key = "quick_vibe_quiz") {
+                                    FilterChip(
+                                        selected = engagementPrefs.vibePersonality.isNotBlank(),
+                                        onClick = { showVibeQuizDialog = true },
+                                        leadingIcon = {
+                                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        },
+                                        label = {
+                                            Text(
+                                                engagementPrefs.vibePersonality.ifBlank { "Love Vibe Quiz" },
+                                                maxLines = 1
+                                            )
+                                        },
+                                        shape = RoundedCornerShape(999.dp),
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("home_vibe_quiz_chip")
+                                    )
+                                }
+                            }
+
+                            if (showInlineSearch) {
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = onSearchQueryChange,
+                                    placeholder = { Text("Search name, city, dinner, night…") },
+                                    singleLine = true,
+                                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                                    trailingIcon = {
+                                        if (searchQuery.isNotBlank()) {
+                                            IconButton(onClick = { onSearchQueryChange("") }) {
+                                                Icon(Icons.Rounded.Close, contentDescription = "Clear search")
+                                            }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("home_inline_search_field")
+                                )
+                            }
+                        }
+                    }
+
+                    // Feature 10: Recently Viewed Companions Compact Strip
+                    if (recentlyViewedProfiles.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "recently_viewed_strip") {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Rounded.History,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = "Recently Viewed",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(recentlyViewedProfiles, key = { "recent_${it.id}" }) { recent ->
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier
+                                                .width(62.dp)
+                                                .clickable { onProfileClick(recent) }
+                                                .testTag("recent_profile_${recent.id}")
+                                        ) {
+                                            Box {
+                                                PixoraNetworkImage(
+                                                    imageUrl = recent.displayThumbnailUrl,
+                                                    contentDescription = recent.title,
+                                                    modifier = Modifier
+                                                        .size(54.dp)
+                                                        .clip(CircleShape)
+                                                        .border(
+                                                            2.dp,
+                                                            if (recent.staffOnline) DateMateSuccessGreen else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                                            CircleShape
+                                                        )
+                                                )
+                                                if (recent.staffOnline) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .align(Alignment.BottomEnd)
+                                                            .size(12.dp)
+                                                            .clip(CircleShape)
+                                                            .background(DateMateSuccessGreen)
+                                                            .border(1.5.dp, Color.White, CircleShape)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(3.dp))
+                                            Text(
+                                                text = recent.title,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // Admin-Uploaded 16:9 VIP Spotlight
@@ -517,6 +770,22 @@ fun ExploreScreen(
                 showAllFiltersSheet = false
             },
             onDismiss = { showAllFiltersSheet = false }
+        )
+    }
+
+    if (showDailySpinDialog) {
+        DailyCheckInSpinDialog(
+            engagementPrefs = engagementPrefs,
+            onClaimReward = onClaimDailySpin,
+            onDismiss = { showDailySpinDialog = false },
+        )
+    }
+
+    if (showVibeQuizDialog) {
+        LoveVibeQuizDialog(
+            currentVibe = engagementPrefs.vibePersonality,
+            onSaveVibeAndMatch = onSaveVibePersonality,
+            onDismiss = { showVibeQuizDialog = false },
         )
     }
 }

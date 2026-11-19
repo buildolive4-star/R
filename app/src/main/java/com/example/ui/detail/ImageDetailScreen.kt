@@ -40,11 +40,13 @@ import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Swipe
@@ -87,15 +89,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.model.AppShareConfig
 import com.example.data.model.GalleryImage
 import com.example.data.model.ProfileTier
 import com.example.ui.components.Animated3DMascotOrb
 import com.example.ui.components.CupidLikeSuccessOverlay
+import com.example.ui.components.DateBudgetEstimatorDialog
 import com.example.ui.components.DateMate3DGlowingButton
 import com.example.ui.components.DateMate3DGlowingIconButton
 import com.example.ui.components.DateMateMascot
+import com.example.ui.components.DateSafetyToolkitDialog
 import com.example.ui.components.GlowButtonStyle
 import com.example.ui.components.LiveOnlineStatusBadge
+import com.example.ui.components.LuxuryDateInviteCardDialog
 import com.example.ui.components.PixoraBlurredImage
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
@@ -112,6 +118,10 @@ fun ImageDetailScreen(
     onChatClick: (GalleryImage) -> Unit,
     onBookClick: (GalleryImage) -> Unit = {},
     defaultAdvanceInr: Int = 299,
+    appShareConfig: AppShareConfig = AppShareConfig(),
+    emergencyContactName: String = "",
+    emergencyContactPhone: String = "",
+    onSaveEmergencyContact: (name: String, phone: String) -> Unit = { _, _ -> },
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
@@ -144,6 +154,9 @@ fun ImageDetailScreen(
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var showChrome by remember { mutableStateOf(true) }
+    var showInviteCardDialog by remember { mutableStateOf(false) }
+    var showBudgetEstimatorDialog by remember { mutableStateOf(false) }
+    var showSafetySosDialog by remember { mutableStateOf(false) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(profile.id, profile.photoRevealStates, profile.refreshEpochMs) {
@@ -803,6 +816,63 @@ fun ImageDetailScreen(
                                     }
                                 }
                             }
+
+                            item(key = "detail_share_invite_card") {
+                                Surface(
+                                    onClick = { showInviteCardDialog = true },
+                                    shape = RoundedCornerShape(50),
+                                    color = Color(0x38FFD166),
+                                    border = BorderStroke(1.dp, Color(0xFFFFD166).copy(alpha = 0.7f)),
+                                    modifier = Modifier.testTag("detail_share_card_pill")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Rounded.Share, contentDescription = null, tint = Color(0xFFFFE082), modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Share Card", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                                    }
+                                }
+                            }
+
+                            item(key = "detail_budget_split") {
+                                Surface(
+                                    onClick = { showBudgetEstimatorDialog = true },
+                                    shape = RoundedCornerShape(50),
+                                    color = Color(0x3338BDF8),
+                                    border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.65f)),
+                                    modifier = Modifier.testTag("detail_price_split_pill")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Rounded.Calculate, contentDescription = null, tint = Color(0xFF7DD3FC), modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Price Split", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                                    }
+                                }
+                            }
+
+                            item(key = "detail_safety_sos") {
+                                Surface(
+                                    onClick = { showSafetySosDialog = true },
+                                    shape = RoundedCornerShape(50),
+                                    color = Color(0x3322C55E),
+                                    border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.65f)),
+                                    modifier = Modifier.testTag("detail_safety_sos_pill")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Rounded.Shield, contentDescription = null, tint = Color(0xFF4ADE80), modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Safety SOS", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                                    }
+                                }
+                            }
                         }
 
                         if (profile.description.isNotBlank()) {
@@ -936,6 +1006,34 @@ fun ImageDetailScreen(
             likedProfileName = cupidCelebrationName,
             onFinished = { cupidCelebrationName = null },
             modifier = Modifier.align(Alignment.Center)
+        )
+    }
+
+    if (showInviteCardDialog) {
+        LuxuryDateInviteCardDialog(
+            profile = profile,
+            appShareConfig = appShareConfig,
+            onDismiss = { showInviteCardDialog = false },
+        )
+    }
+
+    if (showBudgetEstimatorDialog) {
+        DateBudgetEstimatorDialog(
+            profile = profile,
+            defaultAdvanceInr = defaultAdvanceInr,
+            onProceedToBook = { onBookClick(profile) },
+            onDismiss = { showBudgetEstimatorDialog = false },
+        )
+    }
+
+    if (showSafetySosDialog) {
+        DateSafetyToolkitDialog(
+            savedContactName = emergencyContactName,
+            savedContactPhone = emergencyContactPhone,
+            companionContextName = profile.title,
+            companionContextCity = profile.city,
+            onSaveContact = onSaveEmergencyContact,
+            onDismiss = { showSafetySosDialog = false },
         )
     }
 }

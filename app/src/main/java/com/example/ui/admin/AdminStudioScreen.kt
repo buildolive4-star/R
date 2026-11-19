@@ -47,6 +47,7 @@ import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -106,6 +107,7 @@ import com.example.data.model.AdminEmailEntry
 import com.example.data.model.AdminMemberProfile
 import com.example.data.model.AdminUserFilter
 import com.example.data.model.AppShareConfig
+import com.example.data.model.AppUpdateConfig
 import com.example.data.model.BookingRatePlan
 import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
@@ -115,6 +117,7 @@ import com.example.data.model.GalleryImage
 import com.example.data.model.LaunchBannerConfig
 import com.example.data.model.PaymentServerConfig
 import com.example.data.model.ProfileTier
+import com.example.data.model.PromoTickerConfig
 import com.example.data.model.UserAccount
 import com.example.data.model.UserComplaint
 import com.example.ui.components.PixoraNetworkImage
@@ -227,6 +230,8 @@ fun AdminStudioScreen(
     filterTaxonomy: List<FilterCategoryGroup> = FilterCategoryGroup.defaultTaxonomy(),
     paymentServerConfig: PaymentServerConfig = PaymentServerConfig(),
     appShareConfig: AppShareConfig = AppShareConfig(),
+    appUpdateConfig: AppUpdateConfig = AppUpdateConfig(),
+    promoTickerConfig: PromoTickerConfig = PromoTickerConfig(),
     allBookings: List<DateMateBooking> = emptyList(),
     allComplaints: List<UserComplaint> = emptyList(),
     changeRequests: List<AdminChangeRequest> = emptyList(),
@@ -234,6 +239,8 @@ fun AdminStudioScreen(
     onSavePaymentServerConfig: (String, Int) -> Unit = { _, _ -> },
     onTestPaymentServer: (String) -> Unit = {},
     onSaveAppShareConfig: (shareUrl: String, shareMessage: String, onSaved: () -> Unit) -> Unit = { _, _, _ -> },
+    onSaveAppUpdateConfig: (latestVersionCode: Int, latestVersionName: String, apkDownloadUrl: String, releaseNotes: String, forceUpdate: Boolean, onSaved: () -> Unit) -> Unit = { _, _, _, _, _, _ -> },
+    onSavePromoTickerConfig: (active: Boolean, badgeLabel: String, text: String, onSaved: () -> Unit) -> Unit = { _, _, _, _ -> },
     onSubmitChangeRequest: (requestType: String, targetId: String, targetTitle: String, details: String, onDone: () -> Unit) -> Unit = { _, _, _, _, _ -> },
     onReviewChangeRequest: (requestId: String, approve: Boolean, mainAdminNote: String) -> Unit = { _, _, _ -> },
     onApproveStaffPayout: (String, String) -> Unit = { _, _ -> },
@@ -253,6 +260,8 @@ fun AdminStudioScreen(
     var showLaunchBannerDialog by remember { mutableStateOf(false) }
     var showHomeFiltersDialog by remember { mutableStateOf(false) }
     var showShareLinkDialog by remember { mutableStateOf(false) }
+    var showAppUpdateDialog by remember { mutableStateOf(false) }
+    var showPromoTickerDialog by remember { mutableStateOf(false) }
     var quickRequestDraft by remember { mutableStateOf<QuickRequestDraft?>(null) }
 
     val blurredCount = remember(managedProfiles) {
@@ -495,6 +504,62 @@ fun AdminStudioScreen(
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = if (appShareConfig.shareUrl.isNotBlank()) "Share Link ✓" else "Share Link",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilledTonalButton(
+                                onClick = { showAppUpdateDialog = true },
+                                enabled = !isAuthBusy,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                                    contentColor = MaterialTheme.colorScheme.primary,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("admin_app_update_button")
+                            ) {
+                                Icon(Icons.Rounded.SystemUpdate, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = if (appUpdateConfig.apkDownloadUrl.isNotBlank()) "App Update (v${appUpdateConfig.latestVersionName})" else "Push App Update",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+
+                            FilledTonalButton(
+                                onClick = { showPromoTickerDialog = true },
+                                enabled = !isAuthBusy,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f),
+                                    contentColor = MaterialTheme.colorScheme.secondary,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("admin_promo_ticker_button")
+                            ) {
+                                Icon(Icons.Rounded.Campaign, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = if (promoTickerConfig.isReadyToShow) "Ticker Live ✓" else "Live Offer Ticker",
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     fontWeight = FontWeight.Bold,
@@ -844,6 +909,32 @@ fun AdminStudioScreen(
                 }
             },
             onDismiss = { showShareLinkDialog = false }
+        )
+    }
+
+    if (showAppUpdateDialog && isSuperAdmin) {
+        AdminAppUpdateDialog(
+            currentConfig = appUpdateConfig,
+            isBusy = isAuthBusy,
+            onSave = { code, name, url, notes, force ->
+                onSaveAppUpdateConfig(code, name, url, notes, force) {
+                    showAppUpdateDialog = false
+                }
+            },
+            onDismiss = { showAppUpdateDialog = false },
+        )
+    }
+
+    if (showPromoTickerDialog && isSuperAdmin) {
+        AdminPromoTickerDialog(
+            currentConfig = promoTickerConfig,
+            isBusy = isAuthBusy,
+            onSave = { active, badge, text ->
+                onSavePromoTickerConfig(active, badge, text) {
+                    showPromoTickerDialog = false
+                }
+            },
+            onDismiss = { showPromoTickerDialog = false },
         )
     }
 
