@@ -441,6 +441,17 @@ fun JustUsAppRoot(
         }
     }
 
+    var hasFiredHomeWelcomePush by rememberSaveable { mutableStateOf(false) }
+
+    // 0. Automatic Home Page Welcome Push Notification once 3D Welcome Screen is dismissed
+    LaunchedEffect(launchBannerDismissed) {
+        if (launchBannerDismissed && !hasFiredHomeWelcomePush) {
+            hasFiredHomeWelcomePush = true
+            delay(650)
+            viewModel.triggerBackgroundCheckNow(context)
+        }
+    }
+
     // 1. Live Image / Profile Upload & Refresh Notifications
     LaunchedEffect(viewModel) {
         viewModel.newArrivalEvents.collect { newImage ->
@@ -461,6 +472,7 @@ fun JustUsAppRoot(
             val message: String,
             val avatar: String,
             val updatedMs: Long,
+            val unreadCount: Int,
         )
         val candidates = mutableListOf<PendingChatAlert>()
         clientChats.filter { it.unreadForClient > 0 && it.lastSenderRole != "client" }.forEach { thread ->
@@ -472,6 +484,7 @@ fun JustUsAppRoot(
                     message = thread.lastMessage,
                     avatar = thread.profilePhotoUrl,
                     updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis(),
+                    unreadCount = thread.unreadForClient,
                 )
             )
         }
@@ -484,6 +497,7 @@ fun JustUsAppRoot(
                     message = thread.lastMessage,
                     avatar = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
                     updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis(),
+                    unreadCount = thread.unreadForStaff,
                 )
             )
         }
@@ -497,6 +511,7 @@ fun JustUsAppRoot(
                         message = thread.lastMessage,
                         avatar = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
                         updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis(),
+                        unreadCount = thread.unreadForAdmin,
                     )
                 )
             }
@@ -505,12 +520,16 @@ fun JustUsAppRoot(
         for (item in candidates.distinctBy { "${it.chatId}_${it.role}" }) {
             val trackKey = "${item.chatId}_${item.role}"
             val lastNotified = notifiedStore.getLastNotifiedChatEpoch(trackKey)
-            if (item.updatedMs > lastNotified) {
+            val messageStamp = (
+                (item.updatedMs xor item.message.hashCode().toLong() xor (item.unreadCount.toLong() shl 16))
+                    and Long.MAX_VALUE
+                ).coerceAtLeast(1L)
+            if (messageStamp != lastNotified) {
                 val isCurrentlyInsideSameRoleChat =
                     currentRoute == ROUTE_CHAT_ROOM &&
                         currentViewingChatId == item.chatId &&
                         currentViewingChatRole == item.role
-                notifiedStore.markChatNotified(trackKey, item.updatedMs)
+                notifiedStore.markChatNotified(trackKey, messageStamp)
                 if (!isCurrentlyInsideSameRoleChat) {
                     activeBannerEvent = InAppBannerEvent.ChatMessageArrival(
                         chatId = item.chatId,
@@ -1076,7 +1095,7 @@ fun JustUsAppRoot(
             onDismiss = { showAdminPasscodeSheet = false },
             onUnlocked = {
                 showAdminPasscodeSheet = false
-                sessionViewModel.refreshAdminCallMonitoring()
+                sessionViewModel.unlockPinAdminAndRefreshMonitoring()
                 navController.navigate(ROUTE_ADMIN) {
                     launchSingleTop = true
                 }

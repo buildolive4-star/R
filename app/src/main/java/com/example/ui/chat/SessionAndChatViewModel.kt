@@ -143,6 +143,16 @@ class SessionAndChatViewModel(
             initialValue = emptyList(),
         )
 
+    val adminChats: StateFlow<List<ChatThread>> = _isVerifiedAdminForCalls
+        .flatMapLatest { isAdmin ->
+            if (isAdmin) chatRepository.observeAllChatsForAdmin() else flowOf(emptyList())
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = emptyList(),
+        )
+
     val launchBanner: StateFlow<LaunchBannerConfig?> = userCrmRepository.observeLaunchBanner()
         .stateIn(
             scope = viewModelScope,
@@ -214,6 +224,18 @@ class SessionAndChatViewModel(
             return
         }
         viewModelScope.launch {
+            _isVerifiedAdminForCalls.value = userCrmRepository.checkIsCurrentUserAdmin()
+        }
+    }
+
+    fun unlockPinAdminAndRefreshMonitoring() {
+        val user = Firebase.auth.currentUser
+        if (user == null) {
+            _isVerifiedAdminForCalls.value = false
+            return
+        }
+        viewModelScope.launch {
+            userCrmRepository.ensurePinAdminUnlocked()
             _isVerifiedAdminForCalls.value = userCrmRepository.checkIsCurrentUserAdmin()
         }
     }
@@ -974,6 +996,7 @@ class SessionAndChatViewModel(
     fun findChatById(chatId: String): ChatThread? {
         return clientChats.value.firstOrNull { it.id == chatId }
             ?: staffInboxChats.value.firstOrNull { it.id == chatId }
+            ?: adminChats.value.firstOrNull { it.id == chatId }
     }
 
     private suspend fun uploadUriSmart(context: Context, uri: Uri, title: String): String {

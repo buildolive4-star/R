@@ -277,11 +277,14 @@ fun AdminStudioScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Cloud Sign-In", style = MaterialTheme.typography.labelMedium)
                         }
-                    } else if (!isVerifiedAdmin) {
+                    } else {
                         OutlinedButton(
                             onClick = onSignOutAdmin,
                             shape = RoundedCornerShape(12.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("admin_switch_account_button")
                         ) {
                             Text("Switch", style = MaterialTheme.typography.labelSmall)
                         }

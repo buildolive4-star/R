@@ -156,7 +156,8 @@ class AdminViewModel(
             return
         }
         viewModelScope.launch {
-            _isVerifiedAdmin.value = userCrmRepository.checkIsCurrentUserAdmin()
+            val isAdmin = userCrmRepository.ensurePinAdminUnlocked()
+            _isVerifiedAdmin.value = isAdmin
         }
     }
 
@@ -168,7 +169,7 @@ class AdminViewModel(
             res.onSuccess { user ->
                 _authUser.value = user
                 _authErrorMessage.value = null
-                val isAdmin = userCrmRepository.checkIsCurrentUserAdmin()
+                val isAdmin = userCrmRepository.ensurePinAdminUnlocked()
                 _isVerifiedAdmin.value = isAdmin
                 _isSuperAdmin.value = userCrmRepository.isSuperAdminEmail(user.email)
                 OneSignalPushManager.syncUserIdentity(

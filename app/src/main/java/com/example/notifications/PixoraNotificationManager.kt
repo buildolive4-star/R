@@ -30,9 +30,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object PixoraNotificationManager {
-    const val CHANNEL_ID = "justus_live_profiles_v3"
-    const val CHANNEL_MESSAGES_ID = "justus_chat_messages_v2"
-    const val CHANNEL_CALLS_ID = "justus_voice_calls_v2"
+    const val CHANNEL_ID = "datemate_live_profiles_v4"
+    const val CHANNEL_MESSAGES_ID = "datemate_chat_messages_v4"
+    const val CHANNEL_CALLS_ID = "datemate_voice_calls_v3"
 
     const val EXTRA_IMAGE_ID = "extra_justus_profile_id"
     const val EXTRA_CHAT_ID = "extra_justus_chat_id"

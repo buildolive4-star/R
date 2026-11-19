@@ -40,16 +40,22 @@ class ChatRepository(
         Firebase.auth.currentUser?.uid?.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("Please sign in with Google first.")
 
+    private fun DocumentSnapshot.toChatThreadSafe(): ChatThread? =
+        runCatching {
+            toObject(
+                ChatThread::class.java,
+                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+            )?.let { if (it.id.isBlank()) it.copy(id = id) else it }
+        }.getOrNull()
+
     fun observeClientChats(clientUid: String): Flow<List<ChatThread>> {
         if (clientUid.isBlank()) return flow { emit(emptyList()) }
         return db.collection(COLLECTION_CHATS)
             .whereEqualTo("clientUid", clientUid)
             .snapshots()
             .map { snapshot ->
-                snapshot.toObjects(
-                    ChatThread::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                ).sortedByDescending { it.updatedAt ?: Timestamp(0, 0) }
+                snapshot.documents.mapNotNull { it.toChatThreadSafe() }
+                    .sortedByDescending { it.updatedAt ?: Timestamp(0, 0) }
             }
             .catch { error ->
                 val firestoreError = generateSequence(error) { it.cause }
@@ -69,10 +75,8 @@ class ChatRepository(
             .whereEqualTo("staffOwnerUid", staffUid)
             .snapshots()
             .map { snapshot ->
-                snapshot.toObjects(
-                    ChatThread::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                ).sortedByDescending { it.updatedAt ?: Timestamp(0, 0) }
+                snapshot.documents.mapNotNull { it.toChatThreadSafe() }
+                    .sortedByDescending { it.updatedAt ?: Timestamp(0, 0) }
             }
             .catch { error ->
                 val firestoreError = generateSequence(error) { it.cause }
@@ -92,10 +96,8 @@ class ChatRepository(
             db.collection(COLLECTION_CHATS)
                 .snapshots()
                 .map { snapshot ->
-                    snapshot.toObjects(
-                        ChatThread::class.java,
-                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                    ).sortedByDescending { it.updatedAt ?: Timestamp(0, 0) }
+                    snapshot.documents.mapNotNull { it.toChatThreadSafe() }
+                        .sortedByDescending { it.updatedAt ?: Timestamp(0, 0) }
                 }
                 .catch { error ->
                     val firestoreError = generateSequence(error) { it.cause }
@@ -116,10 +118,7 @@ class ChatRepository(
         return docRef.snapshots()
             .map { snapshot ->
                 if (!snapshot.exists()) null
-                else snapshot.toObject(
-                    ChatThread::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
+                else snapshot.toChatThreadSafe()
             }
             .catch { error ->
                 val firestoreError = generateSequence(error) { it.cause }
@@ -139,10 +138,14 @@ class ChatRepository(
         return messagesRef
             .snapshots()
             .map { snapshot ->
-                snapshot.toObjects(
-                    ChatMessage::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                ).sortedBy { it.createdAt ?: Timestamp(0, 0) }
+                snapshot.documents.mapNotNull { doc ->
+                    runCatching {
+                        doc.toObject(
+                            ChatMessage::class.java,
+                            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                        )?.let { if (it.id.isBlank()) it.copy(id = doc.id) else it }
+                    }.getOrNull()
+                }.sortedBy { it.createdAt ?: Timestamp(0, 0) }
             }
             .catch { error ->
                 val firestoreError = generateSequence(error) { it.cause }
@@ -214,10 +217,7 @@ class ChatRepository(
                     avatarUrl = clientAccount.photoUrl.ifBlank { profile.displayThumbnailUrl },
                 )
             }
-            val saved = docRef.get().await().toObject(
-                ChatThread::class.java,
-                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-            ) ?: ChatThread(
+            val saved = docRef.get().await().toChatThreadSafe() ?: ChatThread(
                 id = chatId,
                 clientUid = uid,
                 clientName = clientAccount.name,
