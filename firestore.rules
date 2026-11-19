@@ -109,6 +109,9 @@ service cloud.firestore {
              data.status is string && data.status in ['published', 'archived'] &&
              data.ownerUid is string && data.ownerUid.size() <= 128 &&
              data.staffVerified is bool &&
+             (!('filterTags' in data) || (data.filterTags is list && data.filterTags.size() <= 24)) &&
+             (!('advanceBookingAmount' in data) || (data.advanceBookingAmount is int && data.advanceBookingAmount >= 1 && data.advanceBookingAmount <= 500000)) &&
+             (!('bookingPlans' in data) || (data.bookingPlans is list && data.bookingPlans.size() <= 12)) &&
              data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128 &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
@@ -266,6 +269,7 @@ service cloud.firestore {
                          'name', 'age', 'price', 'role', 'category', 'tier', 'bio', 'city',
                          'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
                          'refreshEpochMs', 'status', 'ownerUid', 'staffVerified',
+                         'filterTags', 'advanceBookingAmount', 'bookingPlans',
                          'createdByUid', 'createdAt', 'updatedAt'
                        ]);
 
@@ -277,7 +281,8 @@ service cloud.firestore {
                        incoming().diff(existing()).affectedKeys().hasOnly([
                          'name', 'age', 'price', 'role', 'category', 'tier', 'bio', 'city',
                          'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
-                         'refreshEpochMs', 'status', 'ownerUid', 'staffVerified', 'updatedAt'
+                         'refreshEpochMs', 'status', 'ownerUid', 'staffVerified',
+                         'filterTags', 'advanceBookingAmount', 'bookingPlans', 'updatedAt'
                        ]);
 
       allow delete: if isAdmin() && isValidId(profileId);
@@ -486,8 +491,22 @@ service cloud.firestore {
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
+    function isValidFilterTaxonomy(data) {
+      return data.groups is list && data.groups.size() <= 20 &&
+             data.updatedByEmail is string && data.updatedByEmail.size() <= 120 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPaymentConfig(data) {
+      return data.serverBaseUrl is string && data.serverBaseUrl.size() <= 300 &&
+             (data.serverBaseUrl == '' || data.serverBaseUrl.matches('^https?://.*')) &&
+             data.defaultAdvanceInr is int && data.defaultAdvanceInr >= 1 && data.defaultAdvanceInr <= 500000 &&
+             data.updatedByEmail is string && data.updatedByEmail.size() <= 120 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
     match /app_config/{docId} {
-      allow get: if docId == 'launch_banner' || docId == 'home_filters';
+      allow get: if docId in ['launch_banner', 'home_filters', 'filter_taxonomy', 'payment_config'];
       allow list: if false;
       allow create, update: if (
         isSuperAdmin() &&
@@ -501,8 +520,175 @@ service cloud.firestore {
         isValidHomeFilters(incoming()) &&
         incoming().keys().hasAll(['filters', 'updatedByEmail', 'updatedAt']) &&
         incoming().keys().hasOnly(['filters', 'updatedByEmail', 'updatedAt'])
+      ) || (
+        isAdmin() &&
+        docId == 'filter_taxonomy' &&
+        isValidFilterTaxonomy(incoming()) &&
+        incoming().keys().hasAll(['groups', 'updatedByEmail', 'updatedAt']) &&
+        incoming().keys().hasOnly(['groups', 'updatedByEmail', 'updatedAt'])
+      ) || (
+        isAdmin() &&
+        docId == 'payment_config' &&
+        isValidPaymentConfig(incoming()) &&
+        incoming().keys().hasAll(['serverBaseUrl', 'defaultAdvanceInr', 'updatedByEmail', 'updatedAt']) &&
+        incoming().keys().hasOnly(['serverBaseUrl', 'defaultAdvanceInr', 'updatedByEmail', 'updatedAt'])
       );
-      allow delete: if (isSuperAdmin() && docId == 'launch_banner') || (isAdmin() && docId == 'home_filters');
+      allow delete: if (isSuperAdmin() && docId == 'launch_banner') ||
+                       (isAdmin() && docId in ['home_filters', 'filter_taxonomy', 'payment_config']);
+    }
+
+    function isValidBooking(data) {
+      return data.clientUid is string && data.clientUid.size() >= 1 && data.clientUid.size() <= 128 &&
+             data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 80 &&
+             data.clientPhone is string && data.clientPhone.size() <= 24 &&
+             data.clientPhotoUrl is string && data.clientPhotoUrl.size() <= 1000 &&
+             data.profileId is string && data.profileId.size() >= 1 && data.profileId.size() <= 128 &&
+             data.profileName is string && data.profileName.size() >= 1 && data.profileName.size() <= 80 &&
+             data.profilePhotoUrl is string && data.profilePhotoUrl.size() <= 1000 &&
+             data.staffOwnerUid is string && data.staffOwnerUid.size() <= 128 &&
+             data.planLabel is string && data.planLabel.size() >= 1 && data.planLabel.size() <= 40 &&
+             data.planPrice is string && data.planPrice.size() >= 1 && data.planPrice.size() <= 32 &&
+             data.planNumericAmount is int && data.planNumericAmount >= 0 && data.planNumericAmount <= 500000 &&
+             data.advanceAmountInr is int && data.advanceAmountInr >= 1 && data.advanceAmountInr <= 500000 &&
+             data.advancePaid is bool &&
+             data.paymentId is string && data.paymentId.size() <= 120 &&
+             data.orderId is string && data.orderId.size() <= 120 &&
+             data.dateLabel is string && data.dateLabel.size() >= 1 && data.dateLabel.size() <= 48 &&
+             data.timeSlot is string && data.timeSlot.size() >= 1 && data.timeSlot.size() <= 48 &&
+             data.meetingLocation is string && data.meetingLocation.size() >= 1 && data.meetingLocation.size() <= 240 &&
+             data.notes is string && data.notes.size() <= 400 &&
+             data.bookingStatus is string && data.bookingStatus in ['awaiting_payment', 'confirmed', 'awaiting_rating', 'completed', 'cancelled'] &&
+             data.staffAttended is bool &&
+             data.staffAttendedAtEpochMs is number && data.staffAttendedAtEpochMs >= 0 &&
+             data.userRating is int && data.userRating >= 0 && data.userRating <= 5 &&
+             data.userFeedback is string && data.userFeedback.size() <= 500 &&
+             data.ratedAtEpochMs is number && data.ratedAtEpochMs >= 0 &&
+             data.virtualEarningInr is int && data.virtualEarningInr >= 0 && data.virtualEarningInr <= 500000 &&
+             data.payoutStatus is string && data.payoutStatus in ['pending', 'paid', 'rejected'] &&
+             data.payoutNote is string && data.payoutNote.size() <= 240 &&
+             data.payoutUpdatedByEmail is string && data.payoutUpdatedByEmail.size() <= 120 &&
+             data.payoutUpdatedAtEpochMs is number && data.payoutUpdatedAtEpochMs >= 0 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /bookings/{bookingId} {
+      allow get: if isSignedIn() && isValidId(bookingId) && (
+        isAdmin() ||
+        (resource != null && (
+          existing().clientUid == request.auth.uid ||
+          (existing().staffOwnerUid != '' && existing().staffOwnerUid == request.auth.uid)
+        ))
+      );
+      allow list: if isSignedIn() && (
+        resource.data.clientUid == request.auth.uid ||
+        (resource.data.staffOwnerUid != '' && resource.data.staffOwnerUid == request.auth.uid) ||
+        isAdmin()
+      );
+
+      allow create: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       !isUserBlockedOrSuspended() &&
+                       isValidBooking(incoming()) &&
+                       incoming().clientUid == request.auth.uid &&
+                       incoming().bookingStatus == 'awaiting_payment' &&
+                       incoming().advancePaid == false &&
+                       incoming().staffAttended == false &&
+                       incoming().userRating == 0 &&
+                       incoming().payoutStatus == 'pending';
+
+      allow update: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       isValidBooking(incoming()) &&
+                       incoming().clientUid == existing().clientUid &&
+                       incoming().profileId == existing().profileId &&
+                       incoming().staffOwnerUid == existing().staffOwnerUid &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         // ONLY Main Admin (Super Admin) can approve/mark paid or reject staff virtual payouts!
+                         (isSuperAdmin() &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'bookingStatus', 'advancePaid', 'paymentId', 'orderId',
+                            'staffAttended', 'staffAttendedAtEpochMs', 'virtualEarningInr',
+                            'payoutStatus', 'payoutNote', 'payoutUpdatedByEmail', 'payoutUpdatedAtEpochMs',
+                            'updatedAt'
+                          ])) ||
+                         // Co-Admins can manage booking workflow but CANNOT change payoutStatus
+                         (isAdmin() &&
+                          incoming().payoutStatus == existing().payoutStatus &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'bookingStatus', 'advancePaid', 'paymentId', 'orderId',
+                            'staffAttended', 'staffAttendedAtEpochMs', 'virtualEarningInr',
+                            'updatedAt'
+                          ])) ||
+                         // Client can confirm Chrome Razorpay payment OR submit post-date rating & feedback
+                         (existing().clientUid == request.auth.uid &&
+                          !isUserBlockedOrSuspended() &&
+                          incoming().payoutStatus == existing().payoutStatus &&
+                          incoming().staffAttended == existing().staffAttended &&
+                          (
+                            (existing().bookingStatus == 'awaiting_payment' &&
+                             incoming().advancePaid == true &&
+                             incoming().bookingStatus == 'confirmed' &&
+                             incoming().diff(existing()).affectedKeys().hasOnly([
+                               'advancePaid', 'paymentId', 'orderId', 'bookingStatus', 'updatedAt'
+                             ])) ||
+                            (existing().staffAttended == true &&
+                             incoming().userRating >= 1 && incoming().userRating <= 5 &&
+                             incoming().bookingStatus == 'completed' &&
+                             incoming().diff(existing()).affectedKeys().hasOnly([
+                               'userRating', 'userFeedback', 'ratedAtEpochMs', 'bookingStatus', 'virtualEarningInr', 'updatedAt'
+                             ]))
+                          )) ||
+                         // Approved Staff can mark date as attended (triggers client rating notification)
+                         (existing().staffOwnerUid != '' &&
+                          existing().staffOwnerUid == request.auth.uid &&
+                          isApprovedStaffUser() &&
+                          existing().advancePaid == true &&
+                          incoming().payoutStatus == existing().payoutStatus &&
+                          incoming().staffAttended == true &&
+                          incoming().bookingStatus == 'awaiting_rating' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'staffAttended', 'staffAttendedAtEpochMs', 'bookingStatus', 'updatedAt'
+                          ]))
+                       );
+
+      allow delete: if isSuperAdmin() && isValidId(bookingId);
+    }
+
+    function isValidComplaint(data) {
+      return data.userUid is string && data.userUid.size() >= 1 && data.userUid.size() <= 128 &&
+             data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 80 &&
+             data.userEmail is string && data.userEmail.size() <= 120 &&
+             data.userPhone is string && data.userPhone.size() <= 24 &&
+             data.subject is string && data.subject.size() >= 2 && data.subject.size() <= 120 &&
+             data.message is string && data.message.size() >= 4 && data.message.size() <= 1000 &&
+             data.status is string && data.status in ['open', 'resolved'] &&
+             data.adminReply is string && data.adminReply.size() <= 600 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /complaints/{complaintId} {
+      allow get: if isSignedIn() && isValidId(complaintId) && (
+        isAdmin() || (resource != null && existing().userUid == request.auth.uid)
+      );
+      allow list: if isSignedIn() && (
+        resource.data.userUid == request.auth.uid || isAdmin()
+      );
+      allow create: if isSignedIn() &&
+                       isValidId(complaintId) &&
+                       isValidComplaint(incoming()) &&
+                       incoming().userUid == request.auth.uid &&
+                       incoming().status == 'open' &&
+                       incoming().adminReply == '';
+      allow update: if isAdmin() &&
+                       isValidId(complaintId) &&
+                       isValidComplaint(incoming()) &&
+                       incoming().userUid == existing().userUid &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminReply', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(complaintId);
     }
 
     function isValidCallSession(data) {

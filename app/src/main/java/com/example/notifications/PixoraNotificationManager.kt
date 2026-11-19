@@ -49,6 +49,7 @@ object PixoraNotificationManager {
     const val EXTRA_CHAT_ID = "extra_justus_chat_id"
     const val EXTRA_CHAT_ROLE = "extra_justus_chat_role"
     const val EXTRA_CALL_ID = "extra_justus_call_id"
+    const val EXTRA_BOOKING_ID = "extra_datemate_booking_id"
 
     private const val TAG = "DateMatePushNotify"
 
@@ -511,6 +512,99 @@ object PixoraNotificationManager {
     fun cancelCallNotification(context: Context, callId: String) {
         runCatching {
             NotificationManagerCompat.from(context).cancel(("call_" + callId).hashCode())
+        }
+    }
+
+    fun notifyBookingRatingRequest(
+        context: Context,
+        bookingId: String,
+        companionName: String,
+        planLabel: String,
+    ) {
+        val appCtx = context.applicationContext
+        ensureChannel(appCtx)
+        playAlertChime(appCtx)
+        if (!hasNotificationPermission(appCtx)) return
+
+        val tapIntent = Intent(appCtx, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_BOOKING_ID, bookingId)
+        }
+        val notificationId = ("booking_rate_" + bookingId).hashCode()
+        val pendingIntent = PendingIntent.getActivity(
+            appCtx,
+            notificationId,
+            tapIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val soundUri = notificationSoundUri(appCtx)
+        val title = "Rate Your Date with $companionName ⭐"
+        val body = "$companionName marked your $planLabel booking as Attended ✓. Tap to submit your rating & feedback!"
+
+        val builder = NotificationCompat.Builder(appCtx, CHANNEL_MESSAGES_ID)
+            .setSmallIcon(R.drawable.ic_notification_pixora)
+            .setColor(Color.parseColor("#E91E63"))
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setSound(soundUri)
+            .setVibrate(CHAT_VIBRATION)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .addAction(R.drawable.ic_notification_pixora, "Rate & Confirm", pendingIntent)
+
+        runCatching {
+            val nm = NotificationManagerCompat.from(appCtx)
+            nm.cancel(notificationId)
+            nm.notify(notificationId, builder.build())
+        }
+    }
+
+    fun notifyBookingConfirmed(
+        context: Context,
+        bookingId: String,
+        companionName: String,
+        planLabel: String,
+        advanceInr: Int,
+    ) {
+        val appCtx = context.applicationContext
+        ensureChannel(appCtx)
+        playAlertChime(appCtx)
+        if (!hasNotificationPermission(appCtx)) return
+
+        val tapIntent = Intent(appCtx, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_BOOKING_ID, bookingId)
+        }
+        val notificationId = ("booking_conf_" + bookingId).hashCode()
+        val pendingIntent = PendingIntent.getActivity(
+            appCtx,
+            notificationId,
+            tapIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val title = "Booking Confirmed ✓ · $companionName"
+        val body = "Advance ₹$advanceInr received for $planLabel. Open Bookings tab for full date details."
+
+        val builder = NotificationCompat.Builder(appCtx, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification_pixora)
+            .setColor(Color.parseColor("#22C55E"))
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setSound(notificationSoundUri(appCtx))
+            .setVibrate(CHAT_VIBRATION)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+
+        runCatching {
+            NotificationManagerCompat.from(appCtx).notify(notificationId, builder.build())
         }
     }
 

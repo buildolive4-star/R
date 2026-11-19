@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.CategoryCollection
+import com.example.data.model.FilterCategoryGroup
 import com.example.data.model.GalleryImage
 import com.example.data.model.PhotoRevealState
 import com.example.data.model.ProfileTier
@@ -16,8 +17,10 @@ import com.example.data.preferences.LocalBookmarksRepository
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.preferences.ThemePreferencesRepository
+import com.example.data.repository.BookingRepository
 import com.example.data.repository.GalleryRepository
 import com.example.data.repository.UserCrmRepository
+import com.example.ui.theme.AppLookTheme
 import com.example.ui.theme.ThemeMode
 import com.example.util.LocationAddressFetcher
 import com.example.workers.BackgroundSyncScheduler
@@ -57,6 +60,7 @@ class GalleryViewModel(
     private val notifiedImagesStore: NotifiedImagesStore,
     private val hiddenRevealStateStore: HiddenRevealStateStore? = null,
     private val userCrmRepository: UserCrmRepository? = null,
+    private val bookingRepository: BookingRepository? = null,
 ) : ViewModel() {
 
     private val _selectedCategory = MutableStateFlow(CATEGORY_ALL)
@@ -140,6 +144,21 @@ class GalleryViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
             initialValue = ThemeMode.DARK,
+        )
+
+    val appLookTheme: StateFlow<AppLookTheme> = prefsRepository.appLookTheme
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = AppLookTheme.DEFAULT,
+        )
+
+    val filterTaxonomy: StateFlow<List<FilterCategoryGroup>> = (
+        bookingRepository?.observeFilterTaxonomy() ?: flowOf(FilterCategoryGroup.defaultTaxonomy())
+        ).stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = FilterCategoryGroup.defaultTaxonomy(),
         )
 
     val backgroundSyncEnabled: StateFlow<Boolean> = notifiedImagesStore.backgroundSyncEnabled
@@ -510,6 +529,18 @@ class GalleryViewModel(
         }
     }
 
+    fun setAppLookTheme(look: AppLookTheme) {
+        viewModelScope.launch {
+            prefsRepository.setAppLookTheme(look)
+            val label = when (look) {
+                AppLookTheme.DEFAULT -> "Default Rose Theme"
+                AppLookTheme.GOLD -> "Royal Gold Theme"
+                AppLookTheme.SILVER -> "Platinum Silver Theme"
+            }
+            _events.tryEmit("Switched to $label ✨")
+        }
+    }
+
     fun setBackgroundSyncEnabled(context: Context, enabled: Boolean) {
         viewModelScope.launch {
             notifiedImagesStore.setBackgroundSyncEnabled(enabled)
@@ -718,7 +749,7 @@ class GalleryViewModel(
                         item.uploadedBy.isNotBlank()
                 }
                 else -> {
-                    // Support Admin-created custom filters including price caps like "Under ₹299" or city/tag/category keywords
+                    // Support Admin-created custom & taxonomy filters (price caps like "Under ₹299", Occasions like Dinner/Night, city/role/filterTags)
                     val underMatch = Regex("under\\s*[₹rs.]*\\s*(\\d+)", RegexOption.IGNORE_CASE).find(filter)
                     if (underMatch != null) {
                         val cap = underMatch.groupValues[1].toIntOrNull()
@@ -731,7 +762,8 @@ class GalleryViewModel(
                             item.title.contains(filter, ignoreCase = true) ||
                             item.description.contains(filter, ignoreCase = true) ||
                             item.price.contains(filter, ignoreCase = true) ||
-                            item.tags.any { it.contains(filter, ignoreCase = true) }
+                            item.allFilterTags.any { it.contains(filter, ignoreCase = true) } ||
+                            item.bookingPlans.any { it.contains(filter, ignoreCase = true) }
                     }
                 }
             }

@@ -74,8 +74,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.data.model.BookingRatePlan
 import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
+import com.example.data.model.FilterCategoryGroup
 import com.example.data.model.GalleryImage
 import com.example.data.model.ProfileTier
 import com.example.data.model.UserAccount
@@ -93,6 +95,7 @@ fun AdminStaffTab(
     managedProfiles: List<GalleryImage>,
     allChats: List<ChatThread>,
     selectedProfileContact: Pair<String, CompanionPrivateContact>?,
+    filterTaxonomy: List<FilterCategoryGroup> = FilterCategoryGroup.defaultTaxonomy(),
     onApproveStaff: (UserAccount, tier: String) -> Unit,
     onRejectStaff: (userId: String) -> Unit,
     onLoadPrivateContact: (profileId: String) -> Unit,
@@ -108,7 +111,10 @@ fun AdminStaffTab(
         hiddenTimed: Boolean,
         phone: String?,
         address: String?,
-    ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _ -> },
+        filterTags: List<String>,
+        advanceBookingAmount: Int,
+        bookingPlans: List<String>,
+    ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onRefreshProfile: (profileId: String) -> Unit,
     onDeleteProfile: (profileId: String) -> Unit,
     onOpenChatAsAdmin: (chatId: String) -> Unit,
@@ -325,7 +331,8 @@ fun AdminStaffTab(
             privateContact = contact,
             staffChats = staffChats,
             allChats = allChats,
-            onSaveEdits = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address ->
+            filterTaxonomy = filterTaxonomy,
+            onSaveEdits = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, filterTags, advanceAmt, bookingPlans ->
                 onUpdateProfile(
                     activeProfile.id,
                     name,
@@ -338,6 +345,9 @@ fun AdminStaffTab(
                     hiddenTimed,
                     phone,
                     address,
+                    filterTags,
+                    advanceAmt,
+                    bookingPlans,
                 )
             },
             onRefresh = { onRefreshProfile(activeProfile.id) },
@@ -464,6 +474,7 @@ private fun StaffProfileInspectorSheet(
     privateContact: CompanionPrivateContact?,
     staffChats: List<ChatThread>,
     allChats: List<ChatThread>,
+    filterTaxonomy: List<FilterCategoryGroup>,
     onSaveEdits: (
         name: String,
         ageText: String,
@@ -475,6 +486,9 @@ private fun StaffProfileInspectorSheet(
         hiddenTimed: Boolean,
         phone: String?,
         address: String?,
+        filterTags: List<String>,
+        advanceBookingAmount: Int,
+        bookingPlans: List<String>,
     ) -> Unit,
     onRefresh: () -> Unit,
     onDelete: () -> Unit,
@@ -730,9 +744,10 @@ private fun StaffProfileInspectorSheet(
         EditProfilePriceDialog(
             profile = profile,
             privateContact = privateContact,
-            onSave = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address ->
+            filterTaxonomy = filterTaxonomy,
+            onSave = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, filterTags, advanceAmt, bookingPlans ->
                 showEditDialog = false
-                onSaveEdits(name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address)
+                onSaveEdits(name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, filterTags, advanceAmt, bookingPlans)
             },
             onDismiss = { showEditDialog = false }
         )
@@ -744,6 +759,7 @@ private fun StaffProfileInspectorSheet(
 private fun EditProfilePriceDialog(
     profile: GalleryImage,
     privateContact: CompanionPrivateContact?,
+    filterTaxonomy: List<FilterCategoryGroup>,
     onSave: (
         name: String,
         ageText: String,
@@ -755,12 +771,27 @@ private fun EditProfilePriceDialog(
         hiddenTimed: Boolean,
         phone: String?,
         address: String?,
+        filterTags: List<String>,
+        advanceBookingAmount: Int,
+        bookingPlans: List<String>,
     ) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by remember(profile.id) { mutableStateOf(profile.title) }
     var ageText by remember(profile.id) { mutableStateOf(profile.age.toString()) }
     var price by remember(profile.id) { mutableStateOf(profile.price) }
+    var advanceText by remember(profile.id) {
+        mutableStateOf(if (profile.advanceBookingAmount > 0) profile.advanceBookingAmount.toString() else "299")
+    }
+    var bookingPlans by remember(profile.id) {
+        mutableStateOf(
+            profile.bookingPlans.mapNotNull { BookingRatePlan.parse(it) }
+                .ifEmpty { profile.resolvedBookingPlans() }
+        )
+    }
+    var newPlanLabel by remember(profile.id) { mutableStateOf("Dinner") }
+    var newPlanPrice by remember(profile.id) { mutableStateOf("₹1,499") }
+    var selectedFilterTags by remember(profile.id) { mutableStateOf(profile.filterTags) }
     var role by remember(profile.id) { mutableStateOf(profile.role.ifBlank { "GF" }) }
     var tier by remember(profile.id) { mutableStateOf(profile.tier.ifBlank { ProfileTier.GRID_9_16 }) }
     var category by remember(profile.id) { mutableStateOf(profile.category.ifBlank { "Companion" }) }
@@ -876,6 +907,106 @@ private fun EditProfilePriceDialog(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
+                OutlinedTextField(
+                    value = advanceText,
+                    onValueChange = { advanceText = it.filter { c -> c.isDigit() }.take(6) },
+                    singleLine = true,
+                    label = { Text("Pre-Booking Advance Price (₹)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text(
+                    text = "Date Rate Plans (Dinner / Night / Custom)",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    BookingRatePlan.PRESET_PLAN_NAMES.forEach { preset ->
+                        FilterChip(
+                            selected = newPlanLabel.equals(preset, ignoreCase = true),
+                            onClick = { newPlanLabel = preset },
+                            label = { Text(preset, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = newPlanLabel,
+                        onValueChange = { newPlanLabel = it.take(24) },
+                        singleLine = true,
+                        label = { Text("Plan") },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = newPlanPrice,
+                        onValueChange = { newPlanPrice = it.take(18) },
+                        singleLine = true,
+                        label = { Text("Price") },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(0.9f)
+                    )
+                    FilledTonalButton(
+                        onClick = {
+                            if (newPlanLabel.isNotBlank() && newPlanPrice.isNotBlank()) {
+                                val plan = BookingRatePlan.fromInputs(newPlanLabel, newPlanPrice)
+                                bookingPlans = bookingPlans.filterNot { it.label.equals(plan.label, ignoreCase = true) } + plan
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                    ) {
+                        Text("+")
+                    }
+                }
+                if (bookingPlans.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        bookingPlans.forEach { plan ->
+                            FilterChip(
+                                selected = true,
+                                onClick = { bookingPlans = bookingPlans.filterNot { it == plan } },
+                                label = { Text("${plan.label}: ${plan.priceText} ×", style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+                }
+
+                if (filterTaxonomy.isNotEmpty()) {
+                    Text(
+                        text = "Assign Filter Category Tags",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    filterTaxonomy.forEach { group ->
+                        if (group.options.isNotEmpty()) {
+                            Text(
+                                text = group.category,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                group.options.forEach { opt ->
+                                    val isChosen = selectedFilterTags.any { it.equals(opt, ignoreCase = true) }
+                                    FilterChip(
+                                        selected = isChosen,
+                                        onClick = {
+                                            selectedFilterTags = if (isChosen) {
+                                                selectedFilterTags.filterNot { it.equals(opt, ignoreCase = true) }
+                                            } else {
+                                                selectedFilterTags + opt
+                                            }
+                                        },
+                                        label = { Text(opt, style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -893,6 +1024,7 @@ private fun EditProfilePriceDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    val safeAdvance = (advanceText.toIntOrNull() ?: 299).coerceIn(1, 500_000)
                     onSave(
                         name,
                         ageText,
@@ -904,6 +1036,9 @@ private fun EditProfilePriceDialog(
                         hiddenTimed,
                         phone.takeIf { it.isNotBlank() || privateContact != null },
                         address.takeIf { it.isNotBlank() || privateContact != null },
+                        selectedFilterTags,
+                        safeAdvance,
+                        bookingPlans.map { it.encode() },
                     )
                 },
                 modifier = Modifier.testTag("save_profile_edits_button")

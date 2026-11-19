@@ -15,11 +15,14 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,6 +30,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,28 +40,30 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CurrencyRupee
-import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.NotificationsActive
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Verified
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -69,23 +75,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.R
+import com.example.data.model.FilterCategoryGroup
 import com.example.data.model.GalleryImage
 import com.example.data.model.UiState
 import com.example.ui.components.Animated3DMascotOrb
 import com.example.ui.components.Animated3DPageBackdrop
 import com.example.ui.components.CupidLikeSuccessOverlay
+import com.example.ui.components.DateMate3DGlowingButton
 import com.example.ui.components.DateMate3DGlowingIconButton
 import com.example.ui.components.DateMateMascot
 import com.example.ui.components.EmptyGalleryState
@@ -95,15 +101,7 @@ import com.example.ui.components.GlowButtonStyle
 import com.example.ui.components.ShimmerBox
 import com.example.ui.components.VipShowcaseCarousel
 import com.example.ui.datemate.Floating3DHeartsBackground
-import com.example.ui.theme.DateMateBackground
-import com.example.ui.theme.DateMateDarkText
-import com.example.ui.theme.DateMatePrimaryPink
-import com.example.ui.theme.DateMateSecondaryPink
-import com.example.ui.theme.DateMateSecondaryText
-import com.example.ui.theme.DateMateSoftBlush
-import com.example.ui.theme.DateMateSoftBorder
 import com.example.ui.theme.DateMateSuccessGreen
-import com.example.ui.theme.DateMateWhite
 
 @Composable
 fun ExploreScreen(
@@ -126,15 +124,18 @@ fun ExploreScreen(
     smartFilters: List<String> = GalleryViewModel.DEFAULT_SMART_FILTERS,
     selectedSmartFilter: String = GalleryViewModel.FILTER_ALL,
     onSelectSmartFilter: (String) -> Unit = {},
+    filterTaxonomy: List<FilterCategoryGroup> = FilterCategoryGroup.defaultTaxonomy(),
     userCity: String = "",
     userAddress: String = "",
     userGenderPreference: String = "",
+    onLocationClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val allProfiles = (galleryState as? UiState.Success)?.data.orEmpty()
     val totalCount = allProfiles.size
     val context = LocalContext.current
     var cupidCelebrationName by remember { mutableStateOf<String?>(null) }
+    var showAllFiltersSheet by remember { mutableStateOf(false) }
 
     val handleLikeToggle: (GalleryImage) -> Unit = { img ->
         val wasBookmarked = bookmarkedIds.contains(img.id)
@@ -166,9 +167,9 @@ fun ExploreScreen(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        DateMateWhite,
-                        DateMateBackground,
-                        DateMateSoftBlush.copy(alpha = 0.65f),
+                        MaterialTheme.colorScheme.surface,
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
                     )
                 )
             )
@@ -188,20 +189,19 @@ fun ExploreScreen(
                 ) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "loading_header") {
                         DateMateScrollableHomeHeader(
-                            totalCount = totalCount,
                             isStaffTheme = isStaffTheme,
                             onSecretAdminTrigger = onSecretAdminTrigger,
                             onPushBellClick = handlePushBellClick,
-                            searchQuery = searchQuery,
-                            onSearchQueryChange = onSearchQueryChange,
+                            onLocationClick = onLocationClick,
                             categories = categories,
                             selectedCategory = selectedCategory,
                             onSelectCategory = onSelectCategory,
                             smartFilters = smartFilters,
                             selectedSmartFilter = selectedSmartFilter,
                             onSelectSmartFilter = onSelectSmartFilter,
+                            onOpenAllFiltersSheet = { showAllFiltersSheet = true },
                             userCity = userCity,
-                            userGenderPreference = userGenderPreference,
+                            userAddress = userAddress,
                         )
                     }
                     item(span = { GridItemSpan(maxLineSpan) }, key = "loading_lovemate") {
@@ -219,10 +219,10 @@ fun ExploreScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "LoveMate is loading nearby 3D matches…",
+                                text = "LoveMate is loading nearby matches…",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = DateMatePrimaryPink
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
@@ -241,20 +241,19 @@ fun ExploreScreen(
                 Column(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         DateMateScrollableHomeHeader(
-                            totalCount = totalCount,
                             isStaffTheme = isStaffTheme,
                             onSecretAdminTrigger = onSecretAdminTrigger,
                             onPushBellClick = handlePushBellClick,
-                            searchQuery = searchQuery,
-                            onSearchQueryChange = onSearchQueryChange,
+                            onLocationClick = onLocationClick,
                             categories = categories,
                             selectedCategory = selectedCategory,
                             onSelectCategory = onSelectCategory,
                             smartFilters = smartFilters,
                             selectedSmartFilter = selectedSmartFilter,
                             onSelectSmartFilter = onSelectSmartFilter,
+                            onOpenAllFiltersSheet = { showAllFiltersSheet = true },
                             userCity = userCity,
-                            userGenderPreference = userGenderPreference,
+                            userAddress = userAddress,
                         )
                     }
                     ErrorStateCard(
@@ -266,7 +265,6 @@ fun ExploreScreen(
 
             is UiState.Success -> {
                 val gridProfiles = filteredGridState.data
-                // VIP 16:9 Spotlight shows whenever Admin Panel has uploaded matching VIP 16:9 profiles
                 val showVipCarousel = vipProfiles.isNotEmpty()
 
                 LazyVerticalGrid(
@@ -283,27 +281,26 @@ fun ExploreScreen(
                         .fillMaxSize()
                         .testTag("explore_uniform_grid")
                 ) {
-                    // Scrollable DateMate Header + Search Bar + Smart Filters (scrolls up seamlessly for maximum space!)
+                    // Clean Header (DateMate + Location directly below, NO vertical line, NO Search Bar!)
                     item(span = { GridItemSpan(maxLineSpan) }, key = "scrollable_home_header") {
                         DateMateScrollableHomeHeader(
-                            totalCount = totalCount,
                             isStaffTheme = isStaffTheme,
                             onSecretAdminTrigger = onSecretAdminTrigger,
                             onPushBellClick = handlePushBellClick,
-                            searchQuery = searchQuery,
-                            onSearchQueryChange = onSearchQueryChange,
+                            onLocationClick = onLocationClick,
                             categories = categories,
                             selectedCategory = selectedCategory,
                             onSelectCategory = onSelectCategory,
                             smartFilters = smartFilters,
                             selectedSmartFilter = selectedSmartFilter,
                             onSelectSmartFilter = onSelectSmartFilter,
+                            onOpenAllFiltersSheet = { showAllFiltersSheet = true },
                             userCity = userCity,
-                            userGenderPreference = userGenderPreference,
+                            userAddress = userAddress,
                         )
                     }
 
-                    // Admin-Uploaded 16:9 VIP Spotlight (No static 16:9 Hero Banner above it!)
+                    // Admin-Uploaded 16:9 VIP Spotlight
                     if (showVipCarousel) {
                         item(span = { GridItemSpan(maxLineSpan) }, key = "vip_section_header") {
                             Row(
@@ -325,25 +322,25 @@ fun ExploreScreen(
                                             text = stringResource(R.string.vip_showcase_title),
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = DateMateDarkText
+                                            color = MaterialTheme.colorScheme.onBackground
                                         )
                                         Text(
                                             text = "RoyalMate · 16:9 Exclusive Spotlights",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = DateMateSecondaryText
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
                                 Surface(
                                     shape = RoundedCornerShape(999.dp),
-                                    color = DateMateSoftBlush,
-                                    border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.4f)),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
                                 ) {
                                     Text(
                                         text = "👑 ${vipProfiles.size} VIP",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = DateMatePrimaryPink,
+                                        color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
                                     )
                                 }
@@ -405,32 +402,34 @@ fun ExploreScreen(
                                             text = "${stringResource(R.string.grid_companions_title)} (${gridProfiles.size})",
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = DateMateDarkText
+                                            color = MaterialTheme.colorScheme.onBackground
                                         )
                                         Text(
                                             text = if (userCity.isNotBlank()) {
-                                                "Cupid picks near $userCity · 3D Glow"
+                                                "Cupid picks near $userCity"
                                             } else {
-                                                "Set city & GF/BF preference in Profile for nearby matches"
+                                                "Tap any profile to Chat or Book a Date"
                                             },
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = DateMateSecondaryText
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(999.dp),
-                                    color = DateMateSoftBlush,
-                                    border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.45f))
-                                ) {
-                                    Text(
-                                        text = "3D · 2×2",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = DateMatePrimaryPink,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
+                                if (selectedSmartFilter != GalleryViewModel.FILTER_ALL || selectedCategory != GalleryViewModel.CATEGORY_ALL) {
+                                    Surface(
+                                        onClick = onResetFilters,
+                                        shape = RoundedCornerShape(999.dp),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+                                    ) {
+                                        Text(
+                                            text = "Reset ✕",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -459,41 +458,50 @@ fun ExploreScreen(
             modifier = Modifier.align(Alignment.Center)
         )
     }
+
+    if (showAllFiltersSheet) {
+        AllFilterCategoriesBottomSheet(
+            filterTaxonomy = filterTaxonomy,
+            smartFilters = smartFilters,
+            selectedCategory = selectedCategory,
+            selectedSmartFilter = selectedSmartFilter,
+            onSelectCategory = onSelectCategory,
+            onSelectFilterOption = { option ->
+                onSelectSmartFilter(option)
+                showAllFiltersSheet = false
+            },
+            onResetAll = {
+                onResetFilters()
+                showAllFiltersSheet = false
+            },
+            onDismiss = { showAllFiltersSheet = false }
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DateMateScrollableHomeHeader(
-    totalCount: Int,
     isStaffTheme: Boolean,
     onSecretAdminTrigger: () -> Unit,
     onPushBellClick: () -> Unit,
-    searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
+    onLocationClick: () -> Unit,
     categories: List<String>,
     selectedCategory: String,
     onSelectCategory: (String) -> Unit,
     smartFilters: List<String>,
     selectedSmartFilter: String,
     onSelectSmartFilter: (String) -> Unit,
+    onOpenAllFiltersSheet: () -> Unit,
     userCity: String,
-    userGenderPreference: String,
+    userAddress: String,
 ) {
     val pulseTransition = rememberInfiniteTransition(label = "live_pulse")
-    val pulseScale by pulseTransition.animateFloat(
-        initialValue = 0.93f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1150, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse_scale"
-    )
     val pulseAlpha by pulseTransition.animateFloat(
         initialValue = 0.55f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1100),
+            animation = tween(1100, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulse_alpha"
@@ -502,21 +510,29 @@ private fun DateMateScrollableHomeHeader(
     var tapCount by remember { mutableIntStateOf(0) }
     var lastTapMs by remember { mutableLongStateOf(0L) }
 
+    val displayLocation = remember(userCity, userAddress) {
+        when {
+            userCity.isNotBlank() -> userCity.trim()
+            userAddress.isNotBlank() -> userAddress.split(",").firstOrNull()?.trim().orEmpty().ifBlank { "Set Location" }
+            else -> "Set Location"
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 6.dp)
+            .padding(top = 4.dp)
     ) {
+        // Top Brand Row: LoveMate Mascot + DateMate + Location directly below (NO vertical line!) + Clean 3D Glowing Bell
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 3D Glowing Pulsing DateMate Heart Emblem + Brand Title (5-tap opens Admin Studio!)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .weight(1f, fill = false)
+                    .weight(1f)
                     .combinedClickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -533,14 +549,13 @@ private fun DateMateScrollableHomeHeader(
                     )
                     .testTag("explore_brand_header")
             ) {
-                // LoveMate 3D Animated Brand Mascot in Home Header
                 Animated3DMascotOrb(
                     mascot = DateMateMascot.LOVE_MATE,
-                    size = 48.dp,
+                    size = 46.dp,
                     showOrbitSparkles = true,
                 )
 
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -548,15 +563,15 @@ private fun DateMateScrollableHomeHeader(
                             text = stringResource(R.string.app_name),
                             style = MaterialTheme.typography.headlineSmall.copy(
                                 fontWeight = FontWeight.ExtraBold,
-                                color = DateMateDarkText
+                                color = MaterialTheme.colorScheme.onBackground
                             )
                         )
                         if (isStaffTheme) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Surface(
                                 shape = RoundedCornerShape(50),
-                                color = DateMateSoftBlush,
-                                border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.45f))
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
@@ -565,7 +580,7 @@ private fun DateMateScrollableHomeHeader(
                                     Icon(
                                         imageVector = Icons.Rounded.Verified,
                                         contentDescription = null,
-                                        tint = DateMatePrimaryPink,
+                                        tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(11.dp)
                                     )
                                     Spacer(modifier = Modifier.width(3.dp))
@@ -573,160 +588,102 @@ private fun DateMateScrollableHomeHeader(
                                         text = "STAFF",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = DateMatePrimaryPink
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             }
                         }
                     }
-                    val subtitle = when {
-                        userCity.isNotBlank() && userGenderPreference.isNotBlank() -> "$userCity · $userGenderPreference"
-                        userCity.isNotBlank() -> "Near $userCity · 3D Verified"
-                        else -> stringResource(R.string.brand_tagline)
+
+                    // Location name right below "DateMate" — clean, zero vertical line!
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onLocationClick)
+                            .padding(vertical = 2.dp)
+                            .testTag("home_location_chip")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.LocationOn,
+                            contentDescription = "Your Location",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = displayLocation,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = DateMatePrimaryPink,
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        maxLines = 1
-                    )
                 }
             }
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    DateMate3DGlowingIconButton(
-                        icon = Icons.Rounded.NotificationsActive,
-                        contentDescription = "Instant Push Notifications",
-                        onClick = onPushBellClick,
-                        style = GlowButtonStyle.ROSE_PINK,
-                        size = 42.dp,
-                        iconSize = 20.dp,
-                        modifier = Modifier.testTag("home_push_bell_button")
-                    )
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 4.dp, end = 4.dp)
-                            .size(8.dp)
-                            .alpha(pulseAlpha)
-                            .clip(CircleShape)
-                            .background(DateMateSuccessGreen)
-                            .border(1.dp, Color.White, CircleShape)
-                    )
-                }
-
-                Surface(
+            // Polished Single 3D Glowing Notification Button (Clean, no cluttered pill next to it)
+            Box(contentAlignment = Alignment.Center) {
+                DateMate3DGlowingIconButton(
+                    icon = Icons.Rounded.NotificationsActive,
+                    contentDescription = "Instant Push Notifications",
                     onClick = onPushBellClick,
-                    shape = RoundedCornerShape(999.dp),
-                    color = DateMateWhite,
-                    shadowElevation = 8.dp,
-                    border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.35f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .alpha(pulseAlpha)
-                                .clip(CircleShape)
-                                .background(DateMateSuccessGreen)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = if (totalCount > 0) {
-                                "${stringResource(R.string.live_sync_badge)} · $totalCount"
-                            } else {
-                                stringResource(R.string.live_sync_badge)
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = DateMateDarkText
-                        )
-                    }
-                }
+                    style = GlowButtonStyle.ROSE_PINK,
+                    size = 46.dp,
+                    iconSize = 22.dp,
+                    modifier = Modifier.testTag("home_push_bell_button")
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 3.dp, end = 3.dp)
+                        .size(10.dp)
+                        .alpha(pulseAlpha)
+                        .clip(CircleShape)
+                        .background(DateMateSuccessGreen)
+                        .border(1.5.dp, Color.White, CircleShape)
+                )
             }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Glowing 3D Search Bar (scrolls smoothly upward with the header!)
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            singleLine = true,
-            placeholder = {
-                Text(
-                    text = stringResource(R.string.search_placeholder),
-                    style = MaterialTheme.typography.bodyMedium.copy(color = DateMateSecondaryText)
-                )
-            },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Rounded.Search,
-                    contentDescription = null,
-                    tint = DateMatePrimaryPink
-                )
-            },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(
-                        onClick = { onSearchQueryChange("") },
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("clear_search_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = stringResource(R.string.clear_search),
-                            tint = DateMateSecondaryText
-                        )
-                    }
-                }
-            },
-            shape = RoundedCornerShape(22.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = DateMateWhite,
-                unfocusedContainerColor = DateMateWhite,
-                focusedBorderColor = DateMatePrimaryPink,
-                unfocusedBorderColor = DateMatePrimaryPink.copy(alpha = 0.32f),
-                focusedTextColor = DateMateDarkText,
-                unfocusedTextColor = DateMateDarkText,
-                cursorColor = DateMatePrimaryPink,
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .shadow(
-                    elevation = 10.dp,
-                    shape = RoundedCornerShape(22.dp),
-                    ambientColor = DateMatePrimaryPink.copy(alpha = 0.20f),
-                    spotColor = DateMatePrimaryPink.copy(alpha = 0.25f)
-                )
-                .testTag("search_input")
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Role & Category Chips (All / GF / BF / ...)
+        // Role & Category Row — Tapping "All" opens ALL Admin-created Filter Categories & Options Sheet!
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             items(categories, key = { it }) { category ->
-                val selected = category == selectedCategory
+                val isAllButton = category == GalleryViewModel.CATEGORY_ALL
+                val hasActiveSmartFilter = selectedSmartFilter != GalleryViewModel.FILTER_ALL
+                val selected = if (isAllButton) {
+                    category == selectedCategory || hasActiveSmartFilter
+                } else {
+                    category == selectedCategory
+                }
                 FilterChip(
                     selected = selected,
-                    onClick = { onSelectCategory(category) },
+                    onClick = {
+                        if (isAllButton) {
+                            onOpenAllFiltersSheet()
+                        } else {
+                            onSelectCategory(category)
+                        }
+                    },
+                    leadingIcon = if (isAllButton) {
+                        {
+                            Icon(
+                                imageVector = Icons.Rounded.Tune,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    } else null,
                     label = {
                         Text(
-                            text = category,
+                            text = if (isAllButton && hasActiveSmartFilter) "All · $selectedSmartFilter" else if (isAllButton) "All Filters" else category,
                             style = MaterialTheme.typography.labelLarge.copy(
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
                             )
@@ -734,16 +691,18 @@ private fun DateMateScrollableHomeHeader(
                     },
                     shape = RoundedCornerShape(999.dp),
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = DateMatePrimaryPink,
-                        selectedLabelColor = DateMateWhite,
-                        containerColor = DateMateWhite,
-                        labelColor = DateMateDarkText,
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        labelColor = MaterialTheme.colorScheme.onSurface,
+                        iconColor = MaterialTheme.colorScheme.primary,
                     ),
                     border = FilterChipDefaults.filterChipBorder(
                         enabled = true,
                         selected = selected,
-                        borderColor = DateMateSoftBorder,
-                        selectedBorderColor = DateMatePrimaryPink
+                        borderColor = MaterialTheme.colorScheme.outlineVariant,
+                        selectedBorderColor = MaterialTheme.colorScheme.primary
                     ),
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
@@ -752,12 +711,13 @@ private fun DateMateScrollableHomeHeader(
             }
         }
 
-        // Smart Filters Row: Nearby You, Budget (≤₹399), Premium, Verified + Admin Custom Filters
+        // Quick Smart Filter Chips Row (All opens complete Admin Filter Sheet too)
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             items(smartFilters, key = { "smart_$it" }) { filter ->
+                val isAllSmart = filter.equals(GalleryViewModel.FILTER_ALL, ignoreCase = true)
                 val selected = filter == selectedSmartFilter
                 val leadingIcon = when {
                     filter.equals(GalleryViewModel.FILTER_NEARBY, ignoreCase = true) -> Icons.Rounded.LocationOn
@@ -765,17 +725,23 @@ private fun DateMateScrollableHomeHeader(
                         filter.contains("₹") || filter.contains("Under", ignoreCase = true) -> Icons.Rounded.CurrencyRupee
                     filter.equals(GalleryViewModel.FILTER_PREMIUM, ignoreCase = true) -> Icons.Rounded.AutoAwesome
                     filter.equals(GalleryViewModel.FILTER_VERIFIED, ignoreCase = true) -> Icons.Rounded.Verified
-                    filter.equals(GalleryViewModel.FILTER_ALL, ignoreCase = true) -> Icons.Rounded.Tune
+                    isAllSmart -> Icons.Rounded.FilterList
                     else -> Icons.Rounded.AutoAwesome
                 }
                 Surface(
-                    onClick = { onSelectSmartFilter(filter) },
+                    onClick = {
+                        if (isAllSmart) {
+                            onOpenAllFiltersSheet()
+                        } else {
+                            onSelectSmartFilter(filter)
+                        }
+                    },
                     shape = RoundedCornerShape(999.dp),
-                    color = if (selected) DateMatePrimaryPink else DateMateWhite,
+                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
                     shadowElevation = if (selected) 8.dp else 3.dp,
                     border = BorderStroke(
                         width = if (selected) 1.4.dp else 1.dp,
-                        color = if (selected) Color(0xFFFF80AB) else DateMateSoftBorder
+                        color = if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant
                     ),
                     modifier = Modifier.testTag("smart_filter_chip_$filter")
                 ) {
@@ -786,20 +752,200 @@ private fun DateMateScrollableHomeHeader(
                         Icon(
                             imageVector = leadingIcon,
                             contentDescription = null,
-                            tint = if (selected) DateMateWhite else DateMatePrimaryPink,
+                            tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = filter,
+                            text = if (isAllSmart) "All" else filter,
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                color = if (selected) DateMateWhite else DateMateDarkText
+                                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                             )
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun AllFilterCategoriesBottomSheet(
+    filterTaxonomy: List<FilterCategoryGroup>,
+    smartFilters: List<String>,
+    selectedCategory: String,
+    selectedSmartFilter: String,
+    onSelectCategory: (String) -> Unit,
+    onSelectFilterOption: (String) -> Unit,
+    onResetAll: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .testTag("home_all_filters_sheet"),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.Tune,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "All Filter Categories",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Browse by category & option to find your ideal match",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Close")
+                }
+            }
+
+            // Admin-Created Filter Categories & Their Sub-Options
+            filterTaxonomy.forEach { group ->
+                if (group.options.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = group.category,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                group.options.forEach { option ->
+                                    val isRoleOpt = option.equals("GF", true) || option.equals("BF", true)
+                                    val isSelected = if (isRoleOpt) {
+                                        selectedCategory.equals(option, true)
+                                    } else {
+                                        selectedSmartFilter.equals(option, true)
+                                    }
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            if (isRoleOpt) {
+                                                onSelectCategory(option.uppercase())
+                                                onDismiss()
+                                            } else {
+                                                onSelectFilterOption(option)
+                                            }
+                                        },
+                                        label = {
+                                            Text(
+                                                text = option,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                        ),
+                                        modifier = Modifier.testTag("taxonomy_opt_${group.category}_$option")
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Quick Smart Filters
+            val extraSmart = smartFilters.filter { sf ->
+                !sf.equals(GalleryViewModel.FILTER_ALL, true) &&
+                    filterTaxonomy.none { grp -> grp.options.any { it.equals(sf, true) } }
+            }
+            if (extraSmart.isNotEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Quick Discovery Filters",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            extraSmart.forEach { sf ->
+                                val isSelected = selectedSmartFilter.equals(sf, true)
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { onSelectFilterOption(sf) },
+                                    label = { Text(sf) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                DateMate3DGlowingButton(
+                    text = "Show All Profiles",
+                    onClick = onResetAll,
+                    style = GlowButtonStyle.ROSE_PINK,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("sheet_reset_all_filters_btn")
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
         }
     }
 }

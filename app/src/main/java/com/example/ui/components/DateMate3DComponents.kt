@@ -75,6 +75,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.ui.theme.AppLookTheme
+import com.example.ui.theme.LocalAppLookTheme
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.cos
@@ -175,6 +177,62 @@ enum class GlowButtonStyle(
         contentColor = Color.White,
         borderTint = Color(0xCCFFFFFF),
     ),
+}
+
+private data class ResolvedGlowPalette(
+    val topStart: Color,
+    val topEnd: Color,
+    val depthLip: Color,
+    val haloGlow: Color,
+    val contentColor: Color,
+    val borderTint: Color,
+)
+
+@Composable
+private fun resolveGlowPalette(style: GlowButtonStyle): ResolvedGlowPalette {
+    val look = LocalAppLookTheme.current
+    return when {
+        style == GlowButtonStyle.ROSE_PINK && look == AppLookTheme.GOLD -> ResolvedGlowPalette(
+            topStart = Color(0xFFC88B14),
+            topEnd = Color(0xFFE8B43C),
+            depthLip = Color(0xFF835505),
+            haloGlow = Color(0xFFD99A18),
+            contentColor = Color.White,
+            borderTint = Color(0xEEFFF5D6),
+        )
+        style == GlowButtonStyle.ROSE_PINK && look == AppLookTheme.SILVER -> ResolvedGlowPalette(
+            topStart = Color(0xFF475569),
+            topEnd = Color(0xFF7B8FA6),
+            depthLip = Color(0xFF283445),
+            haloGlow = Color(0xFF64748B),
+            contentColor = Color.White,
+            borderTint = Color(0xEEF1F5F9),
+        )
+        style == GlowButtonStyle.GLASS_SOFT && look == AppLookTheme.GOLD -> ResolvedGlowPalette(
+            topStart = Color(0xFFFFF8E6),
+            topEnd = Color(0xFFFBE9BE),
+            depthLip = Color(0xFFD9BA73),
+            haloGlow = Color(0xFFD99A18),
+            contentColor = Color(0xFF8C5A05),
+            borderTint = Color(0xFFE6C87D),
+        )
+        style == GlowButtonStyle.GLASS_SOFT && look == AppLookTheme.SILVER -> ResolvedGlowPalette(
+            topStart = Color(0xFFF6F8FB),
+            topEnd = Color(0xFFE4EAF2),
+            depthLip = Color(0xFFB3C0D1),
+            haloGlow = Color(0xFF64748B),
+            contentColor = Color(0xFF334155),
+            borderTint = Color(0xFFCBD5E1),
+        )
+        else -> ResolvedGlowPalette(
+            topStart = style.topStart,
+            topEnd = style.topEnd,
+            depthLip = style.depthLip,
+            haloGlow = style.haloGlow,
+            contentColor = style.contentColor,
+            borderTint = style.borderTint,
+        )
+    }
 }
 
 /**
@@ -422,6 +480,7 @@ fun DateMate3DGlowingButton(
         label = "btn_shimmer"
     )
 
+    val palette = resolveGlowPalette(style)
     val shape = RoundedCornerShape(cornerRadius)
     val activeAlpha = if (enabled) 1f else 0.55f
 
@@ -440,8 +499,8 @@ fun DateMate3DGlowingButton(
                     drawRoundRect(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                style.haloGlow.copy(alpha = glowAlpha * 0.55f),
-                                style.haloGlow.copy(alpha = glowAlpha * 0.18f),
+                                palette.haloGlow.copy(alpha = glowAlpha * 0.55f),
+                                palette.haloGlow.copy(alpha = glowAlpha * 0.18f),
                                 Color.Transparent,
                             ),
                             center = Offset(size.width / 2f, size.height / 2f + 2.dp.toPx()),
@@ -468,7 +527,7 @@ fun DateMate3DGlowingButton(
                 .matchParentSize()
                 .offset(y = depthOffset)
                 .clip(shape)
-                .background(style.depthLip)
+                .background(palette.depthLip)
         )
 
         // Elevated Glossy Top Face
@@ -478,7 +537,7 @@ fun DateMate3DGlowingButton(
                 .clip(shape)
                 .background(
                     Brush.linearGradient(
-                        colors = listOf(style.topStart, style.topEnd)
+                        colors = listOf(palette.topStart, palette.topEnd)
                     )
                 )
                 .drawBehind {
@@ -514,8 +573,8 @@ fun DateMate3DGlowingButton(
                     width = 1.15.dp,
                     brush = Brush.verticalGradient(
                         listOf(
-                            style.borderTint,
-                            style.borderTint.copy(alpha = 0.22f)
+                            palette.borderTint,
+                            palette.borderTint.copy(alpha = 0.22f)
                         )
                     ),
                     shape = shape
@@ -529,7 +588,7 @@ fun DateMate3DGlowingButton(
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(
-                        color = style.contentColor,
+                        color = palette.contentColor,
                         strokeWidth = 2.dp,
                         modifier = Modifier.size(if (compact) 14.dp else 18.dp)
                     )
@@ -538,7 +597,7 @@ fun DateMate3DGlowingButton(
                     Icon(
                         imageVector = leadingIcon,
                         contentDescription = null,
-                        tint = style.contentColor,
+                        tint = palette.contentColor,
                         modifier = Modifier.size(if (compact) 15.dp else 19.dp)
                     )
                     Spacer(modifier = Modifier.width(if (compact) 5.dp else 8.dp))
@@ -547,7 +606,7 @@ fun DateMate3DGlowingButton(
                     text = text,
                     style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.ExtraBold,
-                    color = style.contentColor,
+                    color = palette.contentColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -593,6 +652,8 @@ fun DateMate3DGlowingIconButton(
         label = "icon_btn_halo"
     )
 
+    val palette = resolveGlowPalette(style)
+
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
@@ -606,7 +667,7 @@ fun DateMate3DGlowingIconButton(
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                style.haloGlow.copy(alpha = glowPulse * 0.55f),
+                                palette.haloGlow.copy(alpha = glowPulse * 0.55f),
                                 Color.Transparent
                             ),
                             radius = this.size.minDimension * 0.72f
@@ -626,7 +687,7 @@ fun DateMate3DGlowingIconButton(
                 .size(size)
                 .offset(y = depthOffset)
                 .clip(CircleShape)
-                .background(style.depthLip)
+                .background(palette.depthLip)
         )
         Box(
             contentAlignment = Alignment.Center,
@@ -634,12 +695,12 @@ fun DateMate3DGlowingIconButton(
                 .size(size)
                 .clip(CircleShape)
                 .background(
-                    Brush.linearGradient(listOf(style.topStart, style.topEnd))
+                    Brush.linearGradient(listOf(palette.topStart, palette.topEnd))
                 )
                 .border(
                     width = 1.2.dp,
                     brush = Brush.verticalGradient(
-                        listOf(style.borderTint, style.borderTint.copy(alpha = 0.25f))
+                        listOf(palette.borderTint, palette.borderTint.copy(alpha = 0.25f))
                     ),
                     shape = CircleShape
                 )
@@ -647,7 +708,7 @@ fun DateMate3DGlowingIconButton(
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = style.contentColor,
+                tint = palette.contentColor,
                 modifier = Modifier.size(iconSize)
             )
         }
@@ -660,8 +721,8 @@ fun DateMate3DGlowingIconButton(
 @Composable
 fun Animated3DPageBackdrop(
     modifier: Modifier = Modifier,
-    primaryOrbColor: Color = Color(0xFFFF4081),
-    secondaryOrbColor: Color = Color(0xFFFFB74D),
+    primaryOrbColor: Color = MaterialTheme.colorScheme.primary,
+    secondaryOrbColor: Color = MaterialTheme.colorScheme.secondary,
 ) {
     val infinite = rememberInfiniteTransition(label = "page_3d_backdrop")
     val drift1 by infinite.animateFloat(

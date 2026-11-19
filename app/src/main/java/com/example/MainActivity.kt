@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -51,9 +52,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Person
@@ -117,6 +120,7 @@ import com.example.data.preferences.LocalBookmarksRepository
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.NotifiedImagesStore
 import com.example.data.preferences.ThemePreferencesRepository
+import com.example.data.repository.BookingRepository
 import com.example.data.repository.CallRepository
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.GalleryRepository
@@ -128,6 +132,9 @@ import com.example.notifications.PixoraNotificationManager
 import com.example.ui.admin.AdminPasscodeSheet
 import com.example.ui.admin.AdminStudioScreen
 import com.example.ui.admin.AdminViewModel
+import com.example.ui.booking.BookingCheckoutSheet
+import com.example.ui.booking.BookingViewModel
+import com.example.ui.booking.BookingsScreen
 import com.example.ui.call.AudioCallOverlay
 import com.example.ui.chat.ChatOnboardingSheet
 import com.example.ui.chat.ChatRoomScreen
@@ -141,11 +148,7 @@ import com.example.ui.gallery.ExploreScreen
 import com.example.ui.gallery.GalleryViewModel
 import com.example.ui.gallery.SavedScreen
 import com.example.ui.gallery.SettingsScreen
-import com.example.ui.theme.DateMatePrimaryPink
-import com.example.ui.theme.DateMateSecondaryText
-import com.example.ui.theme.DateMateSoftBlush
-import com.example.ui.theme.DateMateSoftBorder
-import com.example.ui.theme.DateMateWhite
+import com.example.ui.theme.AppLookTheme
 import com.example.ui.theme.JustUsTheme
 import com.example.ui.theme.ThemeMode
 import com.example.workers.BackgroundSyncScheduler
@@ -157,6 +160,7 @@ import kotlinx.coroutines.launch
 const val ROUTE_EXPLORE = "explore"
 const val ROUTE_CHATS = "chats"
 const val ROUTE_SAVED = "saved"
+const val ROUTE_BOOKINGS = "bookings"
 const val ROUTE_SETTINGS = "settings"
 const val ROUTE_DETAIL = "detail/{imageId}"
 const val ROUTE_CHAT_ROOM = "chat/{chatId}/{senderRole}"
@@ -193,6 +197,13 @@ private val TopTabs = listOf(
         testTag = "nav_tab_saved"
     ),
     NavTab(
+        route = ROUTE_BOOKINGS,
+        labelRes = R.string.nav_bookings,
+        selectedIcon = Icons.Rounded.CalendarMonth,
+        unselectedIcon = Icons.Outlined.CalendarMonth,
+        testTag = "nav_tab_bookings"
+    ),
+    NavTab(
         route = ROUTE_SETTINGS,
         labelRes = R.string.nav_settings,
         selectedIcon = Icons.Rounded.Person,
@@ -204,6 +215,8 @@ private val TopTabs = listOf(
 class MainActivity : ComponentActivity() {
     private val pendingDeepLinkImageId = mutableStateOf<String?>(null)
     private val pendingDeepLinkChat = mutableStateOf<Pair<String, String>?>(null)
+    private val pendingPaymentResultUri = mutableStateOf<Uri?>(null)
+    private val pendingOpenBookingsTab = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -245,18 +258,26 @@ class MainActivity : ComponentActivity() {
                 }
             )
             val isStaffTheme by sessionViewModel.isApprovedStaffTheme.collectAsStateWithLifecycle()
+            val themePrefsRepo = remember { ThemePreferencesRepository(applicationContext) }
+            val appLookTheme by themePrefsRepo.appLookTheme.collectAsStateWithLifecycle(initialValue = AppLookTheme.DEFAULT)
 
             JustUsTheme(
                 themeMode = ThemeMode.LIGHT,
                 isStaffTheme = isStaffTheme,
+                appLookTheme = appLookTheme,
             ) {
                 JustUsAppRoot(
                     sessionViewModel = sessionViewModel,
                     isStaffTheme = isStaffTheme,
+                    appLookTheme = appLookTheme,
                     deepLinkImageId = pendingDeepLinkImageId.value,
                     deepLinkChat = pendingDeepLinkChat.value,
+                    paymentResultUri = pendingPaymentResultUri.value,
+                    openBookingsTab = pendingOpenBookingsTab.value,
                     onConsumeDeepLinkImage = { pendingDeepLinkImageId.value = null },
                     onConsumeDeepLinkChat = { pendingDeepLinkChat.value = null },
+                    onConsumePaymentResultUri = { pendingPaymentResultUri.value = null },
+                    onConsumeOpenBookingsTab = { pendingOpenBookingsTab.value = false },
                 )
             }
         }
@@ -269,6 +290,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleDeepLinkIntent(intent: Intent?) {
+        val dataUri = intent?.data
+        if (dataUri != null && dataUri.scheme == "datemate" && dataUri.host == "payment-result") {
+            pendingPaymentResultUri.value = dataUri
+        }
+        val bookingId = intent?.getStringExtra(PixoraNotificationManager.EXTRA_BOOKING_ID)
+        if (!bookingId.isNullOrBlank()) {
+            pendingOpenBookingsTab.value = true
+        }
         val imageId = intent?.getStringExtra(PixoraNotificationManager.EXTRA_IMAGE_ID)
         if (!imageId.isNullOrBlank()) {
             pendingDeepLinkImageId.value = imageId
@@ -285,10 +314,15 @@ class MainActivity : ComponentActivity() {
 fun JustUsAppRoot(
     sessionViewModel: SessionAndChatViewModel,
     isStaffTheme: Boolean,
+    appLookTheme: AppLookTheme,
     deepLinkImageId: String?,
     deepLinkChat: Pair<String, String>?,
+    paymentResultUri: Uri?,
+    openBookingsTab: Boolean,
     onConsumeDeepLinkImage: () -> Unit,
     onConsumeDeepLinkChat: () -> Unit,
+    onConsumePaymentResultUri: () -> Unit,
+    onConsumeOpenBookingsTab: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -386,10 +420,39 @@ fun JustUsAppRoot(
                     notifiedImagesStore = NotifiedImagesStore(app),
                     hiddenRevealStateStore = HiddenRevealStateStore(app),
                     userCrmRepository = UserCrmRepository(appDb),
+                    bookingRepository = BookingRepository(appDb),
                 )
             }
         }
     )
+
+    val bookingViewModel: BookingViewModel = viewModel(
+        factory = viewModelFactory {
+            initializer {
+                val app = checkNotNull(this[APPLICATION_KEY])
+                val appDb = FirebaseFirestore.getInstance(app.getString(R.string.firestore_database_id))
+                BookingViewModel(BookingRepository(appDb))
+            }
+        }
+    )
+
+    val filterTaxonomy by bookingViewModel.filterTaxonomy.collectAsStateWithLifecycle()
+    val paymentServerConfig by bookingViewModel.paymentServerConfig.collectAsStateWithLifecycle()
+    val clientBookings by bookingViewModel.clientBookings.collectAsStateWithLifecycle()
+    val staffBookings by bookingViewModel.staffBookings.collectAsStateWithLifecycle()
+    val myComplaints by bookingViewModel.myComplaints.collectAsStateWithLifecycle()
+    val isBookingBusy by bookingViewModel.isBusy.collectAsStateWithLifecycle()
+    var bookingTargetProfile by remember { mutableStateOf<GalleryImage?>(null) }
+
+    DisposableEffect(lifecycleOwner, bookingViewModel) {
+        val resumeObserver = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                bookingViewModel.verifyPendingPaymentIfAny(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(resumeObserver)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(resumeObserver) }
+    }
 
     val galleryState by viewModel.galleryState.collectAsStateWithLifecycle()
     val filteredGridState by viewModel.filteredGridProfiles.collectAsStateWithLifecycle()
@@ -462,6 +525,47 @@ fun JustUsAppRoot(
     }
     LaunchedEffect(sessionViewModel) {
         sessionViewModel.events.collect { msg -> snackbarHostState.showSnackbar(msg) }
+    }
+    LaunchedEffect(bookingViewModel) {
+        bookingViewModel.events.collect { msg -> snackbarHostState.showSnackbar(msg) }
+    }
+    LaunchedEffect(bookingViewModel) {
+        bookingViewModel.navigateToBookings.collect {
+            navController.navigate(ROUTE_BOOKINGS) {
+                popUpTo(ROUTE_EXPLORE) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+    LaunchedEffect(paymentResultUri) {
+        if (paymentResultUri != null) {
+            bookingViewModel.handlePaymentDeepLinkUri(context, paymentResultUri)
+            onConsumePaymentResultUri()
+        }
+    }
+    LaunchedEffect(openBookingsTab) {
+        if (openBookingsTab) {
+            navController.navigate(ROUTE_BOOKINGS) {
+                popUpTo(ROUTE_EXPLORE) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+            onConsumeOpenBookingsTab()
+        }
+    }
+    val notifiedRatingBookingIds = remember { mutableSetOf<String>() }
+    LaunchedEffect(clientBookings) {
+        clientBookings.filter { it.isWaitingForRating }.forEach { booking ->
+            if (notifiedRatingBookingIds.add(booking.id)) {
+                PixoraNotificationManager.notifyBookingRatingRequest(
+                    context = context,
+                    bookingId = booking.id,
+                    companionName = booking.profileName.ifBlank { "Your Companion" },
+                    planLabel = booking.planLabel.ifBlank { "Date" },
+                )
+            }
+        }
     }
     LaunchedEffect(sessionViewModel) {
         sessionViewModel.navigateToChatId.collect { chatId ->
@@ -656,10 +760,15 @@ fun JustUsAppRoot(
                 contentWindowInsets = if (isTopLevelRoute) WindowInsets.safeDrawing else WindowInsets(0, 0, 0, 0),
                 bottomBar = {
                     if (isTopLevelRoute && !useRail) {
+                        val bookingsAttentionCount = remember(clientBookings, staffBookings) {
+                            clientBookings.count { it.isWaitingForRating } +
+                                staffBookings.count { !it.staffAttended && it.advancePaid }
+                        }
                         DateMateLuxuryFloatingNavBar(
                             currentRoute = currentRoute,
                             totalUnreadMessages = totalUnreadMessages,
                             savedCount = bookmarks.size,
+                            bookingsBadgeCount = bookingsAttentionCount,
                             onNavigate = { route ->
                                 navController.navigate(route) {
                                     popUpTo(ROUTE_EXPLORE) { saveState = true }
@@ -760,6 +869,7 @@ fun JustUsAppRoot(
                                     vipProfiles = vipProfiles,
                                     categories = categories,
                                     smartFilters = smartFilters,
+                                    filterTaxonomy = filterTaxonomy,
                                     selectedCategory = selectedCategory,
                                     selectedSmartFilter = selectedVibe,
                                     searchQuery = searchQuery,
@@ -773,6 +883,13 @@ fun JustUsAppRoot(
                                     onSearchQueryChange = viewModel::updateSearchQuery,
                                     onResetFilters = viewModel::resetFilters,
                                     onCheckNow = { viewModel.triggerBackgroundCheckNow(context) },
+                                    onLocationClick = {
+                                        navController.navigate(ROUTE_SETTINGS) {
+                                            popUpTo(ROUTE_EXPLORE) { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    },
                                     onSecretAdminTrigger = { showAdminPasscodeSheet = true },
                                     onProfileClick = { img ->
                                         if (img.isDeletedBlurred) {
@@ -830,6 +947,38 @@ fun JustUsAppRoot(
                                 )
                             }
 
+                            composable(ROUTE_BOOKINGS) {
+                                BookingsScreen(
+                                    clientBookings = clientBookings,
+                                    staffBookings = staffBookings,
+                                    userAccount = userAccount,
+                                    isSignedIn = firebaseUser != null,
+                                    isBusy = isBookingBusy,
+                                    onPayAdvanceInChrome = { booking ->
+                                        bookingViewModel.reopenChromePaymentForBooking(context, booking)
+                                    },
+                                    onVerifyPayment = { booking ->
+                                        bookingViewModel.verifyBookingPayment(context, booking.id)
+                                    },
+                                    onMarkStaffAttended = bookingViewModel::markStaffAttended,
+                                    onSubmitRating = bookingViewModel::submitRatingAndFeedback,
+                                    onExploreClick = {
+                                        navController.navigate(ROUTE_EXPLORE) {
+                                            popUpTo(ROUTE_EXPLORE) { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    },
+                                    onGoToProfile = {
+                                        navController.navigate(ROUTE_SETTINGS) {
+                                            popUpTo(ROUTE_EXPLORE) { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    },
+                                )
+                            }
+
                             composable(ROUTE_SETTINGS) {
                                 val galleryCount = (galleryState as? UiState.Success)?.data?.size ?: 0
                                 SettingsScreen(
@@ -842,6 +991,12 @@ fun JustUsAppRoot(
                                     oneSignalPushConfigured = OneSignalPushManager.isFullyConfigured(),
                                     backgroundSyncEnabled = backgroundSyncEnabled,
                                     lastSyncCheckEpochMs = lastSyncCheckEpochMs,
+                                    currentLookTheme = appLookTheme,
+                                    myComplaints = myComplaints,
+                                    onSelectLookTheme = viewModel::setAppLookTheme,
+                                    onSubmitComplaint = { subj, msg, done ->
+                                        bookingViewModel.submitUserComplaint(userAccount, subj, msg, done)
+                                    },
                                     onSignInGoogle = { sessionViewModel.signInWithGoogle(context) },
                                     onSignOut = { sessionViewModel.signOut(context) },
                                     onSaveProfile = { name, avatarUri, galleryUris, phone, ageText, address, city, bio, interests, genderPref ->
@@ -903,6 +1058,8 @@ fun JustUsAppRoot(
                                         viewModel.revealHiddenImage(img, photoIdx)
                                     },
                                     onChatClick = sessionViewModel::requestChatWithProfile,
+                                    onBookClick = { selected -> bookingTargetProfile = selected },
+                                    defaultAdvanceInr = paymentServerConfig.defaultAdvanceInr,
                                     onBack = { navController.popBackStack() }
                                 )
                             }
@@ -979,6 +1136,7 @@ fun JustUsAppRoot(
                                                 galleryRepository = GalleryRepository(appDb),
                                                 userCrmRepository = UserCrmRepository(appDb),
                                                 chatRepository = ChatRepository(appDb),
+                                                bookingRepository = BookingRepository(appDb),
                                             )
                                         }
                                     }
@@ -1004,6 +1162,10 @@ fun JustUsAppRoot(
                                 val adminAuthError by adminViewModel.authErrorMessage.collectAsStateWithLifecycle()
                                 val adminLaunchBanner by adminViewModel.launchBanner.collectAsStateWithLifecycle()
                                 val customHomeFilters by adminViewModel.customHomeFilters.collectAsStateWithLifecycle()
+                                val adminFilterTaxonomy by adminViewModel.filterTaxonomy.collectAsStateWithLifecycle()
+                                val adminPaymentConfig by adminViewModel.paymentServerConfig.collectAsStateWithLifecycle()
+                                val adminBookings by adminViewModel.allBookings.collectAsStateWithLifecycle()
+                                val adminComplaints by adminViewModel.allComplaints.collectAsStateWithLifecycle()
 
                                 LaunchedEffect(adminViewModel) {
                                     adminViewModel.events.collect { msg ->
@@ -1046,7 +1208,7 @@ fun JustUsAppRoot(
                                     onRedeemAccessCode = adminViewModel::redeemAdminAccessCode,
                                     onAddAdminEmail = adminViewModel::addAdminEmail,
                                     onRemoveAdminEmail = adminViewModel::removeAdminEmail,
-                                    onPublishCompanionProfile = { uris, manualUrl, name, phone, ageText, price, address, role, tier, category, bio, hiddenTimed ->
+                                    onPublishCompanionProfile = { uris, manualUrl, name, phone, ageText, price, address, role, tier, category, bio, hiddenTimed, tags, advInr, plans ->
                                         adminViewModel.publishCompanionProfile(
                                             context = context,
                                             selectedUris = uris,
@@ -1061,12 +1223,32 @@ fun JustUsAppRoot(
                                             category = category,
                                             bio = bio,
                                             hiddenTimed = hiddenTimed,
+                                            filterTags = tags,
+                                            advanceBookingAmount = advInr,
+                                            bookingPlans = plans,
                                         )
                                     },
                                     onResetPublishState = adminViewModel::resetPublishState,
                                     onRefreshAllBlurred = adminViewModel::refreshAllBlurredUploads,
                                     onRefreshProfile = adminViewModel::refreshBlurredUpload,
-                                    onUpdateProfile = adminViewModel::updateCompanionProfileDetails,
+                                    onUpdateProfile = { profileId, name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, tags, advInr, plans ->
+                                        adminViewModel.updateCompanionProfileDetails(
+                                            profileId = profileId,
+                                            name = name,
+                                            ageText = ageText,
+                                            price = price,
+                                            role = role,
+                                            category = category,
+                                            tier = tier,
+                                            bio = bio,
+                                            hiddenTimed = hiddenTimed,
+                                            phone = phone,
+                                            address = address,
+                                            filterTags = tags,
+                                            advanceBookingAmount = advInr,
+                                            bookingPlans = plans,
+                                        )
+                                    },
                                     onDeleteProfile = adminViewModel::deleteProfile,
                                     onSelectUserFilter = adminViewModel::selectUserFilter,
                                     onLoadNextUsersPage = adminViewModel::loadNextUsersPage,
@@ -1103,6 +1285,16 @@ fun JustUsAppRoot(
                                     customHomeFilters = customHomeFilters,
                                     onAddCustomHomeFilter = adminViewModel::addCustomHomeFilter,
                                     onRemoveCustomHomeFilter = adminViewModel::removeCustomHomeFilter,
+                                    filterTaxonomy = adminFilterTaxonomy,
+                                    paymentServerConfig = adminPaymentConfig,
+                                    allBookings = adminBookings,
+                                    allComplaints = adminComplaints,
+                                    onSaveFilterTaxonomy = adminViewModel::saveFilterTaxonomy,
+                                    onSavePaymentServerConfig = adminViewModel::savePaymentServerConfig,
+                                    onTestPaymentServer = adminViewModel::testPaymentServerHealth,
+                                    onApproveStaffPayout = adminViewModel::approveStaffPayout,
+                                    onRejectStaffPayout = adminViewModel::rejectStaffPayout,
+                                    onResolveComplaint = adminViewModel::resolveComplaint,
                                 )
                             }
                         }
@@ -1170,6 +1362,43 @@ fun JustUsAppRoot(
         )
     }
 
+    val bookingProfile = bookingTargetProfile
+    if (bookingProfile != null) {
+        BookingCheckoutSheet(
+            profile = bookingProfile,
+            defaultAdvanceInr = paymentServerConfig.defaultAdvanceInr,
+            userAccount = userAccount,
+            defaultUserName = firebaseUser?.displayName.orEmpty(),
+            isSignedIn = firebaseUser != null,
+            isBusy = isBookingBusy,
+            hasServerUrlConfigured = paymentServerConfig.cleanBaseUrl.isNotBlank(),
+            onSignInFirst = { sessionViewModel.signInWithGoogle(context) },
+            onProceedToChromePayment = { plan, clientName, clientPhone, dateLabel, timeSlot, meetingLocation, notes ->
+                bookingViewModel.startBookingAndOpenChrome(
+                    context = context,
+                    profile = bookingProfile,
+                    selectedPlan = plan,
+                    clientAccount = userAccount,
+                    clientName = clientName,
+                    clientPhone = clientPhone,
+                    dateLabel = dateLabel,
+                    timeSlot = timeSlot,
+                    meetingLocation = meetingLocation,
+                    notes = notes,
+                    onBookingCreated = {
+                        bookingTargetProfile = null
+                        navController.navigate(ROUTE_BOOKINGS) {
+                            popUpTo(ROUTE_EXPLORE) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
+            },
+            onDismiss = { bookingTargetProfile = null },
+        )
+    }
+
     if (showAdminPasscodeSheet) {
         AdminPasscodeSheet(
             onDismiss = { showAdminPasscodeSheet = false },
@@ -1189,22 +1418,29 @@ private fun DateMateLuxuryFloatingNavBar(
     currentRoute: String?,
     totalUnreadMessages: Int,
     savedCount: Int,
+    bookingsBadgeCount: Int = 0,
     onNavigate: (String) -> Unit,
 ) {
     val navBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val secondaryText = MaterialTheme.colorScheme.onSurfaceVariant
+    val softBorder = MaterialTheme.colorScheme.outlineVariant
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                start = 16.dp,
-                end = 16.dp,
+                start = 10.dp,
+                end = 10.dp,
                 top = 4.dp,
                 bottom = (navBottomPadding + 10.dp).coerceAtLeast(14.dp)
             )
     ) {
         Surface(
             shape = RoundedCornerShape(30.dp),
-            color = DateMateWhite,
+            color = surfaceColor,
             shadowElevation = 20.dp,
             tonalElevation = 0.dp,
             modifier = Modifier
@@ -1212,16 +1448,16 @@ private fun DateMateLuxuryFloatingNavBar(
                 .shadow(
                     elevation = 18.dp,
                     shape = RoundedCornerShape(30.dp),
-                    ambientColor = DateMatePrimaryPink.copy(alpha = 0.25f),
-                    spotColor = DateMatePrimaryPink.copy(alpha = 0.35f),
+                    ambientColor = primary.copy(alpha = 0.25f),
+                    spotColor = primary.copy(alpha = 0.35f),
                 )
                 .border(
                     width = 1.4.dp,
                     brush = Brush.horizontalGradient(
                         listOf(
-                            DateMatePrimaryPink.copy(alpha = 0.45f),
-                            DateMateSoftBorder,
-                            DateMatePrimaryPink.copy(alpha = 0.45f),
+                            primary.copy(alpha = 0.45f),
+                            softBorder,
+                            primary.copy(alpha = 0.45f),
                         )
                     ),
                     shape = RoundedCornerShape(30.dp)
@@ -1232,7 +1468,7 @@ private fun DateMateLuxuryFloatingNavBar(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .padding(horizontal = 4.dp, vertical = 7.dp)
             ) {
                 TopTabs.forEach { tab ->
                     val selected = currentRoute == tab.route
@@ -1240,10 +1476,11 @@ private fun DateMateLuxuryFloatingNavBar(
                     val badgeCount = when (tab.route) {
                         ROUTE_CHATS -> totalUnreadMessages
                         ROUTE_SAVED -> savedCount
+                        ROUTE_BOOKINGS -> bookingsBadgeCount
                         else -> 0
                     }
                     val tabScale by animateFloatAsState(
-                        targetValue = if (selected) 1.06f else 0.96f,
+                        targetValue = if (selected) 1.05f else 0.96f,
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
                             stiffness = Spring.StiffnessMedium
@@ -1251,7 +1488,7 @@ private fun DateMateLuxuryFloatingNavBar(
                         label = "nav_tab_scale_${tab.route}"
                     )
                     val indicatorWidth by animateDpAsState(
-                        targetValue = if (selected) 22.dp else 0.dp,
+                        targetValue = if (selected) 20.dp else 0.dp,
                         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
                         label = "nav_tab_bar_${tab.route}"
                     )
@@ -1265,11 +1502,11 @@ private fun DateMateLuxuryFloatingNavBar(
                                 scaleX = tabScale
                                 scaleY = tabScale
                             }
-                            .clip(RoundedCornerShape(22.dp))
+                            .clip(RoundedCornerShape(20.dp))
                             .background(
                                 if (selected) {
                                     Brush.verticalGradient(
-                                        listOf(DateMateSoftBlush, DateMatePrimaryPink.copy(alpha = 0.16f))
+                                        listOf(primary.copy(alpha = 0.10f), primary.copy(alpha = 0.20f))
                                     )
                                 } else {
                                     Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
@@ -1279,14 +1516,14 @@ private fun DateMateLuxuryFloatingNavBar(
                                 if (selected) {
                                     Modifier.border(
                                         1.dp,
-                                        DateMatePrimaryPink.copy(alpha = 0.35f),
-                                        RoundedCornerShape(22.dp)
+                                        primary.copy(alpha = 0.35f),
+                                        RoundedCornerShape(20.dp)
                                     )
                                 } else Modifier
                             )
                             .clickable { onNavigate(tab.route) }
                             .testTag(tab.testTag)
-                            .padding(vertical = 6.dp)
+                            .padding(vertical = 5.dp, horizontal = 2.dp)
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1296,39 +1533,39 @@ private fun DateMateLuxuryFloatingNavBar(
                                 Icon(
                                     imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
                                     contentDescription = label,
-                                    tint = if (selected) DateMatePrimaryPink else DateMateSecondaryText,
-                                    modifier = Modifier.size(23.dp)
+                                    tint = if (selected) primary else secondaryText,
+                                    modifier = Modifier.size(21.dp)
                                 )
                                 if (badgeCount > 0) {
                                     Box(
                                         contentAlignment = Alignment.Center,
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
-                                            .offset(x = 8.dp, y = (-4).dp)
-                                            .size(16.dp)
+                                            .offset(x = 7.dp, y = (-4).dp)
+                                            .size(15.dp)
                                             .clip(CircleShape)
-                                            .background(DateMatePrimaryPink)
+                                            .background(primary)
                                     ) {
                                         Text(
                                             text = badgeCount.coerceAtMost(99).toString(),
                                             style = MaterialTheme.typography.labelSmall.copy(
-                                                color = DateMateWhite,
-                                                fontSize = 9.sp,
+                                                color = MaterialTheme.colorScheme.onPrimary,
+                                                fontSize = 8.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         )
                                     }
                                 }
                             }
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = label,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    color = if (selected) DateMatePrimaryPink else DateMateSecondaryText,
+                                    color = if (selected) primary else secondaryText,
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 11.sp
+                                    fontSize = 10.sp
                                 )
                             )
                             Spacer(modifier = Modifier.height(2.dp))
@@ -1338,7 +1575,7 @@ private fun DateMateLuxuryFloatingNavBar(
                                     .clip(RoundedCornerShape(99.dp))
                                     .background(
                                         Brush.horizontalGradient(
-                                            listOf(DateMatePrimaryPink, Color(0xFFFF80AB))
+                                            listOf(primary, secondary)
                                         )
                                     )
                             )

@@ -59,6 +59,9 @@ data class CompanionProfile(
     val ownerUid: String = "",
     val staffVerified: Boolean = true,
     val createdByUid: String = "",
+    val filterTags: List<String> = emptyList(),
+    val advanceBookingAmount: Int = 299,
+    val bookingPlans: List<String> = emptyList(),
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 ) {
@@ -94,6 +97,10 @@ data class CompanionProfile(
         uploadedBy = createdByUid,
         uploaderName = name,
         ownerUid = ownerUid,
+        tags = filterTags,
+        filterTags = filterTags,
+        advanceBookingAmount = advanceBookingAmount,
+        bookingPlans = bookingPlans,
         isHidden = hiddenTimed,
         revealExpiresAtEpochMs = revealExpiresAtEpochMs,
         isExpired = isExpired,
@@ -317,6 +324,9 @@ data class GalleryImage(
     val uploaderName: String = "JustUs",
     val ownerUid: String = "",
     val tags: List<String> = emptyList(),
+    val filterTags: List<String> = emptyList(),
+    val advanceBookingAmount: Int = 299,
+    val bookingPlans: List<String> = emptyList(),
     val isHidden: Boolean = false,
     val revealExpiresAtEpochMs: Long = 0L,
     val isExpired: Boolean = false,
@@ -342,6 +352,15 @@ data class GalleryImage(
 
     val isVip: Boolean
         get() = tier == ProfileTier.VIP_16_9
+
+    val allFilterTags: List<String>
+        get() = (tags + filterTags).map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }
+
+    fun resolvedBookingPlans(): List<BookingRatePlan> =
+        BookingRatePlan.parseList(bookingPlans, displayPrice)
+
+    fun resolvedAdvanceAmountInr(defaultFallback: Int = 299): Int =
+        if (advanceBookingAmount > 0) advanceBookingAmount else defaultFallback.coerceAtLeast(1)
 
     fun photoState(photoIndex: Int): PhotoRevealState {
         photoRevealStates[photoIndex]?.let { return it }

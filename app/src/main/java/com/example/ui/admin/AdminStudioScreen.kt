@@ -89,17 +89,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CalendarMonth
 import com.example.R
 import com.example.data.model.AdminAccessCode
 import com.example.data.model.AdminEmailEntry
 import com.example.data.model.AdminMemberProfile
 import com.example.data.model.AdminUserFilter
+import com.example.data.model.BookingRatePlan
 import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
+import com.example.data.model.DateMateBooking
+import com.example.data.model.FilterCategoryGroup
 import com.example.data.model.GalleryImage
 import com.example.data.model.LaunchBannerConfig
+import com.example.data.model.PaymentServerConfig
 import com.example.data.model.ProfileTier
 import com.example.data.model.UserAccount
+import com.example.data.model.UserComplaint
 import com.example.ui.components.PixoraNetworkImage
 import com.google.firebase.auth.FirebaseUser
 
@@ -155,6 +165,9 @@ fun AdminStudioScreen(
         category: String,
         bio: String,
         hiddenTimed: Boolean,
+        filterTags: List<String>,
+        advanceBookingAmount: Int,
+        bookingPlans: List<String>,
     ) -> Unit,
     onResetPublishState: () -> Unit,
     onRefreshAllBlurred: () -> Unit,
@@ -171,7 +184,10 @@ fun AdminStudioScreen(
         hiddenTimed: Boolean,
         phone: String?,
         address: String?,
-    ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _ -> },
+        filterTags: List<String>,
+        advanceBookingAmount: Int,
+        bookingPlans: List<String>,
+    ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onDeleteProfile: (String) -> Unit,
     onSelectUserFilter: (AdminUserFilter) -> Unit,
     onLoadNextUsersPage: () -> Unit,
@@ -192,6 +208,16 @@ fun AdminStudioScreen(
     customHomeFilters: List<String> = emptyList(),
     onAddCustomHomeFilter: (String) -> Unit = {},
     onRemoveCustomHomeFilter: (String) -> Unit = {},
+    filterTaxonomy: List<FilterCategoryGroup> = FilterCategoryGroup.defaultTaxonomy(),
+    paymentServerConfig: PaymentServerConfig = PaymentServerConfig(),
+    allBookings: List<DateMateBooking> = emptyList(),
+    allComplaints: List<UserComplaint> = emptyList(),
+    onSaveFilterTaxonomy: (List<FilterCategoryGroup>) -> Unit = {},
+    onSavePaymentServerConfig: (String, Int) -> Unit = { _, _ -> },
+    onTestPaymentServer: (String) -> Unit = {},
+    onApproveStaffPayout: (String, String) -> Unit = { _, _ -> },
+    onRejectStaffPayout: (String, String) -> Unit = { _, _ -> },
+    onResolveComplaint: (String, String) -> Unit = { _, _ -> },
 ) {
     BackHandler(onBack = onBack)
 
@@ -360,7 +386,7 @@ fun AdminStudioScreen(
                             Icon(Icons.Rounded.FilterList, contentDescription = null, modifier = Modifier.size(17.dp))
                             Spacer(modifier = Modifier.width(5.dp))
                             Text(
-                                text = if (customHomeFilters.isNotEmpty()) "Filters (${customHomeFilters.size})" else "Home Filters",
+                                text = "Filters (${filterTaxonomy.size})",
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 fontWeight = FontWeight.Bold,
@@ -422,20 +448,20 @@ fun AdminStudioScreen(
                     }
                 }
 
-                // 3 Top Tabs: Create / Chats (CRM) / Staff
+                // 4 Top Tabs: Create / Chats / Staff / Bookings & Payouts
                 TabRow(selectedTabIndex = selectedTabIndex) {
                     Tab(
                         selected = selectedTabIndex == 0,
                         onClick = { selectedTabIndex = 0 },
-                        text = { Text("Create") },
-                        icon = { Icon(Icons.Rounded.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        text = { Text("Create", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        icon = { Icon(Icons.Rounded.CloudUpload, contentDescription = null, modifier = Modifier.size(17.dp)) },
                         modifier = Modifier.testTag("admin_tab_create")
                     )
                     Tab(
                         selected = selectedTabIndex == 1,
                         onClick = { selectedTabIndex = 1 },
-                        text = { Text("Chats (${totalFilteredUsers})") },
-                        icon = { Icon(Icons.AutoMirrored.Rounded.Chat, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        text = { Text("Chats (${totalFilteredUsers})", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        icon = { Icon(Icons.AutoMirrored.Rounded.Chat, contentDescription = null, modifier = Modifier.size(17.dp)) },
                         modifier = Modifier.testTag("admin_tab_chats")
                     )
                     Tab(
@@ -443,18 +469,34 @@ fun AdminStudioScreen(
                         onClick = { selectedTabIndex = 2 },
                         text = {
                             Text(
-                                if (pendingStaffUsers.isNotEmpty()) "Staff (${pendingStaffUsers.size})"
-                                else "Staff"
+                                text = if (pendingStaffUsers.isNotEmpty()) "Staff (${pendingStaffUsers.size})" else "Staff",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         },
-                        icon = { Icon(Icons.Rounded.Badge, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        icon = { Icon(Icons.Rounded.Badge, contentDescription = null, modifier = Modifier.size(17.dp)) },
                         modifier = Modifier.testTag("admin_tab_staff")
+                    )
+                    Tab(
+                        selected = selectedTabIndex == 3,
+                        onClick = { selectedTabIndex = 3 },
+                        text = {
+                            Text(
+                                text = if (allBookings.isNotEmpty()) "Bookings (${allBookings.size})" else "Bookings",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        icon = { Icon(Icons.Rounded.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                        modifier = Modifier.testTag("admin_tab_bookings")
                     )
                 }
 
                 when (selectedTabIndex) {
                     0 -> AdminCreateProfileTab(
                         publishState = publishState,
+                        filterTaxonomy = filterTaxonomy,
+                        defaultAdvanceInr = paymentServerConfig.defaultAdvanceInr,
                         onPublishProfile = onPublishCompanionProfile,
                         onResetPublishState = onResetPublishState,
                         modifier = Modifier.weight(1f)
@@ -475,11 +517,12 @@ fun AdminStudioScreen(
                         modifier = Modifier.weight(1f)
                     )
 
-                    else -> AdminStaffTab(
+                    2 -> AdminStaffTab(
                         pendingStaffUsers = pendingStaffUsers,
                         managedProfiles = managedProfiles,
                         allChats = allChats,
                         selectedProfileContact = selectedProfileContact,
+                        filterTaxonomy = filterTaxonomy,
                         onApproveStaff = onApproveStaff,
                         onRejectStaff = onRejectStaff,
                         onLoadPrivateContact = onLoadPrivateContact,
@@ -487,6 +530,20 @@ fun AdminStudioScreen(
                         onRefreshProfile = onRefreshProfile,
                         onDeleteProfile = onDeleteProfile,
                         onOpenChatAsAdmin = onOpenChatAsAdmin,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    else -> AdminBookingsAndPayoutsTab(
+                        isSuperAdmin = isSuperAdmin,
+                        isBusy = isAuthBusy,
+                        paymentServerConfig = paymentServerConfig,
+                        allBookings = allBookings,
+                        allComplaints = allComplaints,
+                        onSavePaymentServerConfig = onSavePaymentServerConfig,
+                        onTestPaymentServer = onTestPaymentServer,
+                        onApproveStaffPayout = onApproveStaffPayout,
+                        onRejectStaffPayout = onRejectStaffPayout,
+                        onResolveComplaint = onResolveComplaint,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -571,11 +628,13 @@ fun AdminStudioScreen(
     }
 
     if (showHomeFiltersDialog) {
-        AdminHomeFiltersDialog(
+        AdminFilterTaxonomyDialog(
+            filterTaxonomy = filterTaxonomy,
             customFilters = customHomeFilters,
             isBusy = isAuthBusy,
-            onAddFilter = onAddCustomHomeFilter,
-            onRemoveFilter = onRemoveCustomHomeFilter,
+            onSaveTaxonomy = onSaveFilterTaxonomy,
+            onAddQuickFilter = onAddCustomHomeFilter,
+            onRemoveQuickFilter = onRemoveCustomHomeFilter,
             onDismiss = { showHomeFiltersDialog = false }
         )
     }
@@ -583,15 +642,22 @@ fun AdminStudioScreen(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AdminHomeFiltersDialog(
+private fun AdminFilterTaxonomyDialog(
+    filterTaxonomy: List<FilterCategoryGroup>,
     customFilters: List<String>,
     isBusy: Boolean,
-    onAddFilter: (String) -> Unit,
-    onRemoveFilter: (String) -> Unit,
+    onSaveTaxonomy: (List<FilterCategoryGroup>) -> Unit,
+    onAddQuickFilter: (String) -> Unit,
+    onRemoveQuickFilter: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var newFilterText by remember { mutableStateOf("") }
-    val quickSuggestions = listOf("Under ₹299", "Mumbai", "Delhi NCR", "Bengaluru", "Pune", "Weekend Date", "VIP")
+    var groups by remember(filterTaxonomy) { mutableStateOf(filterTaxonomy) }
+    var newCategoryName by remember { mutableStateOf("") }
+    var selectedCategoryForOption by remember(groups) {
+        mutableStateOf(groups.firstOrNull()?.category.orEmpty())
+    }
+    var newOptionName by remember { mutableStateOf("") }
+    var quickFilterText by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -605,100 +671,239 @@ private fun AdminHomeFiltersDialog(
         },
         title = {
             Text(
-                text = "Home Page Smart Filters",
+                text = "Admin Filter Categories & Options",
                 fontWeight = FontWeight.Bold
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
-                    text = "Built-in filters (Nearby You, Budget ≤₹399, Premium, Verified) are always active. Add custom filters below to show them live on every user's Home page!",
+                    text = "Create custom Filter Categories and sub-options. Users see all categories when tapping 'All' on Home, and you can tag profiles with these options!",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
+                // Add New Category
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedTextField(
-                        value = newFilterText,
-                        onValueChange = { newFilterText = it.take(32) },
+                        value = newCategoryName,
+                        onValueChange = { newCategoryName = it.take(30) },
                         singleLine = true,
-                        label = { Text("New Filter Name") },
-                        placeholder = { Text("e.g. Under ₹299 or Mumbai") },
-                        shape = RoundedCornerShape(14.dp),
+                        label = { Text("New Category") },
+                        placeholder = { Text("e.g. Occasion / Vibe / City") },
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .weight(1f)
-                            .testTag("admin_new_filter_input")
+                            .testTag("admin_new_filter_category_input")
                     )
                     Button(
                         onClick = {
-                            if (newFilterText.trim().length >= 2) {
-                                onAddFilter(newFilterText.trim())
-                                newFilterText = ""
+                            val clean = newCategoryName.trim()
+                            if (clean.length >= 2 && groups.none { it.category.equals(clean, ignoreCase = true) }) {
+                                val updated = groups + FilterCategoryGroup(clean, emptyList())
+                                groups = updated
+                                selectedCategoryForOption = clean
+                                newCategoryName = ""
+                                onSaveTaxonomy(updated)
                             }
                         },
-                        enabled = !isBusy && newFilterText.trim().length >= 2,
-                        shape = RoundedCornerShape(14.dp),
+                        enabled = !isBusy && newCategoryName.trim().length >= 2,
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
-                            .height(52.dp)
-                            .testTag("admin_add_filter_button")
+                            .height(50.dp)
+                            .testTag("admin_add_filter_category_btn")
+                    ) {
+                        Text("+ Cat")
+                    }
+                }
+
+                // Add Option inside selected Category
+                if (groups.isNotEmpty()) {
+                    Text(
+                        text = "Select Category to Add Options:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        groups.forEach { g ->
+                            FilterChip(
+                                selected = selectedCategoryForOption.equals(g.category, ignoreCase = true),
+                                onClick = { selectedCategoryForOption = g.category },
+                                label = { Text(g.category, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = newOptionName,
+                            onValueChange = { newOptionName = it.take(30) },
+                            singleLine = true,
+                            label = { Text("Option in ${selectedCategoryForOption.ifBlank { "Category" }}") },
+                            placeholder = { Text("e.g. Dinner, Night, Coffee") },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("admin_new_filter_option_input")
+                        )
+                        Button(
+                            onClick = {
+                                val opt = newOptionName.trim()
+                                val targetCat = selectedCategoryForOption.ifBlank { groups.first().category }
+                                if (opt.length >= 2) {
+                                    val updated = groups.map { g ->
+                                        if (g.category.equals(targetCat, ignoreCase = true)) {
+                                            val merged = (g.options + opt).distinctBy { it.lowercase() }
+                                            g.copy(options = merged)
+                                        } else g
+                                    }
+                                    groups = updated
+                                    newOptionName = ""
+                                    onSaveTaxonomy(updated)
+                                }
+                            },
+                            enabled = !isBusy && newOptionName.trim().length >= 2,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .height(50.dp)
+                                .testTag("admin_add_filter_option_btn")
+                        ) {
+                            Text("+ Opt")
+                        }
+                    }
+
+                    // Active Categories & Options List (Tap Option to Delete, Trash Icon to Delete Category)
+                    groups.forEach { group ->
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "${group.category} (${group.options.size})",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            val updated = groups.filterNot { it.category == group.category }
+                                            groups = updated
+                                            onSaveTaxonomy(updated)
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.DeleteOutline,
+                                            contentDescription = "Delete ${group.category}",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                                if (group.options.isEmpty()) {
+                                    Text(
+                                        text = "No options added yet.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        group.options.forEach { opt ->
+                                            FilterChip(
+                                                selected = true,
+                                                onClick = {
+                                                    val updated = groups.map { g ->
+                                                        if (g.category == group.category) {
+                                                            g.copy(options = g.options.filterNot { it == opt })
+                                                        } else g
+                                                    }
+                                                    groups = updated
+                                                    onSaveTaxonomy(updated)
+                                                },
+                                                label = { Text("$opt ×", style = MaterialTheme.typography.labelSmall) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                                    selectedLabelColor = MaterialTheme.colorScheme.primary,
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Quick Top-Row Home Chips
+                Text(
+                    text = "Quick Home Row Chips (Optional)",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = quickFilterText,
+                        onValueChange = { quickFilterText = it.take(28) },
+                        singleLine = true,
+                        label = { Text("Quick Chip") },
+                        placeholder = { Text("e.g. Under ₹299") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilledTonalButton(
+                        onClick = {
+                            if (quickFilterText.trim().length >= 2) {
+                                onAddQuickFilter(quickFilterText.trim())
+                                quickFilterText = ""
+                            }
+                        },
+                        enabled = !isBusy && quickFilterText.trim().length >= 2,
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Text("Add")
                     }
                 }
-
-                Text(
-                    text = "Quick Add Suggestions",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    quickSuggestions.filter { sug ->
-                        customFilters.none { it.equals(sug, ignoreCase = true) }
-                    }.forEach { suggestion ->
-                        FilterChip(
-                            selected = false,
-                            onClick = { onAddFilter(suggestion) },
-                            label = { Text("+ $suggestion", style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
-                }
-
                 if (customFilters.isNotEmpty()) {
-                    Text(
-                        text = "Active Custom Filters (Tap to Delete)",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         customFilters.forEach { label ->
                             FilterChip(
                                 selected = true,
-                                onClick = { onRemoveFilter(label) },
-                                label = { Text(label) },
-                                trailingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Rounded.DeleteOutline,
-                                        contentDescription = "Delete $label",
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                                    selectedLabelColor = MaterialTheme.colorScheme.primary,
-                                    selectedTrailingIconColor = MaterialTheme.colorScheme.error,
-                                )
+                                onClick = { onRemoveQuickFilter(label) },
+                                label = { Text("$label ×", style = MaterialTheme.typography.labelSmall) }
                             )
                         }
                     }
@@ -874,6 +1079,8 @@ private fun LaunchBannerManagerDialog(
 @Composable
 private fun AdminCreateProfileTab(
     publishState: AdminPublishState,
+    filterTaxonomy: List<FilterCategoryGroup>,
+    defaultAdvanceInr: Int,
     onPublishProfile: (
         selectedUris: List<Uri>,
         manualUrl: String,
@@ -887,6 +1094,9 @@ private fun AdminCreateProfileTab(
         category: String,
         bio: String,
         hiddenTimed: Boolean,
+        filterTags: List<String>,
+        advanceBookingAmount: Int,
+        bookingPlans: List<String>,
     ) -> Unit,
     onResetPublishState: () -> Unit,
     modifier: Modifier = Modifier,
@@ -898,6 +1108,19 @@ private fun AdminCreateProfileTab(
     var phone by remember { mutableStateOf("") }
     var ageText by remember { mutableStateOf("22") }
     var price by remember { mutableStateOf("₹499") }
+    var advancePriceText by remember(defaultAdvanceInr) { mutableStateOf(defaultAdvanceInr.toString()) }
+    var bookingPlans by remember {
+        mutableStateOf(
+            listOf(
+                BookingRatePlan.fromInputs("Coffee", "₹499"),
+                BookingRatePlan.fromInputs("Dinner", "₹1,499"),
+                BookingRatePlan.fromInputs("Night", "₹2,999"),
+            )
+        )
+    }
+    var planLabelInput by remember { mutableStateOf("Dinner") }
+    var planPriceInput by remember { mutableStateOf("₹1,499") }
+    var selectedFilterTags by remember { mutableStateOf<List<String>>(emptyList()) }
     var address by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("GF") }
     var tier by remember { mutableStateOf(ProfileTier.GRID_9_16) }
@@ -924,6 +1147,7 @@ private fun AdminCreateProfileTab(
             address = ""
             bio = ""
             hiddenTimed = false
+            selectedFilterTags = emptyList()
         }
     }
 
@@ -1134,6 +1358,185 @@ private fun AdminCreateProfileTab(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Pre-Booking Advance Price & Custom Rate Plans (Dinner / Night / Coffee / Custom)
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CalendarMonth,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Booking Rates & Dynamic Pre-Booking Advance",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            OutlinedTextField(
+                                value = advancePriceText,
+                                onValueChange = { advancePriceText = it.filter { ch -> ch.isDigit() }.take(6) },
+                                singleLine = true,
+                                label = { Text("Pre-Booking Advance Price (₹) — Any Amount *") },
+                                placeholder = { Text("e.g. 299, 500, 1500") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("admin_advance_price_input")
+                            )
+
+                            Text(
+                                text = "Choose Rate Options & Custom Prices (Dinner / Night / etc.)",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                BookingRatePlan.PRESET_PLAN_NAMES.forEach { preset ->
+                                    FilterChip(
+                                        selected = planLabelInput.equals(preset, ignoreCase = true),
+                                        onClick = { planLabelInput = preset },
+                                        label = { Text(preset, style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = planLabelInput,
+                                    onValueChange = { planLabelInput = it.take(24) },
+                                    singleLine = true,
+                                    label = { Text("Option") },
+                                    placeholder = { Text("Dinner") },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1.1f)
+                                )
+                                OutlinedTextField(
+                                    value = planPriceInput,
+                                    onValueChange = { planPriceInput = it.take(18) },
+                                    singleLine = true,
+                                    label = { Text("Price") },
+                                    placeholder = { Text("₹1,499") },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(0.95f)
+                                )
+                                Button(
+                                    onClick = {
+                                        if (planLabelInput.isNotBlank() && planPriceInput.isNotBlank()) {
+                                            val newPlan = BookingRatePlan.fromInputs(planLabelInput, planPriceInput)
+                                            bookingPlans = bookingPlans.filterNot {
+                                                it.label.equals(newPlan.label, ignoreCase = true)
+                                            } + newPlan
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    modifier = Modifier
+                                        .height(50.dp)
+                                        .testTag("admin_add_rate_plan_button")
+                                ) {
+                                    Icon(Icons.Rounded.Add, contentDescription = "Add rate plan", modifier = Modifier.size(18.dp))
+                                }
+                            }
+
+                            if (bookingPlans.isNotEmpty()) {
+                                Text(
+                                    text = "Active Booking Plans (Tap to Remove):",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    bookingPlans.forEach { plan ->
+                                        FilterChip(
+                                            selected = true,
+                                            onClick = { bookingPlans = bookingPlans.filterNot { it == plan } },
+                                            label = { Text("${plan.label}: ${plan.priceText} ×", style = MaterialTheme.typography.labelSmall) },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                                selectedLabelColor = MaterialTheme.colorScheme.primary,
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Admin Dynamic Filter Category Tags for User Search
+                    if (filterTaxonomy.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Profile Filter Tags (Match Home 'All' Filters)",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                filterTaxonomy.forEach { group ->
+                                    if (group.options.isNotEmpty()) {
+                                        Text(
+                                            text = group.category,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            group.options.forEach { opt ->
+                                                val chosen = selectedFilterTags.any { it.equals(opt, ignoreCase = true) }
+                                                FilterChip(
+                                                    selected = chosen,
+                                                    onClick = {
+                                                        selectedFilterTags = if (chosen) {
+                                                            selectedFilterTags.filterNot { it.equals(opt, ignoreCase = true) }
+                                                        } else {
+                                                            selectedFilterTags + opt
+                                                        }
+                                                    },
+                                                    label = { Text(opt, style = MaterialTheme.typography.labelSmall) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(10.dp))
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -1200,6 +1603,7 @@ private fun AdminCreateProfileTab(
                     val busy = publishState is AdminPublishState.Uploading
                     Button(
                         onClick = {
+                            val safeAdvance = (advancePriceText.toIntOrNull() ?: defaultAdvanceInr).coerceIn(1, 500_000)
                             onPublishProfile(
                                 selectedUris,
                                 manualUrl,
@@ -1213,6 +1617,9 @@ private fun AdminCreateProfileTab(
                                 category,
                                 bio,
                                 hiddenTimed,
+                                selectedFilterTags,
+                                safeAdvance,
+                                bookingPlans.map { it.encode() },
                             )
                         },
                         enabled = !busy,

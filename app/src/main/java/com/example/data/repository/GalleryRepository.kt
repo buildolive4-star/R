@@ -102,6 +102,9 @@ class GalleryRepository(
         ownerUid: String = "",
         staffVerified: Boolean = true,
         customProfileId: String? = null,
+        filterTags: List<String> = emptyList(),
+        advanceBookingAmount: Int = 299,
+        bookingPlans: List<String> = emptyList(),
     ): Result<String> {
         var docPath = COLLECTION_COMPANION_PROFILES
         return try {
@@ -126,6 +129,18 @@ class GalleryRepository(
                 .distinct()
                 .take(8)
             require(safePhotos.isNotEmpty()) { "At least one valid photo URL is required" }
+
+            val safeFilterTags = filterTags
+                .map { it.trim().take(36) }
+                .filter { it.isNotBlank() }
+                .distinctBy { it.lowercase() }
+                .take(24)
+            val safePlans = bookingPlans
+                .map { it.trim().take(64) }
+                .filter { it.contains("|") && it.isNotBlank() }
+                .distinct()
+                .take(12)
+            val safeAdvance = advanceBookingAmount.coerceIn(1, 500_000)
 
             val ratio = if (safeTier == ProfileTier.VIP_16_9) 16.0 / 9.0 else 9.0 / 16.0
             val docRef = if (!customProfileId.isNullOrBlank()) {
@@ -154,6 +169,9 @@ class GalleryRepository(
                 "ownerUid" to ownerUid.trim().take(128),
                 "staffVerified" to staffVerified,
                 "createdByUid" to adminUid,
+                "filterTags" to safeFilterTags,
+                "advanceBookingAmount" to safeAdvance,
+                "bookingPlans" to safePlans,
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
             )
@@ -205,6 +223,9 @@ class GalleryRepository(
         status: String = "published",
         phone: String? = null,
         address: String? = null,
+        filterTags: List<String>? = null,
+        advanceBookingAmount: Int? = null,
+        bookingPlans: List<String>? = null,
     ): Result<Unit> {
         val docPath = "$COLLECTION_COMPANION_PROFILES/$profileId"
         return try {
@@ -227,6 +248,23 @@ class GalleryRepository(
             )
             if (address != null) {
                 updates["city"] = LocationAddressFetcher.extractPublicCityFromAddress(address)
+            }
+            if (filterTags != null) {
+                updates["filterTags"] = filterTags
+                    .map { it.trim().take(36) }
+                    .filter { it.isNotBlank() }
+                    .distinctBy { it.lowercase() }
+                    .take(24)
+            }
+            if (advanceBookingAmount != null) {
+                updates["advanceBookingAmount"] = advanceBookingAmount.coerceIn(1, 500_000)
+            }
+            if (bookingPlans != null) {
+                updates["bookingPlans"] = bookingPlans
+                    .map { it.trim().take(64) }
+                    .filter { it.contains("|") && it.isNotBlank() }
+                    .distinct()
+                    .take(12)
             }
             db.document(docPath).update(updates).await()
 

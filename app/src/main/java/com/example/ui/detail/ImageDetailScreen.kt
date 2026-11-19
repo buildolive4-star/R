@@ -40,6 +40,7 @@ import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Lock
@@ -108,6 +109,8 @@ fun ImageDetailScreen(
     onToggleBookmark: (GalleryImage) -> Unit,
     onRevealHiddenImage: (GalleryImage, Int) -> Unit,
     onChatClick: (GalleryImage) -> Unit,
+    onBookClick: (GalleryImage) -> Unit = {},
+    defaultAdvanceInr: Int = 299,
     onBack: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
@@ -821,6 +824,43 @@ fun ImageDetailScreen(
                             }
                         }
 
+                        val ratePlans = remember(profile.id, profile.bookingPlans, profile.price) {
+                            profile.resolvedBookingPlans()
+                        }
+                        val advanceInr = remember(profile.id, profile.advanceBookingAmount, defaultAdvanceInr) {
+                            profile.resolvedAdvanceAmountInr(defaultAdvanceInr)
+                        }
+                        if (ratePlans.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                itemsIndexed(ratePlans) { _, plan ->
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0x38FFB300),
+                                        border = BorderStroke(0.9.dp, Color(0xAAFFD54F))
+                                    ) {
+                                        Text(
+                                            text = "${plan.label}: ${plan.priceText}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFFFF3C4),
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Pre-Booking Advance: ₹$advanceInr via Chrome Razorpay",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFFFD54F),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
                         if (photoUrls.size > 1) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
@@ -838,7 +878,7 @@ fun ImageDetailScreen(
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             DateMate3DGlowingButton(
@@ -859,6 +899,16 @@ fun ImageDetailScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("detail_whatsapp_chat_button")
+                            )
+
+                            DateMate3DGlowingButton(
+                                text = "Book",
+                                onClick = { onBookClick(profile) },
+                                style = GlowButtonStyle.ROYAL_GOLD,
+                                leadingIcon = Icons.Rounded.CalendarMonth,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("detail_book_now_button")
                             )
                         }
                     }

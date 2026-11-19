@@ -3,7 +3,7 @@ package com.example.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // ============================================================================
-// DateMate Official Brand Palette — strictly Light / White & Soft Rose Pink
+// DateMate Official Brand Palette — 3 Luxury Light Themes: Default / Gold / Silver
 // ============================================================================
 val DateMatePrimaryPink = Color(0xFFE91E63)
 val DateMateSecondaryPink = Color(0xFFFF6F9C)
@@ -16,6 +16,28 @@ val DateMateSecondaryText = Color(0xFF77717D)
 val DateMateSuccessGreen = Color(0xFF22C55E)
 val DateMateSoftBorder = Color(0xFFF6DCE6)
 val DateMateWarmBlushSurface = Color(0xFFFFF5F8)
+
+// Royal Gold Theme Palette
+val DateMateGoldPrimary = Color(0xFFB87D00)
+val DateMateGoldSecondary = Color(0xFFDAA520)
+val DateMateGoldTertiary = Color(0xFFE6B84C)
+val DateMateGoldBackground = Color(0xFFFFFCF2)
+val DateMateGoldSurfaceContainer = Color(0xFFFFF7DE)
+val DateMateGoldSurfaceHigh = Color(0xFFFFF0C2)
+val DateMateGoldBorder = Color(0xFFEBD292)
+val DateMateGoldDarkText = Color(0xFF2B210B)
+val DateMateGoldMutedText = Color(0xFF736038)
+
+// Platinum Silver Theme Palette
+val DateMateSilverPrimary = Color(0xFF475569)
+val DateMateSilverSecondary = Color(0xFF64748B)
+val DateMateSilverTertiary = Color(0xFF94A3B8)
+val DateMateSilverBackground = Color(0xFFF7F9FC)
+val DateMateSilverSurfaceContainer = Color(0xFFEEF2F7)
+val DateMateSilverSurfaceHigh = Color(0xFFE2E8F0)
+val DateMateSilverBorder = Color(0xFFCBD5E1)
+val DateMateSilverDarkText = Color(0xFF1E293B)
+val DateMateSilverMutedText = Color(0xFF5B6B80)
 
 // Compatibility aliases so existing helpers compile cleanly
 val VelvetMidnightBackground = DateMateBackground

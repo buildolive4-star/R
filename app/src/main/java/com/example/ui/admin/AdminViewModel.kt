@@ -12,15 +12,21 @@ import com.example.data.model.AdminUserFilter
 import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
 import com.example.data.model.CompanionProfile
+import com.example.data.model.DateMateBooking
+import com.example.data.model.FilterCategoryGroup
 import com.example.data.model.GalleryImage
 import com.example.data.model.LaunchBannerConfig
+import com.example.data.model.PaymentServerConfig
+import com.example.data.model.PayoutStatus
 import com.example.data.model.ProfileTier
 import com.example.data.model.StaffStatus
 import com.example.data.model.UserAccount
+import com.example.data.model.UserComplaint
 import com.example.data.preferences.LocalTestUploadsRepository
 import com.example.data.preferences.StoredTestUpload
 import com.example.data.remote.ImgBbApiService
 import com.example.data.remote.ImgBbUploadHelper
+import com.example.data.repository.BookingRepository
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.GalleryRepository
 import com.example.data.repository.UserCrmRepository
@@ -59,6 +65,7 @@ class AdminViewModel(
     private val galleryRepository: GalleryRepository,
     private val userCrmRepository: UserCrmRepository,
     private val chatRepository: ChatRepository,
+    private val bookingRepository: BookingRepository,
     private val imgBbApiService: ImgBbApiService = ImgBbApiService.create(),
 ) : ViewModel() {
 
@@ -117,6 +124,32 @@ class AdminViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), null)
 
     val customHomeFilters: StateFlow<List<String>> = userCrmRepository.observeHomeFilters()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val filterTaxonomy: StateFlow<List<FilterCategoryGroup>> = bookingRepository.observeFilterTaxonomy()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = FilterCategoryGroup.defaultTaxonomy(),
+        )
+
+    val paymentServerConfig: StateFlow<PaymentServerConfig> = bookingRepository.observePaymentServerConfig()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = PaymentServerConfig(),
+        )
+
+    val allBookings: StateFlow<List<DateMateBooking>> = _isVerifiedAdmin
+        .flatMapLatest { isAdmin ->
+            if (isAdmin) bookingRepository.observeAllBookingsForAdmin() else flowOf(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val allComplaints: StateFlow<List<UserComplaint>> = _isVerifiedAdmin
+        .flatMapLatest { isAdmin ->
+            if (isAdmin) bookingRepository.observeAllComplaintsForAdmin() else flowOf(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
 
     private val authListener = FirebaseAuth.AuthStateListener { auth ->
@@ -407,6 +440,9 @@ class AdminViewModel(
         category: String,
         bio: String,
         hiddenTimed: Boolean,
+        filterTags: List<String> = emptyList(),
+        advanceBookingAmount: Int = 299,
+        bookingPlans: List<String> = emptyList(),
     ) {
         val cleanName = name.trim()
         val cleanAge = ageText.trim().toIntOrNull() ?: 21
@@ -464,6 +500,9 @@ class AdminViewModel(
                     hiddenTimed = hiddenTimed,
                     phone = phone,
                     address = address,
+                    filterTags = filterTags,
+                    advanceBookingAmount = advanceBookingAmount,
+                    bookingPlans = bookingPlans,
                 )
                 cloudRes.onSuccess { newId ->
                     val previewImg = GalleryImage(
@@ -479,6 +518,9 @@ class AdminViewModel(
                         age = cleanAge,
                         role = role,
                         tier = tier,
+                        filterTags = filterTags,
+                        advanceBookingAmount = advanceBookingAmount,
+                        bookingPlans = bookingPlans,
                         isHidden = hiddenTimed,
                     )
                     _uploadedPreviewAlert.tryEmit(previewImg)
@@ -491,7 +533,7 @@ class AdminViewModel(
                         isHidden = hiddenTimed,
                     )
                     _publishState.value = AdminPublishState.Success(
-                        message = "$cleanName ($cleanPrice) published to JustUs!",
+                        message = "$cleanName ($cleanPrice) published to DateMate!",
                         imageUrl = cover,
                     )
                     return@launch
@@ -518,6 +560,9 @@ class AdminViewModel(
                     tier = tier,
                     city = LocationAddressFetcher.extractPublicCityFromAddress(address),
                     featured = tier == ProfileTier.VIP_16_9,
+                    filterTags = filterTags,
+                    advanceBookingAmount = advanceBookingAmount,
+                    bookingPlans = bookingPlans,
                     isHidden = hiddenTimed,
                     refreshEpochMs = System.currentTimeMillis(),
                 )
@@ -642,6 +687,9 @@ class AdminViewModel(
         hiddenTimed: Boolean,
         phone: String?,
         address: String?,
+        filterTags: List<String>? = null,
+        advanceBookingAmount: Int? = null,
+        bookingPlans: List<String>? = null,
     ) {
         val cleanName = name.trim().ifBlank { "Companion" }
         val cleanAge = (ageText.trim().toIntOrNull() ?: 21).coerceIn(18, 80)
@@ -660,6 +708,9 @@ class AdminViewModel(
                 age = cleanAge,
                 role = role,
                 tier = tier,
+                filterTags = filterTags,
+                advanceBookingAmount = advanceBookingAmount,
+                bookingPlans = bookingPlans,
             )
             val isRemote = cloudCompanionProfiles.value.any { it.id == profileId }
             if (isRemote && _isVerifiedAdmin.value) {
@@ -675,6 +726,9 @@ class AdminViewModel(
                     hiddenTimed = hiddenTimed,
                     phone = phone,
                     address = address,
+                    filterTags = filterTags,
+                    advanceBookingAmount = advanceBookingAmount,
+                    bookingPlans = bookingPlans,
                 )
                 _isBusy.value = false
                 res.onSuccess {
@@ -831,6 +885,103 @@ class AdminViewModel(
             chatRepository.deleteChatThread(chatId)
                 .onSuccess { _events.tryEmit("Chat deleted") }
                 .onFailure { _events.tryEmit(it.localizedMessage ?: "Failed to delete chat") }
+        }
+    }
+
+    fun saveFilterTaxonomy(groups: List<FilterCategoryGroup>) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = bookingRepository.saveFilterTaxonomy(groups)
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("Filter categories & options updated live ✓")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to save filter categories")
+            }
+        }
+    }
+
+    fun savePaymentServerConfig(serverBaseUrl: String, defaultAdvanceInr: Int) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = bookingRepository.savePaymentServerConfig(serverBaseUrl, defaultAdvanceInr)
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("Payment Server config saved ✓")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to save server config")
+            }
+        }
+    }
+
+    fun testPaymentServerHealth(serverBaseUrl: String) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = bookingRepository.checkPaymentServerHealth(serverBaseUrl)
+            _isBusy.value = false
+            res.onSuccess { msg ->
+                _events.tryEmit(msg)
+            }.onFailure { err ->
+                _events.tryEmit("Server check failed: ${err.localizedMessage ?: "Unreachable"}")
+            }
+        }
+    }
+
+    fun approveStaffPayout(bookingId: String, note: String) {
+        if (!_isSuperAdmin.value) {
+            _events.tryEmit("Only Main Admin can approve & mark Staff Virtual Money Paid!")
+            return
+        }
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = bookingRepository.updatePayoutStatusBySuperAdmin(
+                bookingId = bookingId,
+                payoutStatus = PayoutStatus.PAID,
+                note = note.ifBlank { "Approved & Paid by Main Admin ✓" },
+            )
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("Staff Virtual Money marked Paid ✓")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to approve payout")
+            }
+        }
+    }
+
+    fun rejectStaffPayout(bookingId: String, note: String) {
+        if (!_isSuperAdmin.value) {
+            _events.tryEmit("Only Main Admin can manage Staff Virtual Money payouts!")
+            return
+        }
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = bookingRepository.updatePayoutStatusBySuperAdmin(
+                bookingId = bookingId,
+                payoutStatus = PayoutStatus.REJECTED,
+                note = note.ifBlank { "Payout not approved by Main Admin" },
+            )
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("Staff payout marked Not Approved")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to update payout")
+            }
+        }
+    }
+
+    fun resolveComplaint(complaintId: String, reply: String) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = bookingRepository.resolveComplaint(
+                complaintId = complaintId,
+                adminReply = reply.ifBlank { "Thank you for reporting. Issue has been resolved by DateMate Admin." },
+            )
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("Complaint resolved & reply sent ✓")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to update complaint")
+            }
         }
     }
 

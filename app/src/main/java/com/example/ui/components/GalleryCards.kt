@@ -538,15 +538,15 @@ fun PriceBadgePill(
 ) {
     Surface(
         shape = RoundedCornerShape(50),
-        color = Color(0xFFFFF0F5),
-        border = BorderStroke(1.dp, Color(0xFFE91E63).copy(alpha = 0.45f)),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.11f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
         modifier = modifier
     ) {
         Text(
             text = price,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFFE91E63),
+            color = MaterialTheme.colorScheme.primary,
             maxLines = 1,
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
         )
@@ -592,11 +592,19 @@ fun GalleryGridCard(
             width = if (isNearby) 1.8.dp else 1.2.dp,
             brush = Brush.linearGradient(
                 colors = if (isNearby) {
-                    listOf(Color(0xFFFF4081), Color(0xFFFF9EC3), Color(0xFFE91E63))
+                    listOf(
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.secondary,
+                        MaterialTheme.colorScheme.primary,
+                    )
                 } else if (isAllBlurredExpired) {
                     listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), MaterialTheme.colorScheme.secondary.copy(alpha = 0.35f))
                 } else {
-                    listOf(Color(0xFFE91E63).copy(alpha = 0.45f), Color(0xFFFFB2CC).copy(alpha = 0.65f), Color(0xFFFFFFFF))
+                    listOf(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.42f),
+                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f),
+                        MaterialTheme.colorScheme.surface,
+                    )
                 }
             )
         ),
@@ -606,8 +614,8 @@ fun GalleryGridCard(
             .shadow(
                 elevation = if (isNearby) 14.dp else 9.dp,
                 shape = RoundedCornerShape(24.dp),
-                ambientColor = Color(0xFFE91E63).copy(alpha = if (isNearby) 0.32f else 0.18f),
-                spotColor = Color(0xFFFF4081).copy(alpha = if (isNearby) 0.38f else 0.22f)
+                ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = if (isNearby) 0.32f else 0.18f),
+                spotColor = MaterialTheme.colorScheme.primary.copy(alpha = if (isNearby) 0.38f else 0.22f)
             )
             .graphicsLayer {
                 cameraDistance = 12f * density
