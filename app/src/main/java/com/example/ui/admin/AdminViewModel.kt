@@ -6,9 +6,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.GoogleAuthHelper
 import com.example.data.model.AdminAccessCode
+import com.example.data.model.AdminChangeRequest
 import com.example.data.model.AdminEmailEntry
 import com.example.data.model.AdminMemberProfile
 import com.example.data.model.AdminUserFilter
+import com.example.data.model.AppShareConfig
 import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
 import com.example.data.model.CompanionProfile
@@ -151,6 +153,31 @@ class AdminViewModel(
             if (isAdmin) bookingRepository.observeAllComplaintsForAdmin() else flowOf(emptyList())
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    val appShareConfig: StateFlow<AppShareConfig> = userCrmRepository.observeAppShareConfig()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), AppShareConfig())
+
+    val changeRequests: StateFlow<List<AdminChangeRequest>> = combine(
+        _isVerifiedAdmin,
+        _isSuperAdmin,
+        _authUser,
+    ) { isAdmin, isSuper, user ->
+        Triple(isAdmin, isSuper, user?.uid.orEmpty())
+    }.flatMapLatest { (isAdmin, isSuper, uid) ->
+        when {
+            !isAdmin || uid.isBlank() -> flowOf(emptyList())
+            isSuper -> userCrmRepository.observeAllChangeRequestsForMainAdmin()
+            else -> userCrmRepository.observeMyChangeRequests(uid)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), emptyList())
+
+    private fun requireMainAdminAction(actionLabel: String): Boolean {
+        if (!_isSuperAdmin.value) {
+            _events.tryEmit("Co-Admin can only reply to chats. Send a Change Request to Main Admin for: $actionLabel")
+            return false
+        }
+        return true
+    }
 
     private val authListener = FirebaseAuth.AuthStateListener { auth ->
         _authUser.value = auth.currentUser
@@ -444,6 +471,10 @@ class AdminViewModel(
         advanceBookingAmount: Int = 299,
         bookingPlans: List<String> = emptyList(),
     ) {
+        if (!requireMainAdminAction("Create Profile")) {
+            _publishState.value = AdminPublishState.Error("Co-Admin cannot create profiles directly. Submit a Change Request to Main Admin.")
+            return
+        }
         val cleanName = name.trim()
         val cleanAge = ageText.trim().toIntOrNull() ?: 21
         val cleanPrice = price.trim().ifBlank { "₹499" }
@@ -592,6 +623,7 @@ class AdminViewModel(
     }
 
     fun refreshBlurredUpload(profileId: String) {
+        if (!requireMainAdminAction("Refresh Profile")) return
         viewModelScope.launch {
             val refreshed = uploadsRepository.refreshUpload(profileId)
             val remoteMatch = cloudCompanionProfiles.value.firstOrNull { it.id == profileId }
@@ -617,6 +649,7 @@ class AdminViewModel(
     }
 
     fun refreshAllBlurredUploads() {
+        if (!requireMainAdminAction("Refresh Secret Drops")) return
         viewModelScope.launch {
             val refreshedLocal = uploadsRepository.refreshAllExpiredUploads()
             val cloudTimed = cloudCompanionProfiles.value.filter { it.hiddenTimed }
@@ -640,6 +673,7 @@ class AdminViewModel(
     }
 
     fun setUserLeadTag(userId: String, leadTag: String) {
+        if (!requireMainAdminAction("Update Lead Tag")) return
         viewModelScope.launch {
             userCrmRepository.updateUserLeadTag(userId, leadTag)
                 .onSuccess { _events.tryEmit("Lead updated: ${leadTag.uppercase()}") }
@@ -648,6 +682,7 @@ class AdminViewModel(
     }
 
     fun setUserModerationStatus(userId: String, status: String) {
+        if (!requireMainAdminAction("User Moderation")) return
         viewModelScope.launch {
             userCrmRepository.updateUserModerationStatus(userId, status)
                 .onSuccess { _events.tryEmit("Account status: ${status.uppercase()}") }
@@ -655,11 +690,13 @@ class AdminViewModel(
         }
     }
 
-    fun approveStaffUser(user: UserAccount, tier: String) {
+    fun approveStaffUser(user: UserAccount, tier: String, directChatEnabled: Boolean = true) {
+        if (!requireMainAdminAction("Approve Staff")) return
         viewModelScope.launch {
-            userCrmRepository.approveStaffApplication(user, tier, galleryRepository)
+            userCrmRepository.approveStaffApplication(user, tier, galleryRepository, directChatEnabled)
                 .onSuccess {
-                    _events.tryEmit("${user.name} verified & approved as Staff!")
+                    val chatNote = if (directChatEnabled) "Direct Client Chat ON ✓" else "Admin-Managed Chat Only"
+                    _events.tryEmit("${user.name} verified as Staff · $chatNote")
                 }
                 .onFailure {
                     _events.tryEmit(it.localizedMessage ?: "Could not verify staff")
@@ -667,7 +704,24 @@ class AdminViewModel(
         }
     }
 
+    fun setStaffDirectChatAccess(userId: String, enabled: Boolean) {
+        if (!requireMainAdminAction("Staff Direct Chat Access")) return
+        viewModelScope.launch {
+            userCrmRepository.setStaffDirectChatAccess(userId, enabled)
+                .onSuccess {
+                    _events.tryEmit(
+                        if (enabled) "Direct Client Chat ENABLED for Staff ✓"
+                        else "Direct Client Chat DISABLED (Admin-Managed Only)"
+                    )
+                }
+                .onFailure {
+                    _events.tryEmit(it.localizedMessage ?: "Could not update direct chat access")
+                }
+        }
+    }
+
     fun rejectStaffUser(userId: String) {
+        if (!requireMainAdminAction("Reject Staff")) return
         viewModelScope.launch {
             userCrmRepository.rejectStaffApplication(userId)
                 .onSuccess { _events.tryEmit("Staff application rejected") }
@@ -691,6 +745,7 @@ class AdminViewModel(
         advanceBookingAmount: Int? = null,
         bookingPlans: List<String>? = null,
     ) {
+        if (!requireMainAdminAction("Edit Profile")) return
         val cleanName = name.trim().ifBlank { "Companion" }
         val cleanAge = (ageText.trim().toIntOrNull() ?: 21).coerceIn(18, 80)
         val cleanPrice = price.trim().ifBlank { "₹499" }
@@ -747,6 +802,7 @@ class AdminViewModel(
     }
 
     fun deleteProfile(profileId: String) {
+        if (!requireMainAdminAction("Delete Profile")) return
         viewModelScope.launch {
             uploadsRepository.removeUpload(profileId)
             if (_isVerifiedAdmin.value) {
@@ -855,6 +911,7 @@ class AdminViewModel(
     }
 
     fun addCustomHomeFilter(label: String) {
+        if (!requireMainAdminAction("Add Home Filter")) return
         viewModelScope.launch {
             _isBusy.value = true
             val res = userCrmRepository.addHomeFilter(label)
@@ -868,6 +925,7 @@ class AdminViewModel(
     }
 
     fun removeCustomHomeFilter(label: String) {
+        if (!requireMainAdminAction("Remove Home Filter")) return
         viewModelScope.launch {
             _isBusy.value = true
             val res = userCrmRepository.removeHomeFilter(label)
@@ -881,6 +939,7 @@ class AdminViewModel(
     }
 
     fun deleteChatThreadAsAdmin(chatId: String) {
+        if (!requireMainAdminAction("Delete Chat")) return
         viewModelScope.launch {
             chatRepository.deleteChatThread(chatId)
                 .onSuccess { _events.tryEmit("Chat deleted") }
@@ -889,6 +948,7 @@ class AdminViewModel(
     }
 
     fun saveFilterTaxonomy(groups: List<FilterCategoryGroup>) {
+        if (!requireMainAdminAction("Edit Filters")) return
         viewModelScope.launch {
             _isBusy.value = true
             val res = bookingRepository.saveFilterTaxonomy(groups)
@@ -902,6 +962,7 @@ class AdminViewModel(
     }
 
     fun savePaymentServerConfig(serverBaseUrl: String, defaultAdvanceInr: Int) {
+        if (!requireMainAdminAction("Edit Payment Server")) return
         viewModelScope.launch {
             _isBusy.value = true
             val res = bookingRepository.savePaymentServerConfig(serverBaseUrl, defaultAdvanceInr)
@@ -970,6 +1031,7 @@ class AdminViewModel(
     }
 
     fun resolveComplaint(complaintId: String, reply: String) {
+        if (!requireMainAdminAction("Resolve Complaint")) return
         viewModelScope.launch {
             _isBusy.value = true
             val res = bookingRepository.resolveComplaint(
@@ -981,6 +1043,60 @@ class AdminViewModel(
                 _events.tryEmit("Complaint resolved & reply sent ✓")
             }.onFailure { err ->
                 _events.tryEmit(err.localizedMessage ?: "Failed to update complaint")
+            }
+        }
+    }
+
+    fun saveAppShareConfig(shareUrl: String, shareMessage: String, onSaved: () -> Unit = {}) {
+        if (!requireMainAdminAction("Edit App Share Link")) return
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.saveAppShareConfig(shareUrl, shareMessage)
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("App Share Link saved live for all users ✓")
+                onSaved()
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to save App Share Link")
+            }
+        }
+    }
+
+    fun submitChangeRequest(
+        requestType: String,
+        targetId: String,
+        targetTitle: String,
+        details: String,
+        onDone: () -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.submitAdminChangeRequest(
+                requestType = requestType,
+                targetId = targetId,
+                targetTitle = targetTitle,
+                details = details,
+            )
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit("Change Request sent to Main Admin ✓")
+                onDone()
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Could not send request")
+            }
+        }
+    }
+
+    fun reviewChangeRequest(requestId: String, approve: Boolean, mainAdminNote: String) {
+        if (!requireMainAdminAction("Review Change Request")) return
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.reviewAdminChangeRequest(requestId, approve, mainAdminNote)
+            _isBusy.value = false
+            res.onSuccess {
+                _events.tryEmit(if (approve) "Request Approved ✓" else "Request Rejected")
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Failed to update request")
             }
         }
     }

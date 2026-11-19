@@ -69,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.data.model.AdminChangeRequestType
 import com.example.data.model.AdminUserFilter
 import com.example.data.model.ChatThread
 import com.example.data.model.LeadTag
@@ -87,6 +88,7 @@ import com.example.ui.theme.WhatsAppGreen
 
 @Composable
 fun AdminUsersCrmTab(
+    isSuperAdmin: Boolean = true,
     pagedUsers: List<UserAccount>,
     totalFilteredCount: Int,
     hasMoreUsers: Boolean,
@@ -98,6 +100,7 @@ fun AdminUsersCrmTab(
     onSetModeration: (userId: String, status: String) -> Unit,
     onOpenChatAsAdmin: (chatId: String) -> Unit,
     onCallUser: (UserAccount, ChatThread?) -> Unit = { _, _ -> },
+    onRequestChangeToMainAdmin: (requestType: String, targetId: String, targetTitle: String, initialDetails: String) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     var inspectedUser by remember { mutableStateOf<UserAccount?>(null) }
@@ -267,11 +270,21 @@ fun AdminUsersCrmTab(
             }
         }
         UserCrmInspectorSheet(
+            isSuperAdmin = isSuperAdmin,
             user = activeUser,
             userChats = userInquiries,
             allChats = allChats,
             onSetLeadTag = { tag -> onSetLeadTag(activeUser.uid, tag) },
             onSetModeration = { status -> onSetModeration(activeUser.uid, status) },
+            onRequestChange = {
+                inspectedUser = null
+                onRequestChangeToMainAdmin(
+                    AdminChangeRequestType.USER_MODERATION,
+                    activeUser.uid,
+                    "User: ${activeUser.name.ifBlank { activeUser.email }}",
+                    "Please update lead tag / moderation status for ${activeUser.name.ifBlank { activeUser.uid }} (${activeUser.phone})."
+                )
+            },
             onCallUser = {
                 inspectedUser = null
                 onCallUser(activeUser, userInquiries.firstOrNull())
@@ -406,11 +419,13 @@ private fun UserCrmMiniTile(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun UserCrmInspectorSheet(
+    isSuperAdmin: Boolean,
     user: UserAccount,
     userChats: List<ChatThread>,
     allChats: List<ChatThread>,
     onSetLeadTag: (String) -> Unit,
     onSetModeration: (String) -> Unit,
+    onRequestChange: () -> Unit,
     onCallUser: () -> Unit,
     onOpenChat: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -605,84 +620,119 @@ private fun UserCrmInspectorSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            Text(
-                text = "Lead Color Classification",
-                style = MaterialTheme.typography.labelLarge
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                LeadChip("Hot Lead", LeadTag.HOT, HotLeadColor, user.leadTag == LeadTag.HOT) {
-                    onSetLeadTag(LeadTag.HOT)
+            if (isSuperAdmin) {
+                Text(
+                    text = "Lead Color Classification",
+                    style = MaterialTheme.typography.labelLarge
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    LeadChip("Hot Lead", LeadTag.HOT, HotLeadColor, user.leadTag == LeadTag.HOT) {
+                        onSetLeadTag(LeadTag.HOT)
+                    }
+                    LeadChip("Warm Lead", LeadTag.WARM, WarmLeadColor, user.leadTag == LeadTag.WARM) {
+                        onSetLeadTag(LeadTag.WARM)
+                    }
+                    LeadChip("Cold Lead", LeadTag.COLD, ColdLeadColor, user.leadTag == LeadTag.COLD) {
+                        onSetLeadTag(LeadTag.COLD)
+                    }
+                    LeadChip("None", LeadTag.NONE, MaterialTheme.colorScheme.outline, user.leadTag == LeadTag.NONE) {
+                        onSetLeadTag(LeadTag.NONE)
+                    }
                 }
-                LeadChip("Warm Lead", LeadTag.WARM, WarmLeadColor, user.leadTag == LeadTag.WARM) {
-                    onSetLeadTag(LeadTag.WARM)
-                }
-                LeadChip("Cold Lead", LeadTag.COLD, ColdLeadColor, user.leadTag == LeadTag.COLD) {
-                    onSetLeadTag(LeadTag.COLD)
-                }
-                LeadChip("None", LeadTag.NONE, MaterialTheme.colorScheme.outline, user.leadTag == LeadTag.NONE) {
-                    onSetLeadTag(LeadTag.NONE)
-                }
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-            Text(
-                text = "Account Moderation",
-                style = MaterialTheme.typography.labelLarge
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilledTonalButton(
-                    onClick = { onSetModeration(ModerationStatus.ACTIVE) },
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = if (user.moderationStatus == ModerationStatus.ACTIVE) {
-                            OnlineEmeraldDot.copy(alpha = 0.24f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHigh
-                        }
-                    ),
-                    modifier = Modifier.weight(1f)
+                Text(
+                    text = "Account Moderation",
+                    style = MaterialTheme.typography.labelLarge
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Rounded.Verified, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Active", maxLines = 1)
+                    FilledTonalButton(
+                        onClick = { onSetModeration(ModerationStatus.ACTIVE) },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = if (user.moderationStatus == ModerationStatus.ACTIVE) {
+                                OnlineEmeraldDot.copy(alpha = 0.24f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            }
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Rounded.Verified, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Active", maxLines = 1)
+                    }
+                    FilledTonalButton(
+                        onClick = { onSetModeration(ModerationStatus.SUSPENDED) },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = if (user.moderationStatus == ModerationStatus.SUSPENDED) {
+                                SuspendedAccountColor.copy(alpha = 0.35f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            }
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Rounded.PauseCircle, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Suspend", maxLines = 1)
+                    }
+                    FilledTonalButton(
+                        onClick = { onSetModeration(ModerationStatus.BLOCKED) },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = if (user.moderationStatus == ModerationStatus.BLOCKED) {
+                                BlockedAccountColor.copy(alpha = 0.45f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            }
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Rounded.Block, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Block", maxLines = 1)
+                    }
                 }
-                FilledTonalButton(
-                    onClick = { onSetModeration(ModerationStatus.SUSPENDED) },
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = if (user.moderationStatus == ModerationStatus.SUSPENDED) {
-                            SuspendedAccountColor.copy(alpha = 0.35f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHigh
-                        }
-                    ),
-                    modifier = Modifier.weight(1f)
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Rounded.PauseCircle, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Suspend", maxLines = 1)
-                }
-                FilledTonalButton(
-                    onClick = { onSetModeration(ModerationStatus.BLOCKED) },
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = if (user.moderationStatus == ModerationStatus.BLOCKED) {
-                            BlockedAccountColor.copy(alpha = 0.45f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHigh
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Lead & Moderation Controls — Main Admin Only 🔒",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Current Lead: ${user.leadTag.uppercase()} · Status: ${user.moderationStatus.uppercase()}. You can reply to this user's chats above or request Main Admin to modify their account.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedButton(
+                            onClick = onRequestChange,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .minimumInteractiveComponentSize()
+                                .testTag("crm_request_main_admin_btn")
+                        ) {
+                            Text("Request Main Admin Change")
                         }
-                    ),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Rounded.Block, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Block", maxLines = 1)
+                    }
                 }
             }
 

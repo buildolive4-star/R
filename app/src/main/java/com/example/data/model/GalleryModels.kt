@@ -58,6 +58,7 @@ data class CompanionProfile(
     val status: String = "published",
     val ownerUid: String = "",
     val staffVerified: Boolean = true,
+    val staffOnline: Boolean = false,
     val createdByUid: String = "",
     val filterTags: List<String> = emptyList(),
     val advanceBookingAmount: Int = 299,
@@ -97,6 +98,7 @@ data class CompanionProfile(
         uploadedBy = createdByUid,
         uploaderName = name,
         ownerUid = ownerUid,
+        staffOnline = staffOnline,
         tags = filterTags,
         filterTags = filterTags,
         advanceBookingAmount = advanceBookingAmount,
@@ -145,11 +147,16 @@ data class UserAccount(
     val staffPrice: String = "",
     val staffTier: String = ProfileTier.GRID_9_16,
     val staffProfileId: String = "",
+    val directChatEnabled: Boolean = true,
+    val staffOnline: Boolean = false,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 ) {
     val isApprovedStaff: Boolean
         get() = staffStatus == StaffStatus.APPROVED && moderationStatus == ModerationStatus.ACTIVE
+
+    val canDirectChatAsStaff: Boolean
+        get() = isApprovedStaff && directChatEnabled
 
     val isBlockedOrSuspended: Boolean
         get() = moderationStatus == ModerationStatus.BLOCKED || moderationStatus == ModerationStatus.SUSPENDED
@@ -323,6 +330,7 @@ data class GalleryImage(
     val uploadedBy: String = "",
     val uploaderName: String = "JustUs",
     val ownerUid: String = "",
+    val staffOnline: Boolean = false,
     val tags: List<String> = emptyList(),
     val filterTags: List<String> = emptyList(),
     val advanceBookingAmount: Int = 299,

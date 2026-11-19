@@ -759,3 +759,149 @@ test("WhatsApp receipts, participant chat/message deletion, presence, and Super 
   await assertSucceeds(aliceDb.collection("chats").doc(chatId).delete());
 });
 
+test("Verified Staff can self-toggle staffOnline on own user & companion_profiles only", async () => {
+  const superDb = testEnv
+    .authenticatedContext(SUPER_ADMIN_UID, {
+      email: SUPER_ADMIN_EMAIL,
+      email_verified: true,
+    })
+    .firestore();
+  const staffDb = testEnv
+    .authenticatedContext(STAFF_UID, {
+      email: "staff@example.com",
+      email_verified: true,
+    })
+    .firestore();
+  const aliceDb = testEnv
+    .authenticatedContext(ALICE_UID, {
+      email: "alice@example.com",
+      email_verified: true,
+    })
+    .firestore();
+  const past = new Date(Date.now() - 5000);
+
+  // Create regular user Alice + approved staff user
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).set({
+      name: "Alice",
+      email: "alice@example.com",
+      photoUrl: "https://i.ibb.co/a/pic.jpg",
+      phone: "9988776655",
+      age: 22,
+      address: "Delhi",
+      completionPercent: 100,
+      online: true,
+      lastActiveEpochMs: Date.now(),
+      hasInquiryNotification: false,
+      leadTag: "none",
+      moderationStatus: "active",
+      staffStatus: "none",
+      staffProfileId: "",
+      staffOnline: false,
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+
+  // Regular non-staff user CANNOT set staffOnline = true
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      staffOnline: true,
+      updatedAt: past,
+    })
+  );
+
+  await assertSucceeds(
+    staffDb.collection("users").doc(STAFF_UID).set({
+      name: "Rahul",
+      email: "staff@example.com",
+      photoUrl: "https://i.ibb.co/s/pic.jpg",
+      phone: "9876543210",
+      age: 24,
+      address: "Mumbai",
+      completionPercent: 100,
+      online: true,
+      lastActiveEpochMs: Date.now(),
+      hasInquiryNotification: false,
+      leadTag: "none",
+      moderationStatus: "active",
+      staffStatus: "none",
+      staffProfileId: "",
+      staffOnline: false,
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+
+  // Main Admin approves staff and publishes their companion profile
+  await assertSucceeds(
+    superDb.collection("companion_profiles").doc("staff_prof_1").set({
+      name: "Rahul",
+      age: 24,
+      price: "₹499",
+      role: "BF",
+      category: "Verified Staff",
+      tier: "grid_9_16",
+      bio: "Verified staff",
+      photoUrls: ["https://i.ibb.co/s/pic.jpg"],
+      coverUrl: "https://i.ibb.co/s/pic.jpg",
+      aspectRatio: 9 / 16,
+      hiddenTimed: false,
+      refreshEpochMs: 0,
+      status: "published",
+      ownerUid: STAFF_UID,
+      staffVerified: true,
+      staffOnline: true,
+      createdByUid: SUPER_ADMIN_UID,
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+  await assertSucceeds(
+    superDb.collection("users").doc(STAFF_UID).update({
+      staffStatus: "approved",
+      staffProfileId: "staff_prof_1",
+      staffOnline: true,
+      updatedAt: past,
+    })
+  );
+
+  // Verified Staff CAN toggle staffOnline = false and back to true on own user + own profile
+  await assertSucceeds(
+    staffDb.collection("users").doc(STAFF_UID).update({
+      staffOnline: false,
+      updatedAt: past,
+    })
+  );
+  await assertSucceeds(
+    staffDb.collection("companion_profiles").doc("staff_prof_1").update({
+      staffOnline: false,
+      updatedAt: past,
+    })
+  );
+  await assertSucceeds(
+    staffDb.collection("companion_profiles").doc("staff_prof_1").update({
+      staffOnline: true,
+      updatedAt: past,
+    })
+  );
+
+  // Verified Staff CANNOT tamper with price or other fields on their profile
+  await assertFails(
+    staffDb.collection("companion_profiles").doc("staff_prof_1").update({
+      staffOnline: true,
+      price: "₹9999",
+      updatedAt: past,
+    })
+  );
+
+  // Non-owner Alice CANNOT toggle Rahul's profile staffOnline
+  await assertFails(
+    aliceDb.collection("companion_profiles").doc("staff_prof_1").update({
+      staffOnline: false,
+      updatedAt: past,
+    })
+  );
+});
+
+

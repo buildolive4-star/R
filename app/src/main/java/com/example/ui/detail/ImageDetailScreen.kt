@@ -95,6 +95,7 @@ import com.example.ui.components.DateMate3DGlowingButton
 import com.example.ui.components.DateMate3DGlowingIconButton
 import com.example.ui.components.DateMateMascot
 import com.example.ui.components.GlowButtonStyle
+import com.example.ui.components.LiveOnlineStatusBadge
 import com.example.ui.components.PixoraBlurredImage
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
@@ -733,59 +734,73 @@ fun ImageDetailScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
-                        Row(
+                        LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = Color(0x2822C55E),
-                                border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.5f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Shield,
-                                        contentDescription = null,
-                                        tint = Color(0xFF22C55E),
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "ID & Voice Verified",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFBBF7D0)
+                            if (profile.staffOnline || profile.ownerUid.isNotBlank()) {
+                                item(key = "detail_online_status") {
+                                    LiveOnlineStatusBadge(
+                                        isOnline = profile.staffOnline,
+                                        showOffline = profile.ownerUid.isNotBlank(),
+                                        modifier = Modifier.testTag("detail_online_badge")
                                     )
                                 }
                             }
 
-                            Surface(
-                                onClick = { isPlayingVoiceBio = !isPlayingVoiceBio },
-                                shape = RoundedCornerShape(50),
-                                color = if (isPlayingVoiceBio) Color(0xFFE91E63) else Color(0x33FF6F9C),
-                                border = BorderStroke(1.dp, Color(0xFFFF6F9C).copy(alpha = 0.65f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                            item(key = "detail_verified_shield") {
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = Color(0x2822C55E),
+                                    border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.5f))
                                 ) {
-                                    Icon(
-                                        imageVector = if (isPlayingVoiceBio) Icons.Rounded.Stop else Icons.Rounded.GraphicEq,
-                                        contentDescription = "Voice Intro",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = if (isPlayingVoiceBio) "Playing Voice Bio (0:05)…" else "Listen Voice Bio",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White
-                                    )
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Shield,
+                                            contentDescription = null,
+                                            tint = Color(0xFF22C55E),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "ID & Voice Verified",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFBBF7D0)
+                                        )
+                                    }
+                                }
+                            }
+
+                            item(key = "detail_voice_bio") {
+                                Surface(
+                                    onClick = { isPlayingVoiceBio = !isPlayingVoiceBio },
+                                    shape = RoundedCornerShape(50),
+                                    color = if (isPlayingVoiceBio) Color(0xFFE91E63) else Color(0x33FF6F9C),
+                                    border = BorderStroke(1.dp, Color(0xFFFF6F9C).copy(alpha = 0.65f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isPlayingVoiceBio) Icons.Rounded.Stop else Icons.Rounded.GraphicEq,
+                                            contentDescription = "Voice Intro",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = if (isPlayingVoiceBio) "Playing Voice Bio (0:05)…" else "Listen Voice Bio",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White
+                                        )
+                                    }
                                 }
                             }
                         }

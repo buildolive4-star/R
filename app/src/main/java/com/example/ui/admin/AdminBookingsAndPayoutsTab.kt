@@ -116,59 +116,85 @@ fun AdminBookingsAndPayoutsTab(
                         }
                     }
 
-                    OutlinedTextField(
-                        value = serverUrl,
-                        onValueChange = { serverUrl = it.take(300) },
-                        singleLine = true,
-                        label = { Text("Render Server Base URL") },
-                        placeholder = { Text("https://jaiambey.shop") },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("admin_payment_server_url_input")
-                    )
-
-                    OutlinedTextField(
-                        value = defaultAdvanceText,
-                        onValueChange = { defaultAdvanceText = it.filter { ch -> ch.isDigit() }.take(6) },
-                        singleLine = true,
-                        label = { Text("Fallback Pre-Booking Advance (₹)") },
-                        placeholder = { Text("299 (Any custom amount)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("admin_default_advance_input")
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                val amt = (defaultAdvanceText.toIntOrNull() ?: 299).coerceIn(1, 500_000)
-                                onSavePaymentServerConfig(serverUrl.trim(), amt)
-                            },
-                            enabled = !isBusy,
+                    if (isSuperAdmin) {
+                        OutlinedTextField(
+                            value = serverUrl,
+                            onValueChange = { serverUrl = it.take(300) },
+                            singleLine = true,
+                            label = { Text("Render Server Base URL") },
+                            placeholder = { Text("https://jaiambey.shop") },
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
-                                .weight(1.2f)
-                                .testTag("admin_save_payment_server_button")
+                                .fillMaxWidth()
+                                .testTag("admin_payment_server_url_input")
+                        )
+
+                        OutlinedTextField(
+                            value = defaultAdvanceText,
+                            onValueChange = { defaultAdvanceText = it.filter { ch -> ch.isDigit() }.take(6) },
+                            singleLine = true,
+                            label = { Text("Fallback Pre-Booking Advance (₹)") },
+                            placeholder = { Text("299 (Any custom amount)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("admin_default_advance_input")
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Rounded.CloudDone, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Save Config", maxLines = 1)
+                            Button(
+                                onClick = {
+                                    val amt = (defaultAdvanceText.toIntOrNull() ?: 299).coerceIn(1, 500_000)
+                                    onSavePaymentServerConfig(serverUrl.trim(), amt)
+                                },
+                                enabled = !isBusy,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .testTag("admin_save_payment_server_button")
+                            ) {
+                                Icon(Icons.Rounded.CloudDone, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Save Config", maxLines = 1)
+                            }
+                            FilledTonalButton(
+                                onClick = { onTestPaymentServer(serverUrl.trim()) },
+                                enabled = !isBusy && serverUrl.trim().isNotBlank(),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier
+                                    .weight(0.95f)
+                                    .testTag("admin_test_payment_server_button")
+                            ) {
+                                Text("Test Server", maxLines = 1)
+                            }
                         }
-                        FilledTonalButton(
-                            onClick = { onTestPaymentServer(serverUrl.trim()) },
-                            enabled = !isBusy && serverUrl.trim().isNotBlank(),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .weight(0.95f)
-                                .testTag("admin_test_payment_server_button")
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Test Server", maxLines = 1)
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Lock,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Server: ${paymentServerConfig.cleanBaseUrl} · Advance ₹${paymentServerConfig.defaultAdvanceInr} (Main Admin Only 🔒)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -268,6 +294,7 @@ fun AdminBookingsAndPayoutsTab(
             items(allComplaints, key = { it.id }) { complaint ->
                 AdminComplaintCard(
                     complaint = complaint,
+                    isSuperAdmin = isSuperAdmin,
                     isBusy = isBusy,
                     onResolve = { reply -> onResolveComplaint(complaint.id, reply) }
                 )
@@ -517,6 +544,7 @@ private fun AdminBookingLedgerCard(
 @Composable
 private fun AdminComplaintCard(
     complaint: UserComplaint,
+    isSuperAdmin: Boolean,
     isBusy: Boolean,
     onResolve: (String) -> Unit,
 ) {
@@ -575,29 +603,38 @@ private fun AdminComplaintCard(
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            OutlinedTextField(
-                value = replyText,
-                onValueChange = { replyText = it.take(400) },
-                minLines = 2,
-                maxLines = 3,
-                label = { Text("Admin Reply") },
-                placeholder = { Text("Write resolution note for the user...") },
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
+            if (isSuperAdmin) {
+                OutlinedTextField(
+                    value = replyText,
+                    onValueChange = { replyText = it.take(400) },
+                    minLines = 2,
+                    maxLines = 3,
+                    label = { Text("Admin Reply") },
+                    placeholder = { Text("Write resolution note for the user...") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-            Button(
-                onClick = { onResolve(replyText) },
-                enabled = !isBusy,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("admin_resolve_complaint_${complaint.id}")
-            ) {
-                Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(if (isResolved) "Update Reply" else "Reply & Resolve ✓")
+                Button(
+                    onClick = { onResolve(replyText) },
+                    enabled = !isBusy,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("admin_resolve_complaint_${complaint.id}")
+                ) {
+                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (isResolved) "Update Reply" else "Reply & Resolve ✓")
+                }
+            } else {
+                Text(
+                    text = if (complaint.adminReply.isNotBlank()) "Main Admin Reply: ${complaint.adminReply}" else "Only Main Admin can resolve complaints 🔒",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
 }
+

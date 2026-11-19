@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.GoogleAuthHelper
 import com.example.data.model.ActiveCallUi
+import com.example.data.model.AppShareConfig
 import com.example.data.model.CallSession
 import com.example.data.model.CallStatus
 import com.example.data.model.ChatMessage
@@ -161,6 +162,13 @@ class SessionAndChatViewModel(
             initialValue = null,
         )
 
+    val appShareConfig: StateFlow<AppShareConfig> = userCrmRepository.observeAppShareConfig()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = AppShareConfig(),
+        )
+
     init {
         Firebase.auth.addAuthStateListener(authListener)
         refreshAdminCallMonitoring()
@@ -206,7 +214,8 @@ class SessionAndChatViewModel(
                     isApprovedStaff = isStaff,
                 )
                 if (!uid.isNullOrBlank()) {
-                    userCrmRepository.setOnlinePresence(uid, online = true, updateAdminSentinel = isAdmin)
+                    val effectiveOnline = if (isStaff && userAccount.value?.staffOnline == false) false else true
+                    userCrmRepository.setOnlinePresence(uid, online = effectiveOnline, updateAdminSentinel = isAdmin)
                 }
             }
         }
@@ -290,7 +299,7 @@ class SessionAndChatViewModel(
     }
 
     private fun combineStaffFlow() = userAccount.flatMapLatest { account ->
-        if (account != null && account.isApprovedStaff) {
+        if (account != null && account.canDirectChatAsStaff) {
             chatRepository.observeStaffInboxChats(account.uid)
         } else {
             flowOf(emptyList())
@@ -375,8 +384,29 @@ class SessionAndChatViewModel(
     fun setOnlineState(online: Boolean) {
         val uid = _firebaseUser.value?.uid ?: return
         val isAdmin = _isVerifiedAdminForCalls.value
+        val account = userAccount.value
+        val effectiveOnline = if (account?.isApprovedStaff == true && !account.staffOnline) false else online
         viewModelScope.launch {
-            userCrmRepository.setOnlinePresence(uid, online, updateAdminSentinel = isAdmin)
+            userCrmRepository.setOnlinePresence(uid, effectiveOnline, updateAdminSentinel = isAdmin)
+        }
+    }
+
+    fun toggleStaffOnlineStatus(online: Boolean) {
+        viewModelScope.launch {
+            _isBusy.value = true
+            val res = userCrmRepository.setStaffOnlineAvailability(online)
+            _isBusy.value = false
+            res.onSuccess { nowOnline ->
+                _events.tryEmit(
+                    if (nowOnline) {
+                        "You are now ONLINE 🟢 — Users can see you live!"
+                    } else {
+                        "You are now OFFLINE ⚫ — Hidden from Online Now filter"
+                    }
+                )
+            }.onFailure { err ->
+                _events.tryEmit(err.localizedMessage ?: "Unable to update Online/Offline status")
+            }
         }
     }
 
@@ -976,6 +1006,10 @@ class SessionAndChatViewModel(
     ) {
         val account = userAccount.value
         val authUser = _firebaseUser.value
+        if (senderRole == "staff" && account?.canDirectChatAsStaff != true) {
+            onBlockedOrError("Direct client chat is currently managed by DateMate Admin for your profile.")
+            return
+        }
         val senderName = when (senderRole) {
             "admin" -> "DateMate Concierge"
             "staff" -> account?.name?.ifBlank { authUser?.displayName ?: "Companion" } ?: "Companion"

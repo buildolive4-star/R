@@ -113,6 +113,8 @@ fun ExploreScreen(
     searchQuery: String,
     bookmarkedIds: Set<String>,
     isStaffTheme: Boolean,
+    isStaffOnline: Boolean = false,
+    onToggleStaffOnline: (Boolean) -> Unit = {},
     onSelectCategory: (String) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onResetFilters: () -> Unit,
@@ -133,6 +135,7 @@ fun ExploreScreen(
 ) {
     val allProfiles = (galleryState as? UiState.Success)?.data.orEmpty()
     val totalCount = allProfiles.size
+    val onlineStaffCount = allProfiles.count { it.staffOnline }
     val context = LocalContext.current
     var cupidCelebrationName by remember { mutableStateOf<String?>(null) }
     var showAllFiltersSheet by remember { mutableStateOf(false) }
@@ -190,6 +193,8 @@ fun ExploreScreen(
                     item(span = { GridItemSpan(maxLineSpan) }, key = "loading_header") {
                         DateMateScrollableHomeHeader(
                             isStaffTheme = isStaffTheme,
+                            isStaffOnline = isStaffOnline,
+                            onToggleStaffOnline = onToggleStaffOnline,
                             onSecretAdminTrigger = onSecretAdminTrigger,
                             onPushBellClick = handlePushBellClick,
                             onLocationClick = onLocationClick,
@@ -242,6 +247,8 @@ fun ExploreScreen(
                     Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         DateMateScrollableHomeHeader(
                             isStaffTheme = isStaffTheme,
+                            isStaffOnline = isStaffOnline,
+                            onToggleStaffOnline = onToggleStaffOnline,
                             onSecretAdminTrigger = onSecretAdminTrigger,
                             onPushBellClick = handlePushBellClick,
                             onLocationClick = onLocationClick,
@@ -285,6 +292,8 @@ fun ExploreScreen(
                     item(span = { GridItemSpan(maxLineSpan) }, key = "scrollable_home_header") {
                         DateMateScrollableHomeHeader(
                             isStaffTheme = isStaffTheme,
+                            isStaffOnline = isStaffOnline,
+                            onToggleStaffOnline = onToggleStaffOnline,
                             onSecretAdminTrigger = onSecretAdminTrigger,
                             onPushBellClick = handlePushBellClick,
                             onLocationClick = onLocationClick,
@@ -415,20 +424,53 @@ fun ExploreScreen(
                                         )
                                     }
                                 }
-                                if (selectedSmartFilter != GalleryViewModel.FILTER_ALL || selectedCategory != GalleryViewModel.CATEGORY_ALL) {
-                                    Surface(
-                                        onClick = onResetFilters,
-                                        shape = RoundedCornerShape(999.dp),
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
-                                    ) {
-                                        Text(
-                                            text = "Reset ✕",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                        )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (onlineStaffCount > 0 && selectedSmartFilter != GalleryViewModel.FILTER_ONLINE) {
+                                        Surface(
+                                            onClick = { onSelectSmartFilter(GalleryViewModel.FILTER_ONLINE) },
+                                            shape = RoundedCornerShape(999.dp),
+                                            color = Color(0xFF16A34A).copy(alpha = 0.16f),
+                                            border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.65f)),
+                                            modifier = Modifier.testTag("home_online_count_pill")
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(7.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0xFF22C55E))
+                                                )
+                                                Spacer(modifier = Modifier.width(5.dp))
+                                                Text(
+                                                    text = "$onlineStaffCount Online",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = Color(0xFF16A34A)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (selectedSmartFilter != GalleryViewModel.FILTER_ALL || selectedCategory != GalleryViewModel.CATEGORY_ALL) {
+                                        Surface(
+                                            onClick = onResetFilters,
+                                            shape = RoundedCornerShape(999.dp),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+                                        ) {
+                                            Text(
+                                                text = "Reset ✕",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -483,6 +525,8 @@ fun ExploreScreen(
 @Composable
 private fun DateMateScrollableHomeHeader(
     isStaffTheme: Boolean,
+    isStaffOnline: Boolean,
+    onToggleStaffOnline: (Boolean) -> Unit,
     onSecretAdminTrigger: () -> Unit,
     onPushBellClick: () -> Unit,
     onLocationClick: () -> Unit,
@@ -569,26 +613,32 @@ private fun DateMateScrollableHomeHeader(
                         if (isStaffTheme) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Surface(
+                                onClick = { onToggleStaffOnline(!isStaffOnline) },
                                 shape = RoundedCornerShape(50),
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+                                color = if (isStaffOnline) Color(0xFF16A34A).copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(
+                                    1.2.dp,
+                                    if (isStaffOnline) Color(0xFF22C55E) else MaterialTheme.colorScheme.outlineVariant
+                                ),
+                                modifier = Modifier.testTag("home_staff_online_toggle")
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Verified,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(11.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .alpha(if (isStaffOnline) pulseAlpha else 1f)
+                                            .clip(CircleShape)
+                                            .background(if (isStaffOnline) Color(0xFF22C55E) else Color(0xFF9CA3AF))
                                     )
-                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "STAFF",
+                                        text = if (isStaffOnline) "ONLINE" else "OFFLINE",
                                         style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (isStaffOnline) Color(0xFF16A34A) else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -718,6 +768,7 @@ private fun DateMateScrollableHomeHeader(
         ) {
             items(smartFilters, key = { "smart_$it" }) { filter ->
                 val isAllSmart = filter.equals(GalleryViewModel.FILTER_ALL, ignoreCase = true)
+                val isOnlineFilter = filter.equals(GalleryViewModel.FILTER_ONLINE, ignoreCase = true)
                 val selected = filter == selectedSmartFilter
                 val leadingIcon = when {
                     filter.equals(GalleryViewModel.FILTER_NEARBY, ignoreCase = true) -> Icons.Rounded.LocationOn
@@ -737,11 +788,20 @@ private fun DateMateScrollableHomeHeader(
                         }
                     },
                     shape = RoundedCornerShape(999.dp),
-                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                    color = when {
+                        selected && isOnlineFilter -> Color(0xFF16A34A)
+                        selected -> MaterialTheme.colorScheme.primary
+                        isOnlineFilter -> Color(0xFF16A34A).copy(alpha = 0.12f)
+                        else -> MaterialTheme.colorScheme.surface
+                    },
                     shadowElevation = if (selected) 8.dp else 3.dp,
                     border = BorderStroke(
-                        width = if (selected) 1.4.dp else 1.dp,
-                        color = if (selected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant
+                        width = if (selected || isOnlineFilter) 1.3.dp else 1.dp,
+                        color = when {
+                            isOnlineFilter -> Color(0xFF22C55E)
+                            selected -> MaterialTheme.colorScheme.secondary
+                            else -> MaterialTheme.colorScheme.outlineVariant
+                        }
                     ),
                     modifier = Modifier.testTag("smart_filter_chip_$filter")
                 ) {
@@ -749,18 +809,32 @@ private fun DateMateScrollableHomeHeader(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                     ) {
-                        Icon(
-                            imageVector = leadingIcon,
-                            contentDescription = null,
-                            tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        if (isOnlineFilter) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .alpha(pulseAlpha)
+                                    .clip(CircleShape)
+                                    .background(if (selected) Color.White else Color(0xFF22C55E))
+                            )
+                        } else {
+                            Icon(
+                                imageVector = leadingIcon,
+                                contentDescription = null,
+                                tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = if (isAllSmart) "All" else filter,
                             style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                fontWeight = if (selected || isOnlineFilter) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                color = when {
+                                    selected -> Color.White
+                                    isOnlineFilter -> Color(0xFF16A34A)
+                                    else -> MaterialTheme.colorScheme.onSurface
+                                }
                             )
                         )
                     }

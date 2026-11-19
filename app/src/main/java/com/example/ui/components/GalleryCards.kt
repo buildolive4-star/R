@@ -417,6 +417,12 @@ fun VipShowcaseCard(
                             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                         )
                     }
+                    if (profile.staffOnline && !isAllBlurredExpired) {
+                        LiveOnlineStatusBadge(
+                            isOnline = true,
+                            compact = true,
+                        )
+                    }
                 }
 
                 if (!isAllBlurredExpired) {
@@ -529,6 +535,60 @@ fun WhatsAppChatPillButton(
         ),
         modifier = modifier
     )
+}
+
+@Composable
+fun LiveOnlineStatusBadge(
+    isOnline: Boolean,
+    showOffline: Boolean = false,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    if (!isOnline && !showOffline) return
+    val pulse = rememberInfiniteTransition(label = "staff_online_pulse")
+    val dotAlpha by pulse.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "staff_online_dot_alpha"
+    )
+    val bgColor = if (isOnline) Color(0xE614532D) else Color(0xB81F2937)
+    val borderColor = if (isOnline) Color(0xFF4ADE80) else Color(0xFF9CA3AF).copy(alpha = 0.6f)
+    val dotColor = if (isOnline) Color(0xFF4ADE80).copy(alpha = dotAlpha) else Color(0xFF9CA3AF)
+    val textColor = if (isOnline) Color(0xFFDCFCE7) else Color(0xFFE5E7EB)
+
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = bgColor,
+        border = BorderStroke(1.dp, borderColor),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                horizontal = if (compact) 7.dp else 9.dp,
+                vertical = if (compact) 3.dp else 4.dp
+            ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(if (compact) 7.dp else 8.dp)
+                    .clip(CircleShape)
+                    .background(dotColor)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = if (isOnline) "Online" else "Offline",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = textColor,
+                maxLines = 1
+            )
+        }
+    }
 }
 
 @Composable
@@ -772,6 +832,14 @@ fun GalleryGridCard(
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
+
+                    if (image.staffOnline && !isAllBlurredExpired) {
+                        LiveOnlineStatusBadge(
+                            isOnline = true,
+                            compact = true,
+                            modifier = Modifier.testTag("card_online_badge_${image.id}")
                         )
                     }
 

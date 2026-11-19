@@ -31,6 +31,7 @@
         "status": { "type": "string", "enum": ["published", "archived"] },
         "ownerUid": { "type": "string" },
         "staffVerified": { "type": "boolean" },
+        "staffOnline": { "type": "boolean" },
         "createdByUid": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
@@ -80,6 +81,8 @@
         "staffPrice": { "type": "string" },
         "staffTier": { "type": "string" },
         "staffProfileId": { "type": "string" },
+        "directChatEnabled": { "type": "boolean" },
+        "staffOnline": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },

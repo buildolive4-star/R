@@ -87,6 +87,12 @@ service cloud.firestore {
              userDoc(request.auth.uid).moderationStatus == 'active';
     }
 
+    function canStaffDirectChat() {
+      return isApprovedStaffUser() &&
+             (!('directChatEnabled' in userDoc(request.auth.uid)) ||
+              userDoc(request.auth.uid).directChatEnabled == true);
+    }
+
     function hasValidHttpsUrl(url) {
       return url is string && url.size() >= 8 && url.size() <= 1000 && url.matches('^https://.*');
     }
@@ -109,6 +115,7 @@ service cloud.firestore {
              data.status is string && data.status in ['published', 'archived'] &&
              data.ownerUid is string && data.ownerUid.size() <= 128 &&
              data.staffVerified is bool &&
+             (!('staffOnline' in data) || data.staffOnline is bool) &&
              (!('filterTags' in data) || (data.filterTags is list && data.filterTags.size() <= 24)) &&
              (!('advanceBookingAmount' in data) || (data.advanceBookingAmount is int && data.advanceBookingAmount >= 1 && data.advanceBookingAmount <= 500000)) &&
              (!('bookingPlans' in data) || (data.bookingPlans is list && data.bookingPlans.size() <= 12)) &&
@@ -146,6 +153,8 @@ service cloud.firestore {
              (!('staffPrice' in data) || (data.staffPrice is string && data.staffPrice.size() <= 32)) &&
              (!('staffTier' in data) || (data.staffTier is string && data.staffTier in ['grid_9_16', 'vip_16_9', ''])) &&
              (!('staffProfileId' in data) || (data.staffProfileId is string && data.staffProfileId.size() <= 128)) &&
+             (!('directChatEnabled' in data) || data.directChatEnabled is bool) &&
+             (!('staffOnline' in data) || data.staffOnline is bool) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -255,7 +264,7 @@ service cloud.firestore {
       allow get: if isValidId(profileId) && (isAdmin() || (resource != null && existing().status == 'published'));
       allow list: if resource.data.status == 'published' || isAdmin();
 
-      allow create: if isAdmin() &&
+      allow create: if isSuperAdmin() &&
                        isValidId(profileId) &&
                        isValidCompanionProfile(incoming()) &&
                        incoming().createdByUid == request.auth.uid &&
@@ -268,28 +277,38 @@ service cloud.firestore {
                        incoming().keys().hasOnly([
                          'name', 'age', 'price', 'role', 'category', 'tier', 'bio', 'city',
                          'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
-                         'refreshEpochMs', 'status', 'ownerUid', 'staffVerified',
+                         'refreshEpochMs', 'status', 'ownerUid', 'staffVerified', 'staffOnline',
                          'filterTags', 'advanceBookingAmount', 'bookingPlans',
                          'createdByUid', 'createdAt', 'updatedAt'
                        ]);
 
-      allow update: if isAdmin() &&
+      allow update: if isSignedIn() &&
                        isValidId(profileId) &&
                        isValidCompanionProfile(incoming()) &&
                        incoming().createdByUid == existing().createdByUid &&
                        incoming().createdAt == existing().createdAt &&
-                       incoming().diff(existing()).affectedKeys().hasOnly([
-                         'name', 'age', 'price', 'role', 'category', 'tier', 'bio', 'city',
-                         'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
-                         'refreshEpochMs', 'status', 'ownerUid', 'staffVerified',
-                         'filterTags', 'advanceBookingAmount', 'bookingPlans', 'updatedAt'
-                       ]);
+                       (
+                         (isSuperAdmin() &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'name', 'age', 'price', 'role', 'category', 'tier', 'bio', 'city',
+                            'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
+                            'refreshEpochMs', 'status', 'ownerUid', 'staffVerified', 'staffOnline',
+                            'filterTags', 'advanceBookingAmount', 'bookingPlans', 'updatedAt'
+                          ])) ||
+                         (isApprovedStaffUser() &&
+                          existing().ownerUid != '' &&
+                          existing().ownerUid == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'staffOnline', 'updatedAt'
+                          ]))
+                       );
 
-      allow delete: if isAdmin() && isValidId(profileId);
+      allow delete: if isSuperAdmin() && isValidId(profileId);
 
       match /private/{docId} {
-        allow get, list, create, update, delete: if isAdmin() && isValidId(profileId) && docId == 'contact' &&
-          (request.method == 'delete' || request.method == 'get' || request.method == 'list' || isValidPrivateContact(incoming()));
+        allow get, list: if isAdmin() && isValidId(profileId) && docId == 'contact';
+        allow create, update: if isSuperAdmin() && isValidId(profileId) && docId == 'contact' && isValidPrivateContact(incoming());
+        allow delete: if isSuperAdmin() && isValidId(profileId) && docId == 'contact';
       }
     }
 
@@ -305,6 +324,8 @@ service cloud.firestore {
                        incoming().moderationStatus == 'active' &&
                        (incoming().staffStatus == 'none' || (incoming().staffStatus == 'pending' && incoming().age >= 18)) &&
                        (!('staffProfileId' in incoming()) || incoming().staffProfileId == '') &&
+                       (!('directChatEnabled' in incoming()) || incoming().directChatEnabled == false) &&
+                       (!('staffOnline' in incoming()) || incoming().staffOnline == false) &&
                        incoming().keys().hasAll([
                          'name', 'email', 'photoUrl', 'phone', 'age', 'address',
                          'completionPercent', 'online', 'lastActiveEpochMs',
@@ -316,7 +337,8 @@ service cloud.firestore {
                          'city', 'bio', 'interests', 'genderPreference', 'completionPercent',
                          'online', 'lastActiveEpochMs', 'hasInquiryNotification',
                          'leadTag', 'moderationStatus', 'staffStatus', 'staffRole',
-                         'staffPrice', 'staffTier', 'staffProfileId', 'createdAt', 'updatedAt'
+                         'staffPrice', 'staffTier', 'staffProfileId', 'directChatEnabled', 'staffOnline',
+                         'createdAt', 'updatedAt'
                        ]);
 
       allow update: if isSignedIn() &&
@@ -324,13 +346,16 @@ service cloud.firestore {
                        isValidUserAccount(incoming()) &&
                        incoming().createdAt == existing().createdAt &&
                        (
-                         isAdmin() ||
+                         isSuperAdmin() ||
                          (
                            request.auth.uid == userId &&
                            incoming().leadTag == existing().leadTag &&
                            incoming().moderationStatus == existing().moderationStatus &&
                            ((!('staffProfileId' in existing()) && !('staffProfileId' in incoming())) ||
                             ('staffProfileId' in existing() && 'staffProfileId' in incoming() && incoming().staffProfileId == existing().staffProfileId)) &&
+                           ((!('directChatEnabled' in existing()) && !('directChatEnabled' in incoming())) ||
+                            ('directChatEnabled' in existing() && 'directChatEnabled' in incoming() && incoming().directChatEnabled == existing().directChatEnabled)) &&
+                           (!('staffOnline' in incoming()) || incoming().staffOnline == false || (existing().staffStatus == 'approved' && existing().moderationStatus == 'active')) &&
                            (
                              incoming().staffStatus == existing().staffStatus ||
                              (existing().staffStatus != 'approved' && incoming().staffStatus == 'pending' && incoming().age >= 18)
@@ -339,12 +364,12 @@ service cloud.firestore {
                              'name', 'email', 'photoUrl', 'galleryUrls', 'phone', 'age', 'address',
                              'city', 'bio', 'interests', 'genderPreference', 'completionPercent',
                              'online', 'lastActiveEpochMs', 'hasInquiryNotification',
-                             'staffStatus', 'staffRole', 'staffPrice', 'updatedAt'
+                             'staffStatus', 'staffRole', 'staffPrice', 'staffOnline', 'updatedAt'
                            ])
                          )
                        );
 
-      allow delete: if isAdmin() && isValidId(userId);
+      allow delete: if isSuperAdmin() && isValidId(userId);
     }
 
     match /chats/{chatId} {
@@ -397,7 +422,7 @@ service cloud.firestore {
                        (
                          isAdmin() ||
                          (existing().clientUid == request.auth.uid && !isUserBlockedOrSuspended()) ||
-                         (existing().staffOwnerUid != '' && existing().staffOwnerUid == request.auth.uid && isApprovedStaffUser())
+                         (existing().staffOwnerUid != '' && existing().staffOwnerUid == request.auth.uid && canStaffDirectChat())
                        ) &&
                        incoming().diff(existing()).affectedKeys().hasOnly([
                          'clientName', 'clientPhotoUrl', 'profileName', 'profilePhotoUrl', 'profilePrice',
@@ -408,7 +433,7 @@ service cloud.firestore {
                        ]);
 
       allow delete: if isSignedIn() && isValidId(chatId) && (
-        isAdmin() ||
+        isSuperAdmin() ||
         existing().clientUid == request.auth.uid ||
         (existing().staffOwnerUid != '' && existing().staffOwnerUid == request.auth.uid)
       );
@@ -442,7 +467,7 @@ service cloud.firestore {
                            (incoming().senderRole == 'staff' &&
                             parentChat().staffOwnerUid != '' &&
                             parentChat().staffOwnerUid == request.auth.uid &&
-                            isApprovedStaffUser() &&
+                            canStaffDirectChat() &&
                             hasNoContactLeak(incoming().text)) ||
                            (incoming().senderRole == 'client' &&
                             parentChat().clientUid == request.auth.uid &&
@@ -451,7 +476,7 @@ service cloud.firestore {
 
         allow update: if false;
         allow delete: if isSignedIn() && isValidId(chatId) && isValidId(messageId) && parentChatExists() && (
-          isAdmin() ||
+          isSuperAdmin() ||
           existing().senderUid == request.auth.uid ||
           parentChat().clientUid == request.auth.uid ||
           (parentChat().staffOwnerUid != '' && parentChat().staffOwnerUid == request.auth.uid)
@@ -505,36 +530,46 @@ service cloud.firestore {
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
+    function isValidShareConfig(data) {
+      return data.shareUrl is string && data.shareUrl.size() <= 500 &&
+             (data.shareUrl == '' || data.shareUrl.matches('^https?://.*')) &&
+             data.shareMessage is string && data.shareMessage.size() >= 2 && data.shareMessage.size() <= 500 &&
+             data.updatedByEmail is string && data.updatedByEmail.size() <= 120 &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
     match /app_config/{docId} {
-      allow get: if docId in ['launch_banner', 'home_filters', 'filter_taxonomy', 'payment_config'];
+      allow get: if docId in ['launch_banner', 'home_filters', 'filter_taxonomy', 'payment_config', 'share_config'];
       allow list: if false;
-      allow create, update: if (
-        isSuperAdmin() &&
-        docId == 'launch_banner' &&
-        isValidLaunchBanner(incoming()) &&
-        incoming().keys().hasAll(['active', 'imageUrl', 'title', 'updatedByEmail', 'updatedAt']) &&
-        incoming().keys().hasOnly(['active', 'imageUrl', 'title', 'updatedByEmail', 'updatedAt'])
-      ) || (
-        isAdmin() &&
-        docId == 'home_filters' &&
-        isValidHomeFilters(incoming()) &&
-        incoming().keys().hasAll(['filters', 'updatedByEmail', 'updatedAt']) &&
-        incoming().keys().hasOnly(['filters', 'updatedByEmail', 'updatedAt'])
-      ) || (
-        isAdmin() &&
-        docId == 'filter_taxonomy' &&
-        isValidFilterTaxonomy(incoming()) &&
-        incoming().keys().hasAll(['groups', 'updatedByEmail', 'updatedAt']) &&
-        incoming().keys().hasOnly(['groups', 'updatedByEmail', 'updatedAt'])
-      ) || (
-        isAdmin() &&
-        docId == 'payment_config' &&
-        isValidPaymentConfig(incoming()) &&
-        incoming().keys().hasAll(['serverBaseUrl', 'defaultAdvanceInr', 'updatedByEmail', 'updatedAt']) &&
-        incoming().keys().hasOnly(['serverBaseUrl', 'defaultAdvanceInr', 'updatedByEmail', 'updatedAt'])
+      allow create, update: if isSuperAdmin() && (
+        (
+          docId == 'launch_banner' &&
+          isValidLaunchBanner(incoming()) &&
+          incoming().keys().hasAll(['active', 'imageUrl', 'title', 'updatedByEmail', 'updatedAt']) &&
+          incoming().keys().hasOnly(['active', 'imageUrl', 'title', 'updatedByEmail', 'updatedAt'])
+        ) || (
+          docId == 'home_filters' &&
+          isValidHomeFilters(incoming()) &&
+          incoming().keys().hasAll(['filters', 'updatedByEmail', 'updatedAt']) &&
+          incoming().keys().hasOnly(['filters', 'updatedByEmail', 'updatedAt'])
+        ) || (
+          docId == 'filter_taxonomy' &&
+          isValidFilterTaxonomy(incoming()) &&
+          incoming().keys().hasAll(['groups', 'updatedByEmail', 'updatedAt']) &&
+          incoming().keys().hasOnly(['groups', 'updatedByEmail', 'updatedAt'])
+        ) || (
+          docId == 'payment_config' &&
+          isValidPaymentConfig(incoming()) &&
+          incoming().keys().hasAll(['serverBaseUrl', 'defaultAdvanceInr', 'updatedByEmail', 'updatedAt']) &&
+          incoming().keys().hasOnly(['serverBaseUrl', 'defaultAdvanceInr', 'updatedByEmail', 'updatedAt'])
+        ) || (
+          docId == 'share_config' &&
+          isValidShareConfig(incoming()) &&
+          incoming().keys().hasAll(['shareUrl', 'shareMessage', 'updatedByEmail', 'updatedAt']) &&
+          incoming().keys().hasOnly(['shareUrl', 'shareMessage', 'updatedByEmail', 'updatedAt'])
+        )
       );
-      allow delete: if (isSuperAdmin() && docId == 'launch_banner') ||
-                       (isAdmin() && docId in ['home_filters', 'filter_taxonomy', 'payment_config']);
+      allow delete: if isSuperAdmin() && docId in ['launch_banner', 'home_filters', 'filter_taxonomy', 'payment_config', 'share_config'];
     }
 
     function isValidBooking(data) {
@@ -605,20 +640,12 @@ service cloud.firestore {
                        incoming().staffOwnerUid == existing().staffOwnerUid &&
                        incoming().createdAt == existing().createdAt &&
                        (
-                         // ONLY Main Admin (Super Admin) can approve/mark paid or reject staff virtual payouts!
+                         // ONLY Main Admin (Super Admin) can modify booking/payout records as admin!
                          (isSuperAdmin() &&
                           incoming().diff(existing()).affectedKeys().hasOnly([
                             'bookingStatus', 'advancePaid', 'paymentId', 'orderId',
                             'staffAttended', 'staffAttendedAtEpochMs', 'virtualEarningInr',
                             'payoutStatus', 'payoutNote', 'payoutUpdatedByEmail', 'payoutUpdatedAtEpochMs',
-                            'updatedAt'
-                          ])) ||
-                         // Co-Admins can manage booking workflow but CANNOT change payoutStatus
-                         (isAdmin() &&
-                          incoming().payoutStatus == existing().payoutStatus &&
-                          incoming().diff(existing()).affectedKeys().hasOnly([
-                            'bookingStatus', 'advancePaid', 'paymentId', 'orderId',
-                            'staffAttended', 'staffAttendedAtEpochMs', 'virtualEarningInr',
                             'updatedAt'
                           ])) ||
                          // Client can confirm Chrome Razorpay payment OR submit post-date rating & feedback
@@ -682,13 +709,65 @@ service cloud.firestore {
                        incoming().userUid == request.auth.uid &&
                        incoming().status == 'open' &&
                        incoming().adminReply == '';
-      allow update: if isAdmin() &&
+      allow update: if isSuperAdmin() &&
                        isValidId(complaintId) &&
                        isValidComplaint(incoming()) &&
                        incoming().userUid == existing().userUid &&
                        incoming().createdAt == existing().createdAt &&
                        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminReply', 'updatedAt']);
-      allow delete: if isAdmin() && isValidId(complaintId);
+      allow delete: if isSuperAdmin() && isValidId(complaintId);
+    }
+
+    function isValidAdminChangeRequest(data) {
+      return data.requesterUid is string && data.requesterUid.size() >= 1 && data.requesterUid.size() <= 128 &&
+             data.requesterName is string && data.requesterName.size() >= 1 && data.requesterName.size() <= 80 &&
+             data.requesterEmail is string && data.requesterEmail.size() <= 120 &&
+             data.requestType is string && data.requestType in ['profile_edit', 'new_profile', 'staff_access', 'price_or_filter', 'user_moderation', 'other'] &&
+             data.targetId is string && data.targetId.size() <= 128 &&
+             data.targetTitle is string && data.targetTitle.size() >= 1 && data.targetTitle.size() <= 100 &&
+             data.details is string && data.details.size() >= 4 && data.details.size() <= 1000 &&
+             data.status is string && data.status in ['pending', 'approved', 'rejected'] &&
+             data.mainAdminNote is string && data.mainAdminNote.size() <= 500 &&
+             data.reviewedByEmail is string && data.reviewedByEmail.size() <= 120 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /admin_change_requests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && (
+        isSuperAdmin() ||
+        (isAdmin() && resource != null && existing().requesterUid == request.auth.uid)
+      );
+      allow list: if isSignedIn() && (
+        isSuperAdmin() ||
+        (isAdmin() && resource.data.requesterUid == request.auth.uid)
+      );
+      allow create: if isAdmin() &&
+                       isValidId(requestId) &&
+                       isValidAdminChangeRequest(incoming()) &&
+                       incoming().requesterUid == request.auth.uid &&
+                       incoming().status == 'pending' &&
+                       incoming().mainAdminNote == '' &&
+                       incoming().reviewedByEmail == '' &&
+                       incoming().keys().hasAll([
+                         'requesterUid', 'requesterName', 'requesterEmail', 'requestType',
+                         'targetId', 'targetTitle', 'details', 'status', 'mainAdminNote',
+                         'reviewedByEmail', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'requesterUid', 'requesterName', 'requesterEmail', 'requestType',
+                         'targetId', 'targetTitle', 'details', 'status', 'mainAdminNote',
+                         'reviewedByEmail', 'createdAt', 'updatedAt'
+                       ]);
+      allow update: if isSuperAdmin() &&
+                       isValidId(requestId) &&
+                       isValidAdminChangeRequest(incoming()) &&
+                       incoming().requesterUid == existing().requesterUid &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'status', 'mainAdminNote', 'reviewedByEmail', 'updatedAt'
+                       ]);
+      allow delete: if isSuperAdmin() && isValidId(requestId);
     }
 
     function isValidCallSession(data) {

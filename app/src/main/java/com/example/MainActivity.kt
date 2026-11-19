@@ -477,6 +477,7 @@ fun JustUsAppRoot(
     val activeCallUi by sessionViewModel.activeCallUi.collectAsStateWithLifecycle()
     val isVerifiedAdminForCalls by sessionViewModel.isVerifiedAdminForCalls.collectAsStateWithLifecycle()
     val launchBanner by sessionViewModel.launchBanner.collectAsStateWithLifecycle()
+    val appShareConfig by sessionViewModel.appShareConfig.collectAsStateWithLifecycle()
 
     // Sync user's GF/BF preference & city/address into Home Page ranking & auto-filtering
     LaunchedEffect(userAccount?.genderPreference, userAccount?.city, userAccount?.address) {
@@ -875,6 +876,8 @@ fun JustUsAppRoot(
                                     searchQuery = searchQuery,
                                     bookmarkedIds = bookmarkedIds,
                                     isStaffTheme = isStaffTheme,
+                                    isStaffOnline = userAccount?.staffOnline == true,
+                                    onToggleStaffOnline = sessionViewModel::toggleStaffOnlineStatus,
                                     userCity = userAccount?.city.orEmpty(),
                                     userAddress = userAccount?.address.orEmpty(),
                                     userGenderPreference = userAccount?.genderPreference.orEmpty(),
@@ -992,6 +995,7 @@ fun JustUsAppRoot(
                                     backgroundSyncEnabled = backgroundSyncEnabled,
                                     lastSyncCheckEpochMs = lastSyncCheckEpochMs,
                                     currentLookTheme = appLookTheme,
+                                    appShareConfig = appShareConfig,
                                     myComplaints = myComplaints,
                                     onSelectLookTheme = viewModel::setAppLookTheme,
                                     onSubmitComplaint = { subj, msg, done ->
@@ -1015,6 +1019,7 @@ fun JustUsAppRoot(
                                         )
                                     },
                                     onApplyForStaff = sessionViewModel::applyForStaff,
+                                    onToggleStaffOnline = sessionViewModel::toggleStaffOnlineStatus,
                                     onRequestNotificationPermission = {
                                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -1157,6 +1162,7 @@ fun JustUsAppRoot(
                                 val hasMoreUsers by adminViewModel.hasMoreUsersToLoad.collectAsStateWithLifecycle()
                                 val selectedUserFilter by adminViewModel.selectedUserFilter.collectAsStateWithLifecycle()
                                 val pendingStaffUsers by adminViewModel.pendingStaffUsers.collectAsStateWithLifecycle()
+                                val approvedStaffUsers by adminViewModel.approvedStaffUsers.collectAsStateWithLifecycle()
                                 val allChats by adminViewModel.allChats.collectAsStateWithLifecycle()
                                 val selectedProfileContact by adminViewModel.selectedProfileContact.collectAsStateWithLifecycle()
                                 val adminAuthError by adminViewModel.authErrorMessage.collectAsStateWithLifecycle()
@@ -1164,8 +1170,10 @@ fun JustUsAppRoot(
                                 val customHomeFilters by adminViewModel.customHomeFilters.collectAsStateWithLifecycle()
                                 val adminFilterTaxonomy by adminViewModel.filterTaxonomy.collectAsStateWithLifecycle()
                                 val adminPaymentConfig by adminViewModel.paymentServerConfig.collectAsStateWithLifecycle()
+                                val adminAppShareConfig by adminViewModel.appShareConfig.collectAsStateWithLifecycle()
                                 val adminBookings by adminViewModel.allBookings.collectAsStateWithLifecycle()
                                 val adminComplaints by adminViewModel.allComplaints.collectAsStateWithLifecycle()
+                                val adminChangeRequests by adminViewModel.changeRequests.collectAsStateWithLifecycle()
 
                                 LaunchedEffect(adminViewModel) {
                                     adminViewModel.events.collect { msg ->
@@ -1197,6 +1205,7 @@ fun JustUsAppRoot(
                                     hasMoreUsers = hasMoreUsers,
                                     selectedUserFilter = selectedUserFilter,
                                     pendingStaffUsers = pendingStaffUsers,
+                                    approvedStaffUsers = approvedStaffUsers,
                                     allChats = allChats,
                                     selectedProfileContact = selectedProfileContact,
                                     onSignInAdminGoogle = { adminViewModel.signInAdminWithGoogle(context) },
@@ -1261,6 +1270,7 @@ fun JustUsAppRoot(
                                     },
                                     onApproveStaff = adminViewModel::approveStaffUser,
                                     onRejectStaff = adminViewModel::rejectStaffUser,
+                                    onSetStaffDirectChatAccess = adminViewModel::setStaffDirectChatAccess,
                                     onLoadPrivateContact = adminViewModel::loadPrivateContactForProfile,
                                     onOpenChatAsAdmin = { chatId ->
                                         navController.navigate("chat/$chatId/admin") {
@@ -1287,11 +1297,16 @@ fun JustUsAppRoot(
                                     onRemoveCustomHomeFilter = adminViewModel::removeCustomHomeFilter,
                                     filterTaxonomy = adminFilterTaxonomy,
                                     paymentServerConfig = adminPaymentConfig,
+                                    appShareConfig = adminAppShareConfig,
                                     allBookings = adminBookings,
                                     allComplaints = adminComplaints,
+                                    changeRequests = adminChangeRequests,
                                     onSaveFilterTaxonomy = adminViewModel::saveFilterTaxonomy,
                                     onSavePaymentServerConfig = adminViewModel::savePaymentServerConfig,
                                     onTestPaymentServer = adminViewModel::testPaymentServerHealth,
+                                    onSaveAppShareConfig = adminViewModel::saveAppShareConfig,
+                                    onSubmitChangeRequest = adminViewModel::submitChangeRequest,
+                                    onReviewChangeRequest = adminViewModel::reviewChangeRequest,
                                     onApproveStaffPayout = adminViewModel::approveStaffPayout,
                                     onRejectStaffPayout = adminViewModel::rejectStaffPayout,
                                     onResolveComplaint = adminViewModel::resolveComplaint,

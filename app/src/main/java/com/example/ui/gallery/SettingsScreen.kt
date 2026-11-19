@@ -72,6 +72,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.model.AppShareConfig
 import com.example.data.model.UserAccount
 import com.example.data.model.UserComplaint
 import com.example.ui.components.Animated3DMascotOrb
@@ -96,6 +97,7 @@ fun SettingsScreen(
     backgroundSyncEnabled: Boolean,
     lastSyncCheckEpochMs: Long,
     currentLookTheme: AppLookTheme = AppLookTheme.DEFAULT,
+    appShareConfig: AppShareConfig = AppShareConfig(),
     myComplaints: List<UserComplaint> = emptyList(),
     onSelectLookTheme: (AppLookTheme) -> Unit = {},
     onSubmitComplaint: (subject: String, message: String, onDone: () -> Unit) -> Unit = { _, _, _ -> },
@@ -114,6 +116,7 @@ fun SettingsScreen(
         genderPreference: String,
     ) -> Unit,
     onApplyForStaff: (staffRole: String, staffPrice: String) -> Unit,
+    onToggleStaffOnline: (Boolean) -> Unit = {},
     onRequestNotificationPermission: () -> Unit,
     onToggleBackgroundSync: (Boolean) -> Unit,
     onCheckSyncNow: () -> Unit,
@@ -136,7 +139,7 @@ fun SettingsScreen(
             putExtra(Intent.EXTRA_SUBJECT, "DateMate — Verified Companions & Date Bookings")
             putExtra(
                 Intent.EXTRA_TEXT,
-                "Join me on DateMate! Discover verified companions, chat privately, and book unforgettable dates safely. ❤️"
+                appShareConfig.buildShareText()
             )
         }
         context.startActivity(Intent.createChooser(shareIntent, "Share DateMate App"))
@@ -215,6 +218,7 @@ fun SettingsScreen(
                     onSignOut = onSignOut,
                     onSaveProfile = onSaveProfile,
                     onApplyForStaff = onApplyForStaff,
+                    onToggleStaffOnline = onToggleStaffOnline,
                     authErrorMessage = authErrorMessage,
                 )
 

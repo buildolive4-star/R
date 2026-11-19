@@ -53,6 +53,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -65,6 +67,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -110,6 +113,7 @@ fun ProfileEditorSection(
         genderPreference: String,
     ) -> Unit,
     onApplyForStaff: (staffRole: String, staffPrice: String) -> Unit,
+    onToggleStaffOnline: (Boolean) -> Unit = {},
     authErrorMessage: String? = null,
 ) {
     val context = LocalContext.current
@@ -737,7 +741,76 @@ fun ProfileEditorSection(
 
             when (status) {
                 StaffStatus.APPROVED -> {
+                    val isStaffOnline = userAccount?.staffOnline == true
+                    val canDirectChat = userAccount?.canDirectChatAsStaff == true
                     Spacer(modifier = Modifier.height(12.dp))
+                    // Live Online / Offline Self-Toggle Card for Verified Staff
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (isStaffOnline) Color(0xFF16A34A).copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        border = BorderStroke(
+                            1.2.dp,
+                            if (isStaffOnline) Color(0xFF22C55E).copy(alpha = 0.7f) else MaterialTheme.colorScheme.outlineVariant
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("staff_online_status_card")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isStaffOnline) Color(0xFF22C55E) else Color(0xFF9CA3AF))
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = if (isStaffOnline) "Live Status: ONLINE 🟢" else "Live Status: OFFLINE ⚫",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (isStaffOnline) Color(0xFF16A34A) else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = if (isStaffOnline) {
+                                            "Users can see you in 'Online Now' & at the top of Home!"
+                                        } else {
+                                            "Turn ON when available so users can see you Online."
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Switch(
+                                checked = isStaffOnline,
+                                onCheckedChange = { checked -> onToggleStaffOnline(checked) },
+                                enabled = !isBusy,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Color(0xFF16A34A),
+                                    uncheckedThumbColor = Color.White,
+                                    uncheckedTrackColor = Color(0xFF6B7280)
+                                ),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("staff_self_online_switch")
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
@@ -746,14 +819,22 @@ fun ProfileEditorSection(
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                text = "Verified Staff Mode & Direct Chat Unlocked ✓",
+                                text = if (canDirectChat) {
+                                    "Verified Staff Mode & Direct Chat Unlocked ✓"
+                                } else {
+                                    "Verified Staff Active ✓ · Admin-Managed Chat"
+                                },
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "You are verified on DateMate as ${userAccount?.staffRole ?: "Companion"} (${userAccount?.staffPrice ?: "₹499"}). Admin has approved your Direct Chat access—open Chats -> Staff Inbox to chat directly with clients!",
+                                text = if (canDirectChat) {
+                                    "You are verified on DateMate as ${userAccount?.staffRole ?: "Companion"} (${userAccount?.staffPrice ?: "₹499"}). Direct Client Chat is ON — open Chats -> Staff Inbox to reply directly!"
+                                } else {
+                                    "You are verified on DateMate as ${userAccount?.staffRole ?: "Companion"} (${userAccount?.staffPrice ?: "₹499"}). Client chats for your profile are currently handled by DateMate Admin."
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface
                             )

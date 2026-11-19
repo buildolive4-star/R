@@ -1,5 +1,6 @@
 package com.example.ui.admin
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,10 +41,12 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -60,12 +63,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -96,9 +99,13 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CalendarMonth
 import com.example.R
 import com.example.data.model.AdminAccessCode
+import com.example.data.model.AdminChangeRequest
+import com.example.data.model.AdminChangeRequestStatus
+import com.example.data.model.AdminChangeRequestType
 import com.example.data.model.AdminEmailEntry
 import com.example.data.model.AdminMemberProfile
 import com.example.data.model.AdminUserFilter
+import com.example.data.model.AppShareConfig
 import com.example.data.model.BookingRatePlan
 import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
@@ -112,6 +119,13 @@ import com.example.data.model.UserAccount
 import com.example.data.model.UserComplaint
 import com.example.ui.components.PixoraNetworkImage
 import com.google.firebase.auth.FirebaseUser
+
+private data class QuickRequestDraft(
+    val requestType: String,
+    val targetId: String,
+    val targetTitle: String,
+    val initialDetails: String,
+)
 
 private val COMPANION_CATEGORIES = listOf(
     "Companion",
@@ -141,6 +155,7 @@ fun AdminStudioScreen(
     hasMoreUsers: Boolean,
     selectedUserFilter: AdminUserFilter,
     pendingStaffUsers: List<UserAccount>,
+    approvedStaffUsers: List<UserAccount> = emptyList(),
     allChats: List<ChatThread>,
     selectedProfileContact: Pair<String, CompanionPrivateContact>?,
     onSignInAdminGoogle: () -> Unit,
@@ -194,8 +209,9 @@ fun AdminStudioScreen(
     onSetUserLeadTag: (String, String) -> Unit,
     onSetUserModeration: (String, String) -> Unit,
     onCallUser: (UserAccount, ChatThread?) -> Unit = { _, _ -> },
-    onApproveStaff: (UserAccount, String) -> Unit,
+    onApproveStaff: (UserAccount, String, Boolean) -> Unit,
     onRejectStaff: (String) -> Unit,
+    onSetStaffDirectChatAccess: (String, Boolean) -> Unit = { _, _ -> },
     onLoadPrivateContact: (String) -> Unit,
     onOpenChatAsAdmin: (String) -> Unit,
     onBack: () -> Unit,
@@ -210,25 +226,40 @@ fun AdminStudioScreen(
     onRemoveCustomHomeFilter: (String) -> Unit = {},
     filterTaxonomy: List<FilterCategoryGroup> = FilterCategoryGroup.defaultTaxonomy(),
     paymentServerConfig: PaymentServerConfig = PaymentServerConfig(),
+    appShareConfig: AppShareConfig = AppShareConfig(),
     allBookings: List<DateMateBooking> = emptyList(),
     allComplaints: List<UserComplaint> = emptyList(),
+    changeRequests: List<AdminChangeRequest> = emptyList(),
     onSaveFilterTaxonomy: (List<FilterCategoryGroup>) -> Unit = {},
     onSavePaymentServerConfig: (String, Int) -> Unit = { _, _ -> },
     onTestPaymentServer: (String) -> Unit = {},
+    onSaveAppShareConfig: (shareUrl: String, shareMessage: String, onSaved: () -> Unit) -> Unit = { _, _, _ -> },
+    onSubmitChangeRequest: (requestType: String, targetId: String, targetTitle: String, details: String, onDone: () -> Unit) -> Unit = { _, _, _, _, _ -> },
+    onReviewChangeRequest: (requestId: String, approve: Boolean, mainAdminNote: String) -> Unit = { _, _, _ -> },
     onApproveStaffPayout: (String, String) -> Unit = { _, _ -> },
     onRejectStaffPayout: (String, String) -> Unit = { _, _ -> },
     onResolveComplaint: (String, String) -> Unit = { _, _ -> },
 ) {
     BackHandler(onBack = onBack)
 
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var selectedTabIndex by remember { mutableIntStateOf(if (isSuperAdmin) 0 else 1) }
+    LaunchedEffect(isSuperAdmin) {
+        if (!isSuperAdmin && selectedTabIndex == 0) {
+            selectedTabIndex = 1
+        }
+    }
     var showMultiAdminDialog by remember { mutableStateOf(false) }
     var showPowerResetDialog by remember { mutableStateOf(false) }
     var showLaunchBannerDialog by remember { mutableStateOf(false) }
     var showHomeFiltersDialog by remember { mutableStateOf(false) }
+    var showShareLinkDialog by remember { mutableStateOf(false) }
+    var quickRequestDraft by remember { mutableStateOf<QuickRequestDraft?>(null) }
 
     val blurredCount = remember(managedProfiles) {
         managedProfiles.count { it.isDeletedBlurred || it.isRevealStarted }
+    }
+    val pendingRequestCount = remember(changeRequests) {
+        changeRequests.count { it.status == AdminChangeRequestStatus.PENDING }
     }
 
     Scaffold(
@@ -334,67 +365,67 @@ fun AdminStudioScreen(
                     modifier = Modifier.weight(1f)
                 )
             } else {
-                // Top Refresh Secret Photos + Main Admin Quick Controls (Power Reset + Upload Image Info)
+                // Top Quick Controls: Main Admin full controls vs. Co-Admin chat-only notice
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FilledTonalButton(
-                            onClick = onRefreshAllBlurred,
-                            shape = RoundedCornerShape(14.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier
-                                .weight(1.35f)
-                                .height(46.dp)
-                                .testTag("admin_refresh_all_button")
-                        ) {
-                            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (blurredCount > 0) {
-                                    stringResource(R.string.admin_refresh_all_blurred, blurredCount)
-                                } else {
-                                    stringResource(R.string.admin_refresh_top_ready)
-                                },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-
-                        FilledTonalButton(
-                            onClick = { showHomeFiltersDialog = true },
-                            enabled = !isAuthBusy,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                                contentColor = MaterialTheme.colorScheme.primary,
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(46.dp)
-                                .minimumInteractiveComponentSize()
-                                .testTag("admin_home_filters_button")
-                        ) {
-                            Icon(Icons.Rounded.FilterList, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = "Filters (${filterTaxonomy.size})",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
-
                     if (isSuperAdmin) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilledTonalButton(
+                                onClick = onRefreshAllBlurred,
+                                shape = RoundedCornerShape(14.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .weight(1.35f)
+                                    .height(46.dp)
+                                    .testTag("admin_refresh_all_button")
+                            ) {
+                                Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (blurredCount > 0) {
+                                        stringResource(R.string.admin_refresh_all_blurred, blurredCount)
+                                    } else {
+                                        stringResource(R.string.admin_refresh_top_ready)
+                                    },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+
+                            FilledTonalButton(
+                                onClick = { showHomeFiltersDialog = true },
+                                enabled = !isAuthBusy,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                    contentColor = MaterialTheme.colorScheme.primary,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("admin_home_filters_button")
+                            ) {
+                                Icon(Icons.Rounded.FilterList, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = "Filters (${filterTaxonomy.size})",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -408,16 +439,16 @@ fun AdminStudioScreen(
                                     containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.16f),
                                     contentColor = MaterialTheme.colorScheme.error,
                                 ),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
+                                    .weight(0.95f)
+                                    .height(46.dp)
                                     .minimumInteractiveComponentSize()
                                     .testTag("admin_power_reset_button")
                             ) {
-                                Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Power Reset", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                                Icon(Icons.Rounded.DeleteSweep, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Reset", maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
                             }
 
                             FilledTonalButton(
@@ -428,28 +459,95 @@ fun AdminStudioScreen(
                                     containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f),
                                     contentColor = MaterialTheme.colorScheme.secondary,
                                 ),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
+                                    .weight(1.05f)
+                                    .height(46.dp)
                                     .minimumInteractiveComponentSize()
                                     .testTag("admin_upload_banner_button")
                             ) {
-                                Icon(Icons.Rounded.Campaign, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(Icons.Rounded.Campaign, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = if (launchBanner?.isReadyToDisplay == true) "Image Info (Live)" else "Upload Image Info",
+                                    text = if (launchBanner?.isReadyToDisplay == true) "Banner Live" else "Banner",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+
+                            FilledTonalButton(
+                                onClick = { showShareLinkDialog = true },
+                                enabled = !isAuthBusy,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f),
+                                    contentColor = MaterialTheme.colorScheme.tertiary,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .weight(1.15f)
+                                    .height(46.dp)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("admin_share_link_button")
+                            ) {
+                                Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (appShareConfig.shareUrl.isNotBlank()) "Share Link ✓" else "Share Link",
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     fontWeight = FontWeight.Bold,
                                 )
                             }
                         }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Co-Admin Mode (Chat Reply Access)",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "You can reply to Client Chats directly. For any profile, price, filter, or staff change, send a request to Main Admin.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                FilledTonalButton(
+                                    onClick = { selectedTabIndex = 4 },
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier.testTag("coadmin_banner_requests_btn")
+                                ) {
+                                    Icon(Icons.Rounded.EditNote, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Request", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
                     }
                 }
 
-                // 4 Top Tabs: Create / Chats / Staff / Bookings & Payouts
-                TabRow(selectedTabIndex = selectedTabIndex) {
+                // 5 Scrollable Top Tabs: Create / Chats / Staff / Bookings / Requests
+                ScrollableTabRow(
+                    selectedTabIndex = selectedTabIndex,
+                    edgePadding = 8.dp
+                ) {
                     Tab(
                         selected = selectedTabIndex == 0,
                         onClick = { selectedTabIndex = 0 },
@@ -490,19 +588,98 @@ fun AdminStudioScreen(
                         icon = { Icon(Icons.Rounded.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(17.dp)) },
                         modifier = Modifier.testTag("admin_tab_bookings")
                     )
+                    Tab(
+                        selected = selectedTabIndex == 4,
+                        onClick = { selectedTabIndex = 4 },
+                        text = {
+                            Text(
+                                text = if (pendingRequestCount > 0) "Requests ($pendingRequestCount)" else "Requests",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        icon = { Icon(Icons.Rounded.EditNote, contentDescription = null, modifier = Modifier.size(17.dp)) },
+                        modifier = Modifier.testTag("admin_tab_requests")
+                    )
                 }
 
                 when (selectedTabIndex) {
-                    0 -> AdminCreateProfileTab(
-                        publishState = publishState,
-                        filterTaxonomy = filterTaxonomy,
-                        defaultAdvanceInr = paymentServerConfig.defaultAdvanceInr,
-                        onPublishProfile = onPublishCompanionProfile,
-                        onResetPublishState = onResetPublishState,
-                        modifier = Modifier.weight(1f)
-                    )
+                    0 -> if (isSuperAdmin) {
+                        AdminCreateProfileTab(
+                            publishState = publishState,
+                            filterTaxonomy = filterTaxonomy,
+                            defaultAdvanceInr = paymentServerConfig.defaultAdvanceInr,
+                            onPublishProfile = onPublishCompanionProfile,
+                            onResetPublishState = onResetPublishState,
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Card(
+                                shape = RoundedCornerShape(22.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(18.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.AdminPanelSettings,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(38.dp)
+                                    )
+                                    Text(
+                                        text = "Main Admin Only",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                    Text(
+                                        text = "Co-Admin can only reply to Client Chats. Need to add a new companion profile or change prices? Send a request to Main Admin.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Button(
+                                        onClick = {
+                                            quickRequestDraft = QuickRequestDraft(
+                                                requestType = AdminChangeRequestType.NEW_PROFILE,
+                                                targetId = "",
+                                                targetTitle = "New Companion Profile Request",
+                                                initialDetails = "Name, Age, Price, City & Booking Plans: "
+                                            )
+                                        },
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("coadmin_request_new_profile_btn")
+                                    ) {
+                                        Icon(Icons.Rounded.EditNote, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Request New Profile to Main Admin")
+                                    }
+                                    OutlinedButton(
+                                        onClick = { selectedTabIndex = 1 },
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Go to Client Chats")
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     1 -> AdminUsersCrmTab(
+                        isSuperAdmin = isSuperAdmin,
                         pagedUsers = pagedUsers,
                         totalFilteredCount = totalFilteredUsers,
                         hasMoreUsers = hasMoreUsers,
@@ -514,26 +691,35 @@ fun AdminStudioScreen(
                         onSetModeration = onSetUserModeration,
                         onOpenChatAsAdmin = onOpenChatAsAdmin,
                         onCallUser = onCallUser,
+                        onRequestChangeToMainAdmin = { reqType, targetId, targetTitle, details ->
+                            quickRequestDraft = QuickRequestDraft(reqType, targetId, targetTitle, details)
+                        },
                         modifier = Modifier.weight(1f)
                     )
 
                     2 -> AdminStaffTab(
+                        isSuperAdmin = isSuperAdmin,
                         pendingStaffUsers = pendingStaffUsers,
+                        approvedStaffUsers = approvedStaffUsers,
                         managedProfiles = managedProfiles,
                         allChats = allChats,
                         selectedProfileContact = selectedProfileContact,
                         filterTaxonomy = filterTaxonomy,
                         onApproveStaff = onApproveStaff,
                         onRejectStaff = onRejectStaff,
+                        onSetStaffDirectChatAccess = onSetStaffDirectChatAccess,
                         onLoadPrivateContact = onLoadPrivateContact,
                         onUpdateProfile = onUpdateProfile,
                         onRefreshProfile = onRefreshProfile,
                         onDeleteProfile = onDeleteProfile,
                         onOpenChatAsAdmin = onOpenChatAsAdmin,
+                        onRequestChangeToMainAdmin = { reqType, targetId, targetTitle, details ->
+                            quickRequestDraft = QuickRequestDraft(reqType, targetId, targetTitle, details)
+                        },
                         modifier = Modifier.weight(1f)
                     )
 
-                    else -> AdminBookingsAndPayoutsTab(
+                    3 -> AdminBookingsAndPayoutsTab(
                         isSuperAdmin = isSuperAdmin,
                         isBusy = isAuthBusy,
                         paymentServerConfig = paymentServerConfig,
@@ -544,6 +730,15 @@ fun AdminStudioScreen(
                         onApproveStaffPayout = onApproveStaffPayout,
                         onRejectStaffPayout = onRejectStaffPayout,
                         onResolveComplaint = onResolveComplaint,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    else -> AdminChangeRequestsTab(
+                        isSuperAdmin = isSuperAdmin,
+                        isBusy = isAuthBusy,
+                        changeRequests = changeRequests,
+                        onSubmitRequest = onSubmitChangeRequest,
+                        onReviewRequest = onReviewChangeRequest,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -627,7 +822,7 @@ fun AdminStudioScreen(
         )
     }
 
-    if (showHomeFiltersDialog) {
+    if (showHomeFiltersDialog && isSuperAdmin) {
         AdminFilterTaxonomyDialog(
             filterTaxonomy = filterTaxonomy,
             customFilters = customHomeFilters,
@@ -638,6 +833,142 @@ fun AdminStudioScreen(
             onDismiss = { showHomeFiltersDialog = false }
         )
     }
+
+    if (showShareLinkDialog && isSuperAdmin) {
+        AdminShareLinkDialog(
+            currentConfig = appShareConfig,
+            isBusy = isAuthBusy,
+            onSave = { url, message ->
+                onSaveAppShareConfig(url, message) {
+                    showShareLinkDialog = false
+                }
+            },
+            onDismiss = { showShareLinkDialog = false }
+        )
+    }
+
+    quickRequestDraft?.let { draft ->
+        QuickChangeRequestDialog(
+            initialType = draft.requestType,
+            targetId = draft.targetId,
+            initialTitle = draft.targetTitle,
+            initialDetails = draft.initialDetails,
+            isBusy = isAuthBusy,
+            onSubmit = { reqType, targetId, title, details ->
+                onSubmitChangeRequest(reqType, targetId, title, details) {
+                    quickRequestDraft = null
+                    selectedTabIndex = 4
+                }
+            },
+            onDismiss = { quickRequestDraft = null }
+        )
+    }
+}
+
+@Composable
+private fun AdminShareLinkDialog(
+    currentConfig: AppShareConfig,
+    isBusy: Boolean,
+    onSave: (shareUrl: String, shareMessage: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var shareUrl by remember(currentConfig.shareUrl) { mutableStateOf(currentConfig.shareUrl) }
+    var shareMessage by remember(currentConfig.shareMessage) {
+        mutableStateOf(currentConfig.shareMessage.ifBlank { AppShareConfig.DEFAULT_SHARE_MESSAGE })
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.Share,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "App Share Link (Main Admin)",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Paste your DateMate download link (Play Store, Website, APK, or Render URL). Every user's 'Share DateMate App' button will immediately share this link!",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = shareUrl,
+                    onValueChange = { shareUrl = it.take(500) },
+                    singleLine = true,
+                    label = { Text("App Download / Share Link URL") },
+                    placeholder = { Text("https://jaiambey.shop/datemate") },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("admin_share_url_input")
+                )
+                OutlinedTextField(
+                    value = shareMessage,
+                    onValueChange = { shareMessage = it.take(400) },
+                    minLines = 3,
+                    maxLines = 5,
+                    label = { Text("Invite Message") },
+                    placeholder = { Text(AppShareConfig.DEFAULT_SHARE_MESSAGE) },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("admin_share_message_input")
+                )
+
+                FilledTonalButton(
+                    onClick = {
+                        val previewConfig = AppShareConfig(
+                            shareUrl = shareUrl.trim(),
+                            shareMessage = shareMessage.trim().ifBlank { AppShareConfig.DEFAULT_SHARE_MESSAGE }
+                        )
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_SUBJECT, "DateMate — Verified Companions & Date Bookings")
+                            putExtra(Intent.EXTRA_TEXT, previewConfig.buildShareText())
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share DateMate App"))
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("admin_share_now_button")
+                ) {
+                    Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Share App Link Now")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(shareUrl, shareMessage) },
+                enabled = !isBusy,
+                modifier = Modifier.testTag("admin_save_share_link_button")
+            ) {
+                Text("Save Link ✓")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)

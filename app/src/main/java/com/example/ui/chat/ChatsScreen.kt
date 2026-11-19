@@ -97,6 +97,7 @@ fun ChatsScreen(
     onDeleteChat: (chatId: String) -> Unit = {},
 ) {
     val isApprovedStaff = userAccount?.isApprovedStaff == true
+    val canDirectChatAsStaff = userAccount?.canDirectChatAsStaff == true
     var selectedTab by remember { mutableStateOf(ChatsSubTab.MY_INQUIRIES) }
     var pendingDeleteTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
 
@@ -209,14 +210,14 @@ fun ChatsScreen(
                     onClick = { selectedTab = ChatsSubTab.STAFF_INBOX },
                     leadingIcon = {
                         Icon(
-                            imageVector = if (isApprovedStaff) Icons.Rounded.Verified else Icons.Rounded.Lock,
+                            imageVector = if (canDirectChatAsStaff) Icons.Rounded.Verified else Icons.Rounded.Lock,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )
                     },
                     label = {
                         Text(
-                            if (isApprovedStaff) "Staff Inbox (${staffInboxChats.size})" else "Staff Inbox",
+                            if (canDirectChatAsStaff) "Staff Inbox (${staffInboxChats.size})" else "Staff Inbox",
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -280,6 +281,8 @@ fun ChatsScreen(
                         staffStatus = userAccount?.staffStatus ?: StaffStatus.NONE,
                         onGoToProfile = onGoToProfile,
                     )
+                } else if (!canDirectChatAsStaff) {
+                    StaffDirectChatAdminManagedCard()
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
@@ -603,3 +606,49 @@ private fun StaffInboxLockedCard(
         }
     }
 }
+
+@Composable
+private fun StaffDirectChatAdminManagedCard() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            shape = MaterialTheme.shapes.extraLarge,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("staff_direct_chat_admin_managed_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Animated3DMascotOrb(
+                    mascot = DateMateMascot.SAFETY_MATE,
+                    size = 82.dp,
+                    showOrbitSparkles = true,
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Admin-Managed Client Chat",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Your Staff profile is Verified & Live! Currently, DateMate Main Admin handles direct client chat replies on your behalf. Your Bookings & Virtual Wallet remain active in the Bookings tab.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+

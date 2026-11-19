@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Verified
@@ -74,6 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.data.model.AdminChangeRequestType
 import com.example.data.model.BookingRatePlan
 import com.example.data.model.ChatThread
 import com.example.data.model.CompanionPrivateContact
@@ -91,13 +93,16 @@ private val EDIT_CATEGORIES = listOf("Companion", "Date Night", "Dinner", "Trave
 
 @Composable
 fun AdminStaffTab(
+    isSuperAdmin: Boolean = true,
     pendingStaffUsers: List<UserAccount>,
+    approvedStaffUsers: List<UserAccount> = emptyList(),
     managedProfiles: List<GalleryImage>,
     allChats: List<ChatThread>,
     selectedProfileContact: Pair<String, CompanionPrivateContact>?,
     filterTaxonomy: List<FilterCategoryGroup> = FilterCategoryGroup.defaultTaxonomy(),
-    onApproveStaff: (UserAccount, tier: String) -> Unit,
+    onApproveStaff: (UserAccount, tier: String, directChatEnabled: Boolean) -> Unit,
     onRejectStaff: (userId: String) -> Unit,
+    onSetStaffDirectChatAccess: (userId: String, enabled: Boolean) -> Unit = { _, _ -> },
     onLoadPrivateContact: (profileId: String) -> Unit,
     onUpdateProfile: (
         profileId: String,
@@ -118,6 +123,7 @@ fun AdminStaffTab(
     onRefreshProfile: (profileId: String) -> Unit,
     onDeleteProfile: (profileId: String) -> Unit,
     onOpenChatAsAdmin: (chatId: String) -> Unit,
+    onRequestChangeToMainAdmin: (requestType: String, targetId: String, targetTitle: String, initialDetails: String) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     var inspectedProfileId by remember { mutableStateOf<String?>(null) }
@@ -158,10 +164,115 @@ fun AdminStaffTab(
             items(pendingStaffUsers, key = { it.uid }) { applicant ->
                 PendingStaffCard(
                     applicant = applicant,
-                    onApproveGrid = { onApproveStaff(applicant, ProfileTier.GRID_9_16) },
-                    onApproveVip = { onApproveStaff(applicant, ProfileTier.VIP_16_9) },
-                    onReject = { onRejectStaff(applicant.uid) }
+                    isSuperAdmin = isSuperAdmin,
+                    onApproveGrid = { allowDirectChat ->
+                        onApproveStaff(applicant, ProfileTier.GRID_9_16, allowDirectChat)
+                    },
+                    onApproveVip = { allowDirectChat ->
+                        onApproveStaff(applicant, ProfileTier.VIP_16_9, allowDirectChat)
+                    },
+                    onReject = { onRejectStaff(applicant.uid) },
+                    onRequestMainAdmin = {
+                        onRequestChangeToMainAdmin(
+                            AdminChangeRequestType.STAFF_ACCESS,
+                            applicant.uid,
+                            "Approve Staff: ${applicant.name}",
+                            "Please review & approve staff applicant ${applicant.name} (${applicant.phone}, ${applicant.city}) and decide Direct Client Chat access."
+                        )
+                    }
                 )
+            }
+        }
+
+        if (approvedStaffUsers.isNotEmpty()) {
+            item(key = "direct_chat_control_header") {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Verified Staff · Direct Client Chat Access (${approvedStaffUsers.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = if (isSuperAdmin) {
+                        "Decide individually who can reply directly to clients vs. Admin/Co-Admin managed chat only."
+                    } else {
+                        "Only Main Admin can toggle direct staff chat access. Tap 'Request Change' if needed."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            items(approvedStaffUsers, key = { "direct_chat_staff_${it.uid}" }) { staff ->
+                val enabledColor = if (staff.directChatEnabled) Color(0xFF16A34A) else Color(0xFFD97706)
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                    border = BorderStroke(1.dp, enabledColor.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("approved_staff_chat_access_card_${staff.uid}")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PixoraNetworkImage(
+                            imageUrl = staff.photoUrl,
+                            contentDescription = staff.name,
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${staff.name.ifBlank { "Staff" }} · ${staff.staffRole.ifBlank { "GF" }}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (staff.directChatEnabled) {
+                                    "Direct Client Chat ON ✓ · Replies in Staff Inbox"
+                                } else {
+                                    "Admin-Managed Only · Direct Staff Chat Locked"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = enabledColor
+                            )
+                        }
+                        if (isSuperAdmin) {
+                            Switch(
+                                checked = staff.directChatEnabled,
+                                onCheckedChange = { enabled ->
+                                    onSetStaffDirectChatAccess(staff.uid, enabled)
+                                },
+                                modifier = Modifier.testTag("staff_direct_chat_switch_${staff.uid}")
+                            )
+                        } else {
+                            TextButton(
+                                onClick = {
+                                    val actionWord = if (staff.directChatEnabled) "turn OFF" else "turn ON"
+                                    onRequestChangeToMainAdmin(
+                                        AdminChangeRequestType.STAFF_ACCESS,
+                                        staff.uid,
+                                        "Direct Chat Access: ${staff.name}",
+                                        "Please $actionWord Direct Client Chat for verified staff ${staff.name}."
+                                    )
+                                },
+                                modifier = Modifier.testTag("staff_direct_chat_request_btn_${staff.uid}")
+                            ) {
+                                Text("Request", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -197,6 +308,15 @@ fun AdminStaffTab(
                         (profile.ownerUid.isNotBlank() && it.staffOwnerUid == profile.ownerUid)
                 }
                 val relatedChatCount = relatedChats.size
+                val linkedStaff = approvedStaffUsers.firstOrNull {
+                    (profile.ownerUid.isNotBlank() && it.uid == profile.ownerUid) ||
+                        it.staffProfileId == profile.id
+                }
+                val chatStatusText = when {
+                    linkedStaff == null -> "Admin-Managed Chat"
+                    linkedStaff.directChatEnabled -> "Direct Chat ON ✓"
+                    else -> "Direct Chat OFF (Admin Only)"
+                }
                 Card(
                     shape = MaterialTheme.shapes.large,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -241,7 +361,7 @@ fun AdminStaffTab(
                                 )
                             }
                             Text(
-                                text = "${if (profile.isVip) "VIP 16:9" else "Grid 9:16"} · ${profile.role} · Direct Chat Approved ✓",
+                                text = "${if (profile.isVip) "VIP 16:9" else "Grid 9:16"} · ${profile.role} · $chatStatusText",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -326,12 +446,19 @@ fun AdminStaffTab(
             }
         }
         val contact = if (selectedProfileContact?.first == activeProfile.id) selectedProfileContact.second else null
+        val linkedStaffUser = approvedStaffUsers.firstOrNull {
+            (activeProfile.ownerUid.isNotBlank() && it.uid == activeProfile.ownerUid) ||
+                it.staffProfileId == activeProfile.id
+        }
         StaffProfileInspectorSheet(
             profile = activeProfile,
+            isSuperAdmin = isSuperAdmin,
+            linkedStaffUser = linkedStaffUser,
             privateContact = contact,
             staffChats = staffChats,
             allChats = allChats,
             filterTaxonomy = filterTaxonomy,
+            onSetStaffDirectChatAccess = onSetStaffDirectChatAccess,
             onSaveEdits = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, filterTags, advanceAmt, bookingPlans ->
                 onUpdateProfile(
                     activeProfile.id,
@@ -359,6 +486,10 @@ fun AdminStaffTab(
                 inspectedProfileId = null
                 onOpenChatAsAdmin(chatId)
             },
+            onRequestChangeToMainAdmin = { reqType, targetId, title, details ->
+                inspectedProfileId = null
+                onRequestChangeToMainAdmin(reqType, targetId, title, details)
+            },
             onDismiss = { inspectedProfileId = null }
         )
     }
@@ -367,10 +498,14 @@ fun AdminStaffTab(
 @Composable
 private fun PendingStaffCard(
     applicant: UserAccount,
-    onApproveGrid: () -> Unit,
-    onApproveVip: () -> Unit,
+    isSuperAdmin: Boolean,
+    onApproveGrid: (directChatEnabled: Boolean) -> Unit,
+    onApproveVip: (directChatEnabled: Boolean) -> Unit,
     onReject: () -> Unit,
+    onRequestMainAdmin: () -> Unit,
 ) {
+    var allowDirectChat by remember(applicant.uid) { mutableStateOf(true) }
+
     Card(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -420,47 +555,105 @@ private fun PendingStaffCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Approving verifies user info, activates Staff Mode, and enables Direct Staff Chat.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
+            if (isSuperAdmin) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(
+                        1.dp,
+                        if (allowDirectChat) Color(0xFF16A34A).copy(alpha = 0.45f) else Color(0xFFD97706).copy(alpha = 0.45f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Allow Direct Client Chat",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (allowDirectChat) {
+                                    "ON: This staff can chat directly with clients in Staff Inbox."
+                                } else {
+                                    "OFF: Only Admin & Co-Admin will handle this profile's client chats."
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (allowDirectChat) Color(0xFF16A34A) else Color(0xFFD97706)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = allowDirectChat,
+                            onCheckedChange = { allowDirectChat = it },
+                            modifier = Modifier.testTag("pending_staff_direct_chat_switch_${applicant.uid}")
+                        )
+                    }
+                }
 
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = onApproveGrid,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .minimumInteractiveComponentSize()
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Verify & Chat (9:16)", maxLines = 1)
+                    Button(
+                        onClick = { onApproveGrid(allowDirectChat) },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .minimumInteractiveComponentSize()
+                    ) {
+                        Icon(Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Approve 9:16", maxLines = 1)
+                    }
+                    FilledTonalButton(
+                        onClick = { onApproveVip(allowDirectChat) },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .minimumInteractiveComponentSize()
+                    ) {
+                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Approve VIP", maxLines = 1)
+                    }
+                    OutlinedButton(
+                        onClick = onReject,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Text("Decline")
+                    }
                 }
+            } else {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Only Main Admin can approve staff or set Direct Client Chat permission.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 FilledTonalButton(
-                    onClick = onApproveVip,
+                    onClick = onRequestMainAdmin,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
-                        .weight(1f)
+                        .fillMaxWidth()
                         .minimumInteractiveComponentSize()
+                        .testTag("coadmin_request_staff_approval_${applicant.uid}")
                 ) {
-                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Verify VIP", maxLines = 1)
-                }
-                OutlinedButton(
-                    onClick = onReject,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.minimumInteractiveComponentSize()
-                ) {
-                    Text("Decline")
+                    Icon(Icons.Rounded.EditNote, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Request Main Admin Approval", maxLines = 1)
                 }
             }
         }
@@ -471,10 +664,13 @@ private fun PendingStaffCard(
 @Composable
 private fun StaffProfileInspectorSheet(
     profile: GalleryImage,
+    isSuperAdmin: Boolean,
+    linkedStaffUser: UserAccount?,
     privateContact: CompanionPrivateContact?,
     staffChats: List<ChatThread>,
     allChats: List<ChatThread>,
     filterTaxonomy: List<FilterCategoryGroup>,
+    onSetStaffDirectChatAccess: (userId: String, enabled: Boolean) -> Unit,
     onSaveEdits: (
         name: String,
         ageText: String,
@@ -493,11 +689,18 @@ private fun StaffProfileInspectorSheet(
     onRefresh: () -> Unit,
     onDelete: () -> Unit,
     onOpenChat: (String) -> Unit,
+    onRequestChangeToMainAdmin: (requestType: String, targetId: String, targetTitle: String, initialDetails: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showChatsSection by remember { mutableStateOf(true) }
     var showEditDialog by remember { mutableStateOf(false) }
+
+    val directChatHeaderStatus = when {
+        linkedStaffUser == null -> "Admin-Managed Chat"
+        linkedStaffUser.directChatEnabled -> "Direct Chat ON ✓"
+        else -> "Direct Chat OFF (Admin Only)"
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -525,7 +728,7 @@ private fun StaffProfileInspectorSheet(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "${profile.role} · ${profile.displayPrice} · ${if (profile.isVip) "VIP 16:9" else "Grid 9:16"} · Direct Chat Enabled",
+                        text = "${profile.role} · ${profile.displayPrice} · ${if (profile.isVip) "VIP 16:9" else "Grid 9:16"} · $directChatHeaderStatus",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -694,53 +897,121 @@ private fun StaffProfileInspectorSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = { showEditDialog = true },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("admin_edit_price_button")
+                if (linkedStaffUser != null && isSuperAdmin) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        border = BorderStroke(
+                            1.dp,
+                            if (linkedStaffUser.directChatEnabled) Color(0xFF16A34A).copy(alpha = 0.45f)
+                            else Color(0xFFD97706).copy(alpha = 0.45f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Edit Price & Info", maxLines = 1)
-                    }
-                    if (profile.isHidden) {
-                        FilledTonalButton(
-                            onClick = onRefresh,
-                            shape = RoundedCornerShape(14.dp),
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("40s", maxLines = 1)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Direct Client Chat Permission",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (linkedStaffUser.directChatEnabled) {
+                                        "ON: ${linkedStaffUser.name} can chat directly with clients."
+                                    } else {
+                                        "OFF: Only Admin / Co-Admin can reply to clients."
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (linkedStaffUser.directChatEnabled) Color(0xFF16A34A) else Color(0xFFD97706)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Switch(
+                                checked = linkedStaffUser.directChatEnabled,
+                                onCheckedChange = { enabled ->
+                                    onSetStaffDirectChatAccess(linkedStaffUser.uid, enabled)
+                                },
+                                modifier = Modifier.testTag("inspector_direct_chat_switch_${linkedStaffUser.uid}")
+                            )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                OutlinedButton(
-                    onClick = onDelete,
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Remove Profile")
+                if (isSuperAdmin) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { showEditDialog = true },
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("admin_edit_price_button")
+                        ) {
+                            Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Edit Price & Info", maxLines = 1)
+                        }
+                        if (profile.isHidden) {
+                            FilledTonalButton(
+                                onClick = onRefresh,
+                                shape = RoundedCornerShape(14.dp),
+                            ) {
+                                Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("40s", maxLines = 1)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = onDelete,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Remove Profile")
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            onRequestChangeToMainAdmin(
+                                AdminChangeRequestType.PROFILE_EDIT,
+                                profile.id,
+                                "Edit Profile: ${profile.title}",
+                                "Requested update for ${profile.title} (${profile.displayPrice}): "
+                            )
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("coadmin_request_profile_edit_button")
+                    ) {
+                        Icon(Icons.Rounded.EditNote, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Request Profile Change from Main Admin", maxLines = 1)
+                    }
                 }
 
             Spacer(modifier = Modifier.height(22.dp))
         }
     }
 
-    if (showEditDialog) {
+    if (showEditDialog && isSuperAdmin) {
         EditProfilePriceDialog(
             profile = profile,
             privateContact = privateContact,

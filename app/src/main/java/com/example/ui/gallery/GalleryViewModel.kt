@@ -443,6 +443,8 @@ class GalleryViewModel(
         }
         result.sortedWith(
             compareByDescending<GalleryImage> {
+                if (it.staffOnline) 1 else 0
+            }.thenByDescending {
                 nearbyMatchScore(it, inputs.userCity, inputs.userAddress)
             }.thenByDescending {
                 it.createdAt?.seconds ?: 0L
@@ -465,9 +467,11 @@ class GalleryViewModel(
                 val nonVipOnly = state.data.filter { it.tier != ProfileTier.VIP_16_9 }
                 val filtered = nonVipOnly.filter { matchesProfileFilters(it, inputs) }
 
-                // Nearby profiles matching user's city/address ALWAYS appear first
+                // Online staff & nearby profiles matching user's city/address ALWAYS appear first
                 val prioritized = filtered.sortedWith(
                     compareByDescending<GalleryImage> {
+                        if (it.staffOnline) 1 else 0
+                    }.thenByDescending {
                         nearbyMatchScore(it, inputs.userCity, inputs.userAddress)
                     }.thenByDescending {
                         it.createdAt?.seconds ?: 0L
@@ -674,6 +678,7 @@ class GalleryViewModel(
         const val CATEGORY_ALL = "All"
         const val FILTER_ALL = "All"
         const val VIBE_ALL = FILTER_ALL
+        const val FILTER_ONLINE = "Online Now"
         const val FILTER_NEARBY = "Nearby You"
         const val FILTER_BUDGET = "Budget (≤₹399)"
         const val FILTER_PREMIUM = "Premium"
@@ -681,6 +686,7 @@ class GalleryViewModel(
 
         val DEFAULT_SMART_FILTERS = listOf(
             FILTER_ALL,
+            FILTER_ONLINE,
             FILTER_NEARBY,
             FILTER_BUDGET,
             FILTER_PREMIUM,
@@ -730,6 +736,7 @@ class GalleryViewModel(
         ): Boolean {
             if (filter.equals(FILTER_ALL, ignoreCase = true)) return true
             return when {
+                filter.equals(FILTER_ONLINE, ignoreCase = true) -> item.staffOnline
                 filter.equals(FILTER_NEARBY, ignoreCase = true) -> {
                     val userTokens = LocationAddressFetcher.extractLocationTokens(userCity, userAddress)
                     if (userTokens.isEmpty()) true else isProfileNearby(item, userCity, userAddress)

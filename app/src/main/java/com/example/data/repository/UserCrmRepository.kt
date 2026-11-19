@@ -5,8 +5,12 @@ import com.example.R
 import com.example.data.firebase.OperationType
 import com.example.data.firebase.handleFirestoreError
 import com.example.data.model.AdminAccessCode
+import com.example.data.model.AdminChangeRequest
+import com.example.data.model.AdminChangeRequestStatus
+import com.example.data.model.AdminChangeRequestType
 import com.example.data.model.AdminEmailEntry
 import com.example.data.model.AdminMemberProfile
+import com.example.data.model.AppShareConfig
 import com.example.data.model.HomeFiltersConfig
 import com.example.data.model.LeadTag
 import com.example.data.model.LaunchBannerConfig
@@ -16,6 +20,7 @@ import com.example.data.model.ProfileTier
 import com.example.data.model.StaffStatus
 import com.example.data.model.UserAccount
 import com.example.util.ProfileCompletionCalculator
+import java.util.UUID
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.auth
@@ -149,6 +154,8 @@ class UserCrmRepository(
                     "staffPrice" to "",
                     "staffTier" to ProfileTier.GRID_9_16,
                     "staffProfileId" to "",
+                    "directChatEnabled" to false,
+                    "staffOnline" to false,
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp(),
                 )
@@ -603,10 +610,15 @@ class UserCrmRepository(
         user: UserAccount,
         tier: String,
         galleryRepository: GalleryRepository,
+        directChatEnabled: Boolean = true,
     ): Result<String> {
         val docPath = "$COLLECTION_USERS/${user.uid}"
         return try {
-            requireSignedInUid()
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Main Admin first")
+            require(currentEmail == SUPER_ADMIN_EMAIL) {
+                "Only Main Admin can approve Staff applications."
+            }
             val safeTier = if (tier == ProfileTier.VIP_16_9) ProfileTier.VIP_16_9 else ProfileTier.GRID_9_16
             val profileId = user.staffProfileId.ifBlank { "staff_${user.uid.take(24)}" }
             val photos = buildList {
@@ -624,13 +636,14 @@ class UserCrmRepository(
                 role = user.staffRole.ifBlank { "GF" },
                 category = if (safeTier == ProfileTier.VIP_16_9) "VIP" else "Verified Staff",
                 tier = safeTier,
-                bio = user.bio.ifBlank { "Verified DateMate Companion ready for direct chat." },
+                bio = user.bio.ifBlank { "Verified DateMate Companion ready for dates." },
                 photoUrls = photos,
                 hiddenTimed = false,
                 phone = user.phone,
                 address = user.address,
                 ownerUid = user.uid,
                 staffVerified = true,
+                staffOnline = true,
                 customProfileId = profileId,
             )
             createResult.getOrThrow()
@@ -640,6 +653,8 @@ class UserCrmRepository(
                     "staffStatus" to StaffStatus.APPROVED,
                     "staffTier" to safeTier,
                     "staffProfileId" to profileId,
+                    "directChatEnabled" to directChatEnabled,
+                    "staffOnline" to true,
                     "updatedAt" to FieldValue.serverTimestamp(),
                 )
             ).await()
@@ -649,6 +664,86 @@ class UserCrmRepository(
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.UPDATE, docPath)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setStaffDirectChatAccess(userId: String, enabled: Boolean): Result<Unit> {
+        val docPath = "$COLLECTION_USERS/$userId"
+        return try {
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Main Admin first")
+            require(currentEmail == SUPER_ADMIN_EMAIL) {
+                "Only Main Admin can toggle Staff direct client chat access."
+            }
+            require(userId.isNotBlank()) { "Invalid staff user ID" }
+            db.document(docPath).update(
+                mapOf(
+                    "directChatEnabled" to enabled,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docPath)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setStaffOnlineAvailability(online: Boolean): Result<Boolean> {
+        val uid = runCatching { requireSignedInUid() }.getOrElse { return Result.failure(it) }
+        val userDocPath = "$COLLECTION_USERS/$uid"
+        var activePath = userDocPath
+        return try {
+            val userSnap = db.document(userDocPath).get().await()
+            val account = userSnap.toObject(UserAccount::class.java)
+                ?: return Result.failure(IllegalStateException("Staff account not found."))
+            require(account.isApprovedStaff) {
+                "Only verified DateMate Staff can toggle Online / Offline status."
+            }
+
+            db.document(userDocPath).update(
+                mapOf(
+                    "staffOnline" to online,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+
+            val profileId = account.staffProfileId.trim()
+            if (profileId.isNotBlank()) {
+                val profilePath = "${GalleryRepository.COLLECTION_COMPANION_PROFILES}/$profileId"
+                activePath = profilePath
+                val profileRef = db.document(profilePath)
+                val profileSnap = profileRef.get().await()
+                if (profileSnap.exists()) {
+                    profileRef.update(
+                        mapOf(
+                            "staffOnline" to online,
+                            "updatedAt" to FieldValue.serverTimestamp(),
+                        )
+                    ).await()
+                }
+            }
+
+            val presencePath = "$COLLECTION_PRESENCE/$uid"
+            activePath = presencePath
+            runCatching {
+                db.document(presencePath).set(
+                    mapOf(
+                        "online" to online,
+                        "lastSeenEpochMs" to System.currentTimeMillis(),
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                    )
+                ).await()
+            }
+
+            Result.success(online)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, activePath)
             Result.failure(e)
         }
     }
@@ -1046,15 +1141,214 @@ class UserCrmRepository(
         }
     }
 
+    // ========================================================================
+    // Main Admin Custom App Share Link & Message
+    // ========================================================================
+
+    fun observeAppShareConfig(): Flow<AppShareConfig> {
+        val ref = db.collection(COLLECTION_APP_CONFIG).document(DOC_SHARE_CONFIG)
+        return ref.snapshots()
+            .map { snap ->
+                if (!snap.exists()) AppShareConfig()
+                else snap.toObject(
+                    AppShareConfig::class.java,
+                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                ) ?: AppShareConfig()
+            }
+            .catch { emit(AppShareConfig()) }
+    }
+
+    suspend fun saveAppShareConfig(shareUrl: String, shareMessage: String): Result<Unit> {
+        val path = "$COLLECTION_APP_CONFIG/$DOC_SHARE_CONFIG"
+        return try {
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Main Admin first")
+            require(currentEmail == SUPER_ADMIN_EMAIL) {
+                "Only Main Admin ($SUPER_ADMIN_EMAIL) can update the App Share Link."
+            }
+            val rawUrl = shareUrl.trim().take(500)
+            val normalizedUrl = when {
+                rawUrl.isBlank() -> ""
+                rawUrl.startsWith("http://") || rawUrl.startsWith("https://") -> rawUrl
+                else -> "https://$rawUrl"
+            }
+            val cleanMessage = shareMessage.trim()
+                .ifBlank { AppShareConfig.DEFAULT_SHARE_MESSAGE }
+                .take(500)
+            db.document(path).set(
+                mapOf(
+                    "shareUrl" to normalizedUrl,
+                    "shareMessage" to cleanMessage,
+                    "updatedByEmail" to currentEmail,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, path)
+            Result.failure(e)
+        }
+    }
+
+    // ========================================================================
+    // Co-Admin -> Main Admin Change Request Workflow
+    // ========================================================================
+
+    fun observeAllChangeRequestsForMainAdmin(): Flow<List<AdminChangeRequest>> = flow {
+        requireSignedInUid()
+        emitAll(
+            db.collection(COLLECTION_ADMIN_CHANGE_REQUESTS)
+                .snapshots()
+                .map { snapshot ->
+                    snapshot.documents.mapNotNull { doc ->
+                        runCatching {
+                            doc.toObject(
+                                AdminChangeRequest::class.java,
+                                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                            )?.let { if (it.id.isBlank()) it.copy(id = doc.id) else it }
+                        }.getOrNull()
+                    }.sortedWith(
+                        compareBy<AdminChangeRequest> { it.status != AdminChangeRequestStatus.PENDING }
+                            .thenByDescending { it.updatedAt ?: it.createdAt ?: Timestamp(0, 0) }
+                    )
+                }
+                .catch { error ->
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    if (firestoreError != null) {
+                        handleFirestoreError(firestoreError, OperationType.LIST, COLLECTION_ADMIN_CHANGE_REQUESTS)
+                    }
+                    emit(emptyList())
+                }
+        )
+    }
+
+    fun observeMyChangeRequests(uid: String): Flow<List<AdminChangeRequest>> = flow {
+        if (uid.isBlank() || Firebase.auth.currentUser == null) {
+            emit(emptyList())
+            return@flow
+        }
+        emitAll(
+            db.collection(COLLECTION_ADMIN_CHANGE_REQUESTS)
+                .whereEqualTo("requesterUid", uid)
+                .snapshots()
+                .map { snapshot ->
+                    snapshot.documents.mapNotNull { doc ->
+                        runCatching {
+                            doc.toObject(
+                                AdminChangeRequest::class.java,
+                                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                            )?.let { if (it.id.isBlank()) it.copy(id = doc.id) else it }
+                        }.getOrNull()
+                    }.sortedByDescending { it.updatedAt ?: it.createdAt ?: Timestamp(0, 0) }
+                }
+                .catch { error ->
+                    val firestoreError = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (firestoreError == null && error is CancellationException) throw error
+                    if (firestoreError != null) {
+                        handleFirestoreError(firestoreError, OperationType.LIST, COLLECTION_ADMIN_CHANGE_REQUESTS)
+                    }
+                    emit(emptyList())
+                }
+        )
+    }
+
+    suspend fun submitAdminChangeRequest(
+        requestType: String,
+        targetId: String,
+        targetTitle: String,
+        details: String,
+    ): Result<Unit> {
+        val uid = runCatching { requireSignedInUid() }.getOrElse { return Result.failure(it) }
+        val requestId = "req_${UUID.randomUUID().toString().replace("-", "").take(16)}"
+        val path = "$COLLECTION_ADMIN_CHANGE_REQUESTS/$requestId"
+        return try {
+            val authUser = Firebase.auth.currentUser
+            val cleanTitle = targetTitle.trim().take(100)
+            val cleanDetails = details.trim().take(1000)
+            require(cleanTitle.isNotBlank()) { "Please enter a title / profile name for your request." }
+            require(cleanDetails.length >= 4) { "Please describe the change needed (minimum 4 characters)." }
+            val safeType = if (AdminChangeRequestType.ALL_OPTIONS.any { it.first == requestType }) {
+                requestType
+            } else {
+                AdminChangeRequestType.OTHER
+            }
+            val requesterName = authUser?.displayName?.trim()?.takeIf { it.isNotBlank() } ?: "Co-Admin"
+            val requesterEmail = authUser?.email?.trim()?.lowercase().orEmpty().take(120)
+
+            db.document(path).set(
+                mapOf(
+                    "requesterUid" to uid,
+                    "requesterName" to requesterName.take(80),
+                    "requesterEmail" to requesterEmail,
+                    "requestType" to safeType,
+                    "targetId" to targetId.trim().take(128),
+                    "targetTitle" to cleanTitle,
+                    "details" to cleanDetails,
+                    "status" to AdminChangeRequestStatus.PENDING,
+                    "mainAdminNote" to "",
+                    "reviewedByEmail" to "",
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.CREATE, path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun reviewAdminChangeRequest(
+        requestId: String,
+        approve: Boolean,
+        mainAdminNote: String,
+    ): Result<Unit> {
+        val path = "$COLLECTION_ADMIN_CHANGE_REQUESTS/$requestId"
+        return try {
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Main Admin first")
+            require(currentEmail == SUPER_ADMIN_EMAIL) {
+                "Only Main Admin can review Co-Admin change requests."
+            }
+            require(requestId.isNotBlank()) { "Invalid request ID" }
+            val nextStatus = if (approve) AdminChangeRequestStatus.APPROVED else AdminChangeRequestStatus.REJECTED
+            db.document(path).update(
+                mapOf(
+                    "status" to nextStatus,
+                    "mainAdminNote" to mainAdminNote.trim().take(500),
+                    "reviewedByEmail" to currentEmail,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, path)
+            Result.failure(e)
+        }
+    }
+
     companion object {
         const val COLLECTION_USERS = "users"
         const val COLLECTION_ADMINS = "admins"
         const val COLLECTION_ADMIN_EMAILS = "admin_emails"
         const val COLLECTION_ADMIN_CODES = "admin_access_codes"
+        const val COLLECTION_ADMIN_CHANGE_REQUESTS = "admin_change_requests"
         const val COLLECTION_PRESENCE = "presence"
         const val COLLECTION_APP_CONFIG = "app_config"
         const val DOC_LAUNCH_BANNER = "launch_banner"
         const val DOC_HOME_FILTERS = "home_filters"
+        const val DOC_SHARE_CONFIG = "share_config"
         const val ADMIN_PRESENCE_ID = "admin_concierge"
         const val SUPER_ADMIN_EMAIL = "buildolive4@gmail.com"
         private val ACCESS_CODE_REGEX = Regex("^[A-Z0-9_\\-]{4,24}$")

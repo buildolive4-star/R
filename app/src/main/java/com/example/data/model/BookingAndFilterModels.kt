@@ -205,3 +205,74 @@ data class UserComplaint(
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 )
+
+@Keep
+@IgnoreExtraProperties
+data class AppShareConfig(
+    @DocumentId val id: String = "",
+    val shareUrl: String = "",
+    val shareMessage: String = DEFAULT_SHARE_MESSAGE,
+    val updatedByEmail: String = "",
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+    fun buildShareText(): String {
+        val cleanMsg = shareMessage.trim().ifBlank { DEFAULT_SHARE_MESSAGE }
+        val cleanUrl = shareUrl.trim()
+        return if (cleanUrl.isNotBlank()) {
+            "$cleanMsg\n\nDownload / Open DateMate:\n$cleanUrl"
+        } else {
+            cleanMsg
+        }
+    }
+
+    companion object {
+        const val DEFAULT_SHARE_MESSAGE =
+            "Join me on DateMate! Discover verified companions, chat privately, and book unforgettable dates safely. ❤️"
+    }
+}
+
+object AdminChangeRequestStatus {
+    const val PENDING = "pending"
+    const val APPROVED = "approved"
+    const val REJECTED = "rejected"
+}
+
+object AdminChangeRequestType {
+    const val PROFILE_EDIT = "profile_edit"
+    const val NEW_PROFILE = "new_profile"
+    const val STAFF_ACCESS = "staff_access"
+    const val PRICE_OR_FILTER = "price_or_filter"
+    const val USER_MODERATION = "user_moderation"
+    const val OTHER = "other"
+
+    val ALL_OPTIONS: List<Pair<String, String>> = listOf(
+        PROFILE_EDIT to "Profile Edit",
+        NEW_PROFILE to "New Profile",
+        STAFF_ACCESS to "Staff / Chat Access",
+        PRICE_OR_FILTER to "Price / Filter",
+        USER_MODERATION to "User Moderation",
+        OTHER to "Other Change",
+    )
+
+    fun labelFor(type: String): String =
+        ALL_OPTIONS.firstOrNull { it.first == type }?.second ?: "Change Request"
+}
+
+@Keep
+@IgnoreExtraProperties
+data class AdminChangeRequest(
+    @DocumentId val id: String = "",
+    val requesterUid: String = "",
+    val requesterName: String = "",
+    val requesterEmail: String = "",
+    val requestType: String = AdminChangeRequestType.OTHER,
+    val targetId: String = "",
+    val targetTitle: String = "",
+    val details: String = "",
+    val status: String = AdminChangeRequestStatus.PENDING,
+    val mainAdminNote: String = "",
+    val reviewedByEmail: String = "",
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+)
+
