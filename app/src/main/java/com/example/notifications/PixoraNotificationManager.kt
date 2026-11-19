@@ -18,7 +18,9 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.IconCompat
 import androidx.core.graphics.drawable.toBitmap
 import coil.imageLoader
 import coil.request.ImageRequest
@@ -26,20 +28,27 @@ import coil.request.SuccessResult
 import com.example.MainActivity
 import com.example.R
 import com.example.data.model.GalleryImage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 object PixoraNotificationManager {
-    const val CHANNEL_ID = "datemate_live_profiles_v4"
-    const val CHANNEL_MESSAGES_ID = "datemate_chat_messages_v4"
-    const val CHANNEL_CALLS_ID = "datemate_voice_calls_v3"
+    const val CHANNEL_ID = "datemate_system_push_profiles_v6"
+    const val CHANNEL_MESSAGES_ID = "datemate_system_push_messages_v6"
+    const val CHANNEL_CALLS_ID = "datemate_system_push_calls_v5"
+    const val CHANNEL_BG_SYNC_ID = "datemate_live_push_monitor_v1"
 
     const val EXTRA_IMAGE_ID = "extra_justus_profile_id"
     const val EXTRA_CHAT_ID = "extra_justus_chat_id"
     const val EXTRA_CHAT_ROLE = "extra_justus_chat_role"
     const val EXTRA_CALL_ID = "extra_justus_call_id"
 
-    private const val TAG = "JustUsNotify"
+    private const val TAG = "DateMatePushNotify"
+
+    private val pushNotifyScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
     private var lastChimePlayedAtMs: Long = 0L
@@ -85,7 +94,7 @@ object PixoraNotificationManager {
         }
     }
 
-    private val CHAT_VIBRATION = longArrayOf(0L, 140L, 80L, 180L)
+    private val CHAT_VIBRATION = longArrayOf(0L, 200L, 100L, 250L)
     private val CALL_VIBRATION = longArrayOf(0L, 500L, 350L, 500L, 350L)
 
     fun hasNotificationPermission(context: Context): Boolean {
@@ -114,7 +123,7 @@ object PixoraNotificationManager {
                     ).apply {
                         description = context.getString(R.string.notification_channel_desc)
                         enableLights(true)
-                        lightColor = Color.parseColor("#FF6B9D")
+                        lightColor = Color.parseColor("#E91E63")
                         enableVibration(true)
                         vibrationPattern = CHAT_VIBRATION
                         setSound(notifySound, notifyAttrs)
@@ -128,12 +137,12 @@ object PixoraNotificationManager {
                 manager.createNotificationChannel(
                     NotificationChannel(
                         CHANNEL_MESSAGES_ID,
-                        "JustUs Chat Messages",
+                        "DateMate Chat Push Notifications",
                         NotificationManager.IMPORTANCE_HIGH
                     ).apply {
-                        description = "Instant heads-up alerts for new companion replies and client messages"
+                        description = "Instant Android system push notifications for new messages and replies"
                         enableLights(true)
-                        lightColor = Color.parseColor("#25D366")
+                        lightColor = Color.parseColor("#E91E63")
                         enableVibration(true)
                         vibrationPattern = CHAT_VIBRATION
                         setSound(notifySound, notifyAttrs)
@@ -152,12 +161,12 @@ object PixoraNotificationManager {
                 manager.createNotificationChannel(
                     NotificationChannel(
                         CHANNEL_CALLS_ID,
-                        "JustUs Voice Calls",
+                        "DateMate Voice Calls",
                         NotificationManager.IMPORTANCE_HIGH
                     ).apply {
                         description = "Incoming WebRTC audio call alerts"
                         enableLights(true)
-                        lightColor = Color.parseColor("#F6C478")
+                        lightColor = Color.parseColor("#E91E63")
                         enableVibration(true)
                         vibrationPattern = CALL_VIBRATION
                         setSound(ringtoneSound, ringtoneAttrs)
@@ -165,24 +174,46 @@ object PixoraNotificationManager {
                     }
                 )
             }
+
+            if (manager.getNotificationChannel(CHANNEL_BG_SYNC_ID) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        CHANNEL_BG_SYNC_ID,
+                        "DateMate Live Push Connection",
+                        NotificationManager.IMPORTANCE_MIN
+                    ).apply {
+                        description = "Keeps real-time message push notifications active outside the app"
+                        setShowBadge(false)
+                        lockscreenVisibility = Notification.VISIBILITY_SECRET
+                    }
+                )
+            }
+        }
+    }
+
+    fun postNewImagePushAsync(context: Context, image: GalleryImage) {
+        val appCtx = context.applicationContext
+        pushNotifyScope.launch {
+            notifyNewImageInternal(appCtx, image)
         }
     }
 
     suspend fun notifyNewImage(context: Context, image: GalleryImage) {
+        val appCtx = context.applicationContext
+        pushNotifyScope.launch {
+            notifyNewImageInternal(appCtx, image)
+        }
+    }
+
+    private suspend fun notifyNewImageInternal(context: Context, image: GalleryImage) {
         ensureChannel(context)
         if (!hasNotificationPermission(context)) {
             Log.w(TAG, "POST_NOTIFICATIONS permission not granted; skipping system alert.")
             return
         }
 
-        val bitmap = if (image.isHidden) {
-            null
-        } else {
-            fetchNotificationBitmap(context, image.displayThumbnailUrl.ifBlank { image.imageUrl })
-        }
-
         val tapIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_IMAGE_ID, image.id)
         }
         val notificationId = ("img_" + image.id).hashCode().let { if (it == 0) System.currentTimeMillis().toInt() else it }
@@ -205,10 +236,20 @@ object PixoraNotificationManager {
         }
         val soundUri = notificationSoundUri(context)
 
+        val bitmap = if (image.isHidden) {
+            null
+        } else {
+            withTimeoutOrNull(900L) {
+                fetchNotificationBitmap(context, image.displayThumbnailUrl.ifBlank { image.imageUrl })
+            }
+        }
+
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_pixora)
+            .setColor(Color.parseColor("#E91E63"))
             .setContentTitle(title)
             .setContentText(body)
+            .setTicker("$title: $body")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
             .setVisibility(
@@ -216,10 +257,17 @@ object PixoraNotificationManager {
             )
             .setSound(soundUri)
             .setVibrate(CHAT_VIBRATION)
-            .setDefaults(NotificationCompat.DEFAULT_LIGHTS)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setOnlyAlertOnce(false)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
             .setContentIntent(pendingIntent)
+            .addAction(
+                R.drawable.ic_notification_pixora,
+                "View Profile",
+                pendingIntent
+            )
 
         if (bitmap != null) {
             builder.setLargeIcon(bitmap)
@@ -235,9 +283,32 @@ object PixoraNotificationManager {
         }
 
         try {
-            NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+            val nm = NotificationManagerCompat.from(context)
+            nm.cancel(notificationId)
+            nm.notify(notificationId, builder.build())
         } catch (e: SecurityException) {
             Log.w(TAG, "Unable to post image notification due to missing permission", e)
+        }
+    }
+
+    fun postChatPushAsync(
+        context: Context,
+        chatId: String,
+        recipientRole: String,
+        senderName: String,
+        messageText: String,
+        avatarUrl: String = "",
+    ) {
+        val appCtx = context.applicationContext
+        pushNotifyScope.launch {
+            notifyNewChatMessageInternal(
+                context = appCtx,
+                chatId = chatId,
+                recipientRole = recipientRole,
+                senderName = senderName,
+                messageText = messageText,
+                avatarUrl = avatarUrl,
+            )
         }
     }
 
@@ -249,15 +320,39 @@ object PixoraNotificationManager {
         messageText: String,
         avatarUrl: String = "",
     ) {
+        val appCtx = context.applicationContext
+        pushNotifyScope.launch {
+            notifyNewChatMessageInternal(
+                context = appCtx,
+                chatId = chatId,
+                recipientRole = recipientRole,
+                senderName = senderName,
+                messageText = messageText,
+                avatarUrl = avatarUrl,
+            )
+        }
+    }
+
+    private suspend fun notifyNewChatMessageInternal(
+        context: Context,
+        chatId: String,
+        recipientRole: String,
+        senderName: String,
+        messageText: String,
+        avatarUrl: String,
+    ) {
         ensureChannel(context)
         if (!hasNotificationPermission(context)) {
             Log.w(TAG, "POST_NOTIFICATIONS permission not granted; skipping chat notification.")
             return
         }
 
-        val bitmap = fetchNotificationBitmap(context, avatarUrl)
+        val bitmap = withTimeoutOrNull(850L) {
+            fetchNotificationBitmap(context, avatarUrl)
+        }
+
         val tapIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_CHAT_ID, chatId)
             putExtra(EXTRA_CHAT_ROLE, recipientRole)
         }
@@ -269,35 +364,69 @@ object PixoraNotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = when (recipientRole) {
-            "admin" -> "Client Inquiry · $senderName"
-            "staff" -> "Client Message · $senderName"
-            else -> "New Reply · $senderName"
+        val roleLabel = when (recipientRole) {
+            "admin" -> "DateMate Admin Inbox"
+            "staff" -> "DateMate Companion Inbox"
+            else -> "DateMate Direct Message"
         }
-        val body = messageText.ifBlank { "Tap to open conversation" }
+        val cleanSender = senderName.ifBlank { "DateMate Companion" }
+        val title = when (recipientRole) {
+            "admin" -> "New Client Message · $cleanSender"
+            "staff" -> "Client Message · $cleanSender"
+            else -> "New Reply · $cleanSender"
+        }
+        val body = messageText.ifBlank { "Sent you a new message · Tap to open chat" }
         val soundUri = notificationSoundUri(context)
+        val nowMs = System.currentTimeMillis()
+
+        val senderPersonBuilder = Person.Builder()
+            .setName(cleanSender)
+            .setKey("${chatId}_$recipientRole")
+            .setImportant(true)
+        if (bitmap != null) {
+            senderPersonBuilder.setIcon(IconCompat.createWithBitmap(bitmap))
+        }
+        val senderPerson = senderPersonBuilder.build()
+        val mePerson = Person.Builder().setName("You").build()
+
+        val messagingStyle = NotificationCompat.MessagingStyle(mePerson)
+            .setConversationTitle(roleLabel)
+            .addMessage(body, nowMs, senderPerson)
 
         val builder = NotificationCompat.Builder(context, CHANNEL_MESSAGES_ID)
             .setSmallIcon(R.drawable.ic_notification_pixora)
+            .setColor(Color.parseColor("#E91E63"))
             .setContentTitle(title)
             .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setSubText(roleLabel)
+            .setTicker("$cleanSender: $body")
+            .setStyle(messagingStyle)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSound(soundUri)
             .setVibrate(CHAT_VIBRATION)
-            .setDefaults(NotificationCompat.DEFAULT_LIGHTS)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setOnlyAlertOnce(false)
+            .setWhen(nowMs)
+            .setShowWhen(true)
             .setContentIntent(pendingIntent)
+            .addAction(
+                R.drawable.ic_notification_pixora,
+                "Reply in DateMate",
+                pendingIntent
+            )
 
         if (bitmap != null) {
             builder.setLargeIcon(bitmap)
         }
 
         try {
-            NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+            val nm = NotificationManagerCompat.from(context)
+            // Cancel prior notification ID first so Android OS always triggers a fresh Heads-Up Push Pop-up outside & at top of phone
+            nm.cancel(notificationId)
+            nm.notify(notificationId, builder.build())
         } catch (e: SecurityException) {
             Log.w(TAG, "Unable to post chat notification due to missing permission", e)
         }
@@ -313,7 +442,7 @@ object PixoraNotificationManager {
         if (!hasNotificationPermission(context)) return
 
         val tapIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_CALL_ID, callId)
         }
         val notificationId = ("call_" + callId).hashCode()
@@ -327,6 +456,7 @@ object PixoraNotificationManager {
 
         val builder = NotificationCompat.Builder(context, CHANNEL_CALLS_ID)
             .setSmallIcon(R.drawable.ic_notification_pixora)
+            .setColor(Color.parseColor("#E91E63"))
             .setContentTitle("Incoming Voice Call · $callerName")
             .setContentText(if (profileName.isNotBlank()) "Regarding $profileName · Tap to Answer" else "Tap to Answer")
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -356,7 +486,7 @@ object PixoraNotificationManager {
             runCatching {
                 val request = ImageRequest.Builder(context)
                     .data(url)
-                    .size(720)
+                    .size(512)
                     .allowHardware(false)
                     .build()
                 val result = context.imageLoader.execute(request)

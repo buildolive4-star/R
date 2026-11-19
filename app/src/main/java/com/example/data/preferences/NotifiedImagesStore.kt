@@ -71,12 +71,11 @@ class NotifiedImagesStore(private val context: Context) {
         if (chatId.isBlank() || updatedAtMs <= 0L) return
         context.notifyStateDataStore.edit { prefs ->
             val current = decodeChatMap(prefs[knownChatTimestampsKey]).toMutableMap()
-            val prev = current[chatId] ?: 0L
-            if (updatedAtMs > prev) {
+            if (current[chatId] != updatedAtMs) {
                 current[chatId] = updatedAtMs
                 // Keep most recent 200 threads bounded
                 val trimmed = if (current.size > 200) {
-                    current.entries.sortedByDescending { it.value }.take(200).associate { it.key to it.value }
+                    current.entries.toList().takeLast(200).associate { it.key to it.value }
                 } else {
                     current
                 }
@@ -101,5 +100,16 @@ class NotifiedImagesStore(private val context: Context) {
 
         fun buildProfileAlertToken(profileId: String, refreshEpochMs: Long): String =
             "${profileId}_r$refreshEpochMs"
+
+        fun buildChatAlertStamp(
+            updatedMs: Long,
+            lastMessage: String,
+            unreadCount: Int,
+            lastSenderRole: String,
+        ): Long {
+            val msgHash = (lastMessage.trim() + "|" + lastSenderRole + "|" + unreadCount).hashCode().toLong() and 0xFFFFFFFFL
+            val timePart = (updatedMs / 1000L) and 0x7FFFFFFFL
+            return ((timePart shl 32) or msgHash).coerceAtLeast(1L)
+        }
     }
 }

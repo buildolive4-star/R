@@ -106,6 +106,8 @@ import com.example.data.repository.CallRepository
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.GalleryRepository
 import com.example.data.repository.UserCrmRepository
+import com.example.notifications.DateMateBackgroundPushEngine
+import com.example.notifications.DateMatePushMonitorService
 import com.example.notifications.OneSignalPushManager
 import com.example.notifications.PixoraNotificationManager
 import com.example.ui.admin.AdminPasscodeSheet
@@ -293,10 +295,14 @@ fun JustUsAppRoot(
                 Lifecycle.Event.ON_RESUME -> {
                     OneSignalPushManager.isAppInForeground = true
                     sessionViewModel.setOnlineState(true)
+                    DateMatePushMonitorService.stopMonitor(context)
+                    DateMateBackgroundPushEngine.refreshNow(context)
                 }
                 Lifecycle.Event.ON_STOP -> {
                     OneSignalPushManager.isAppInForeground = false
                     sessionViewModel.setOnlineState(false)
+                    DateMateBackgroundPushEngine.setCurrentlyViewingChat("", "")
+                    DateMatePushMonitorService.startMonitor(context)
                 }
                 else -> Unit
             }
@@ -313,7 +319,12 @@ fun JustUsAppRoot(
     }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-        onResult = { granted -> hasNotificationPermission = granted }
+        onResult = { granted ->
+            hasNotificationPermission = granted
+            if (granted) {
+                DateMateBackgroundPushEngine.refreshNow(context)
+            }
+        }
     )
 
     LaunchedEffect(Unit) {
@@ -441,29 +452,46 @@ fun JustUsAppRoot(
         }
     }
 
+    LaunchedEffect(currentRoute, currentViewingChatId, currentViewingChatRole) {
+        if (currentRoute == ROUTE_CHAT_ROOM) {
+            DateMateBackgroundPushEngine.setCurrentlyViewingChat(currentViewingChatId, currentViewingChatRole)
+        } else {
+            DateMateBackgroundPushEngine.setCurrentlyViewingChat("", "")
+        }
+    }
+
+    LaunchedEffect(firebaseUser?.uid, isVerifiedAdminForCalls) {
+        DateMateBackgroundPushEngine.refreshNow(context)
+    }
+
     var hasFiredHomeWelcomePush by rememberSaveable { mutableStateOf(false) }
 
-    // 0. Automatic Home Page Welcome Push Notification once 3D Welcome Screen is dismissed
+    // 0. Request Android OS Notification Permission (if still needed) & Fire Welcome System Push Notification once 3D Welcome Screen is dismissed
     LaunchedEffect(launchBannerDismissed) {
         if (launchBannerDismissed && !hasFiredHomeWelcomePush) {
             hasFiredHomeWelcomePush = true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !PixoraNotificationManager.hasNotificationPermission(context)) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
             delay(650)
             viewModel.triggerBackgroundCheckNow(context)
         }
     }
 
-    // 1. Live Image / Profile Upload & Refresh Notifications
+    // 1. Live Image / Profile Upload & Refresh System Push Notifications
     LaunchedEffect(viewModel) {
         viewModel.newArrivalEvents.collect { newImage ->
-            activeBannerEvent = InAppBannerEvent.ProfileArrival(newImage)
-            PixoraNotificationManager.playAlertChime(context)
-            scope.launch {
-                PixoraNotificationManager.notifyNewImage(context, newImage)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !PixoraNotificationManager.hasNotificationPermission(context)) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                activeBannerEvent = InAppBannerEvent.ProfileArrival(newImage)
             }
+            PixoraNotificationManager.playAlertChime(context)
+            PixoraNotificationManager.postNewImagePushAsync(context, newImage)
         }
     }
 
-    // 2. Live Chat Message Notifications (Client Replies + Staff Inbox + Admin Inquiries)
+    // 2. Live Chat Message System Push Notifications (Client Replies + Staff Inbox + Admin Inquiries)
+    // Handled both 24/7 in DateMateBackgroundPushEngine (even when outside the app) and here in real time
     LaunchedEffect(clientChats, staffInboxChats, adminChatsObserved, isVerifiedAdminForCalls) {
         data class PendingChatAlert(
             val chatId: String,
@@ -473,6 +501,7 @@ fun JustUsAppRoot(
             val avatar: String,
             val updatedMs: Long,
             val unreadCount: Int,
+            val lastSenderRole: String,
         )
         val candidates = mutableListOf<PendingChatAlert>()
         clientChats.filter { it.unreadForClient > 0 && it.lastSenderRole != "client" }.forEach { thread ->
@@ -485,6 +514,7 @@ fun JustUsAppRoot(
                     avatar = thread.profilePhotoUrl,
                     updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis(),
                     unreadCount = thread.unreadForClient,
+                    lastSenderRole = thread.lastSenderRole,
                 )
             )
         }
@@ -498,6 +528,7 @@ fun JustUsAppRoot(
                     avatar = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
                     updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis(),
                     unreadCount = thread.unreadForStaff,
+                    lastSenderRole = thread.lastSenderRole,
                 )
             )
         }
@@ -512,6 +543,7 @@ fun JustUsAppRoot(
                         avatar = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
                         updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis(),
                         unreadCount = thread.unreadForAdmin,
+                        lastSenderRole = thread.lastSenderRole,
                     )
                 )
             }
@@ -520,10 +552,12 @@ fun JustUsAppRoot(
         for (item in candidates.distinctBy { "${it.chatId}_${it.role}" }) {
             val trackKey = "${item.chatId}_${item.role}"
             val lastNotified = notifiedStore.getLastNotifiedChatEpoch(trackKey)
-            val messageStamp = (
-                (item.updatedMs xor item.message.hashCode().toLong() xor (item.unreadCount.toLong() shl 16))
-                    and Long.MAX_VALUE
-                ).coerceAtLeast(1L)
+            val messageStamp = NotifiedImagesStore.buildChatAlertStamp(
+                updatedMs = item.updatedMs,
+                lastMessage = item.message,
+                unreadCount = item.unreadCount,
+                lastSenderRole = item.lastSenderRole,
+            )
             if (messageStamp != lastNotified) {
                 val isCurrentlyInsideSameRoleChat =
                     currentRoute == ROUTE_CHAT_ROOM &&
@@ -531,15 +565,18 @@ fun JustUsAppRoot(
                         currentViewingChatRole == item.role
                 notifiedStore.markChatNotified(trackKey, messageStamp)
                 if (!isCurrentlyInsideSameRoleChat) {
-                    activeBannerEvent = InAppBannerEvent.ChatMessageArrival(
-                        chatId = item.chatId,
-                        senderRoleForOpen = item.role,
-                        title = item.senderName,
-                        preview = item.message.ifBlank { "New message received" },
-                        avatarUrl = item.avatar,
-                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !PixoraNotificationManager.hasNotificationPermission(context)) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        activeBannerEvent = InAppBannerEvent.ChatMessageArrival(
+                            chatId = item.chatId,
+                            senderRoleForOpen = item.role,
+                            title = item.senderName,
+                            preview = item.message.ifBlank { "New message received" },
+                            avatarUrl = item.avatar,
+                        )
+                    }
                     PixoraNotificationManager.playAlertChime(context)
-                    PixoraNotificationManager.notifyNewChatMessage(
+                    PixoraNotificationManager.postChatPushAsync(
                         context = context,
                         chatId = item.chatId,
                         recipientRole = item.role,

@@ -99,31 +99,42 @@ class NewImageSyncWorker(
         val crmRepo = UserCrmRepository(db)
         val isVerifiedAdmin = runCatching { crmRepo.checkIsCurrentUserAdmin() }.getOrDefault(false)
 
+        fun DocumentSnapshot.toChatThreadSafe(): ChatThread? =
+            runCatching {
+                toObject(
+                    ChatThread::class.java,
+                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                )?.let { if (it.id.isBlank()) it.copy(id = id) else it }
+            }.getOrNull()
+
         // 1. Client unread replies
         runCatching {
             val clientSnap = db.collection(ChatRepository.COLLECTION_CHATS)
                 .whereEqualTo("clientUid", uid)
                 .get()
                 .await()
-            val clientThreads = clientSnap.toObjects(
-                ChatThread::class.java,
-                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-            )
+            val clientThreads = clientSnap.documents.mapNotNull { it.toChatThreadSafe() }
             for (thread in clientThreads) {
-                val updatedMs = thread.updatedAt?.toDate()?.time ?: continue
+                val updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis()
                 if (thread.unreadForClient > 0 && thread.lastSenderRole != "client") {
                     val trackKey = "${thread.id}_client"
                     val lastNotified = store.getLastNotifiedChatEpoch(trackKey)
-                    if (updatedMs > lastNotified) {
+                    val stamp = NotifiedImagesStore.buildChatAlertStamp(
+                        updatedMs = updatedMs,
+                        lastMessage = thread.lastMessage,
+                        unreadCount = thread.unreadForClient,
+                        lastSenderRole = thread.lastSenderRole,
+                    )
+                    if (stamp != lastNotified) {
+                        store.markChatNotified(trackKey, stamp)
                         PixoraNotificationManager.notifyNewChatMessage(
                             context = applicationContext,
                             chatId = thread.id,
                             recipientRole = "client",
-                            senderName = thread.profileName.ifBlank { "JustUs" },
+                            senderName = thread.profileName.ifBlank { "DateMate" },
                             messageText = thread.lastMessage,
                             avatarUrl = thread.profilePhotoUrl,
                         )
-                        store.markChatNotified(trackKey, updatedMs)
                     }
                 }
             }
@@ -135,16 +146,20 @@ class NewImageSyncWorker(
                 .whereEqualTo("staffOwnerUid", uid)
                 .get()
                 .await()
-            val staffThreads = staffSnap.toObjects(
-                ChatThread::class.java,
-                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-            )
+            val staffThreads = staffSnap.documents.mapNotNull { it.toChatThreadSafe() }
             for (thread in staffThreads) {
-                val updatedMs = thread.updatedAt?.toDate()?.time ?: continue
+                val updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis()
                 if (thread.unreadForStaff > 0 && thread.lastSenderRole == "client") {
                     val trackKey = "${thread.id}_staff"
                     val lastNotified = store.getLastNotifiedChatEpoch(trackKey)
-                    if (updatedMs > lastNotified) {
+                    val stamp = NotifiedImagesStore.buildChatAlertStamp(
+                        updatedMs = updatedMs,
+                        lastMessage = thread.lastMessage,
+                        unreadCount = thread.unreadForStaff,
+                        lastSenderRole = thread.lastSenderRole,
+                    )
+                    if (stamp != lastNotified) {
+                        store.markChatNotified(trackKey, stamp)
                         PixoraNotificationManager.notifyNewChatMessage(
                             context = applicationContext,
                             chatId = thread.id,
@@ -153,7 +168,6 @@ class NewImageSyncWorker(
                             messageText = thread.lastMessage,
                             avatarUrl = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
                         )
-                        store.markChatNotified(trackKey, updatedMs)
                     }
                 }
             }
@@ -166,16 +180,20 @@ class NewImageSyncWorker(
                     .whereGreaterThan("unreadForAdmin", 0)
                     .get()
                     .await()
-                val adminThreads = adminSnap.toObjects(
-                    ChatThread::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
+                val adminThreads = adminSnap.documents.mapNotNull { it.toChatThreadSafe() }
                 for (thread in adminThreads) {
-                    val updatedMs = thread.updatedAt?.toDate()?.time ?: continue
+                    val updatedMs = thread.updatedAt?.toDate()?.time ?: System.currentTimeMillis()
                     if (thread.unreadForAdmin > 0 && thread.lastSenderRole == "client") {
                         val trackKey = "${thread.id}_admin"
                         val lastNotified = store.getLastNotifiedChatEpoch(trackKey)
-                        if (updatedMs > lastNotified) {
+                        val stamp = NotifiedImagesStore.buildChatAlertStamp(
+                            updatedMs = updatedMs,
+                            lastMessage = thread.lastMessage,
+                            unreadCount = thread.unreadForAdmin,
+                            lastSenderRole = thread.lastSenderRole,
+                        )
+                        if (stamp != lastNotified) {
+                            store.markChatNotified(trackKey, stamp)
                             PixoraNotificationManager.notifyNewChatMessage(
                                 context = applicationContext,
                                 chatId = thread.id,
@@ -184,7 +202,6 @@ class NewImageSyncWorker(
                                 messageText = thread.lastMessage,
                                 avatarUrl = thread.clientPhotoUrl.ifBlank { thread.profilePhotoUrl },
                             )
-                            store.markChatNotified(trackKey, updatedMs)
                         }
                     }
                 }
