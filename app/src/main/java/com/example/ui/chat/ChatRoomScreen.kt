@@ -80,6 +80,12 @@ import com.example.data.model.ChatMessage
 import com.example.data.model.ChatThread
 import com.example.data.model.MessageTickState
 import com.example.data.model.PresenceStatus
+import androidx.compose.ui.text.style.TextAlign
+import com.example.ui.components.Animated3DMascotOrb
+import com.example.ui.components.Animated3DPageBackdrop
+import com.example.ui.components.DateMate3DGlowingIconButton
+import com.example.ui.components.DateMateMascot
+import com.example.ui.components.GlowButtonStyle
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
 import com.example.ui.theme.OnlineEmeraldDot
@@ -140,6 +146,7 @@ fun ChatRoomScreen(
                 .background(MaterialTheme.colorScheme.background)
                 .statusBarsPadding(),
         ) {
+            Animated3DPageBackdrop()
             IconButton(
                 onClick = onBack,
                 modifier = Modifier
@@ -157,12 +164,18 @@ fun ChatRoomScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                Animated3DMascotOrb(
+                    mascot = DateMateMascot.CHAT_MATE,
+                    size = 90.dp,
+                    showOrbitSparkles = true,
+                )
                 androidx.compose.material3.CircularProgressIndicator(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "Opening Conversation…",
+                    text = "ChatMate is opening your conversation…",
                     style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -346,25 +359,15 @@ fun ChatRoomScreen(
                                 )
                             }
 
-                            Surface(
+                            DateMate3DGlowingIconButton(
+                                icon = Icons.Rounded.Call,
+                                contentDescription = "Voice Call",
                                 onClick = onStartVoiceCall,
-                                shape = CircleShape,
-                                color = WhatsAppGreen.copy(alpha = 0.18f),
-                                border = BorderStroke(1.dp, WhatsAppGreen.copy(alpha = 0.5f)),
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .minimumInteractiveComponentSize()
-                                    .testTag("chat_room_call_button")
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Call,
-                                        contentDescription = "Voice Call",
-                                        tint = WhatsAppGreen,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
+                                style = GlowButtonStyle.EMERALD_CHAT,
+                                size = 42.dp,
+                                iconSize = 19.dp,
+                                modifier = Modifier.testTag("chat_room_call_button")
+                            )
                         }
                     }
                 }
@@ -573,15 +576,17 @@ fun ChatRoomScreen(
                                 .testTag("chat_composer_input")
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Surface(
+                        DateMate3DGlowingIconButton(
+                            icon = Icons.AutoMirrored.Rounded.Send,
+                            contentDescription = "Send",
                             onClick = {
                                 val text = draft.trim()
-                                if (text.isEmpty()) return@Surface
+                                if (text.isEmpty()) return@DateMate3DGlowingIconButton
                                 if (senderRole == "staff") {
                                     val check = ContactLeakFilter.validateForStaff(text)
                                     if (!check.isAllowed) {
                                         leakWarning = check.reason
-                                        return@Surface
+                                        return@DateMate3DGlowingIconButton
                                     }
                                 }
                                 onSendMessage(
@@ -593,46 +598,63 @@ fun ChatRoomScreen(
                                     }
                                 )
                             },
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary,
-                            shadowElevation = 6.dp,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .minimumInteractiveComponentSize()
-                                .testTag("chat_send_button")
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.background(
-                                    Brush.horizontalGradient(
-                                        listOf(Color(0xFFE91E63), Color(0xFFFF6F9C))
-                                    )
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.Send,
-                                    contentDescription = "Send",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
+                            style = GlowButtonStyle.ROSE_PINK,
+                            size = 46.dp,
+                            iconSize = 20.dp,
+                            modifier = Modifier.testTag("chat_send_button")
+                        )
                     }
                 }
             }
         }
     ) { innerPadding ->
         // Scrollable Message List strictly between pinned topBar and pinned bottomBar
-        LazyColumn(
-            state = listState,
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .testTag("chat_messages_list")
         ) {
-            items(messages, key = { it.id }) { msg ->
+            Animated3DPageBackdrop()
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("chat_messages_list")
+            ) {
+                if (messages.isEmpty()) {
+                    item(key = "chat_empty_mascot_welcome") {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 32.dp)
+                        ) {
+                            Animated3DMascotOrb(
+                                mascot = DateMateMascot.CHAT_MATE,
+                                size = 86.dp,
+                                showOrbitSparkles = true,
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Say hi to ${chat.profileName.ifBlank { "your match" }}!",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Tap a quick icebreaker, plan a date, or send a 3D velvet rose below.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+                items(messages, key = { it.id }) { msg ->
                 val isMine = when (senderRole) {
                     "client" -> msg.senderRole == "client"
                     "staff" -> msg.senderRole == "staff"
@@ -670,6 +692,7 @@ fun ChatRoomScreen(
                         }
                     }
                 )
+            }
             }
         }
     }

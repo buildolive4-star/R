@@ -359,20 +359,6 @@ class GalleryViewModel(
             initialValue = DEFAULT_SMART_FILTERS,
         )
 
-    val vipProfiles: StateFlow<List<GalleryImage>> = combine(
-        galleryState,
-        _userCity,
-        _userAddress,
-    ) { state, city, address ->
-        val items = (state as? UiState.Success)?.data ?: return@combine emptyList()
-        items.filter { it.tier == ProfileTier.VIP_16_9 }
-            .sortedByDescending { nearbyMatchScore(it, city, address) }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-        initialValue = emptyList(),
-    )
-
     private data class FilterInputs(
         val category: String,
         val smartFilter: String,
@@ -391,6 +377,64 @@ class GalleryViewModel(
         FilterInputs(category, smartFilter, query, city, address)
     }
 
+    private fun matchesProfileFilters(item: GalleryImage, inputs: FilterInputs): Boolean {
+        val category = inputs.category
+        val smartFilter = inputs.smartFilter
+        val trimmedQuery = inputs.query.trim().lowercase()
+        val matchesCategory = when {
+            category == CATEGORY_ALL -> true
+            category.equals("GF", true) || category.equals("BF", true) ->
+                item.role.equals(category, ignoreCase = true)
+            else -> item.category.equals(category, ignoreCase = true) ||
+                item.tags.any { it.equals(category, ignoreCase = true) }
+        }
+        val matchesSmartFilter = matchesSmartFilter(
+            item = item,
+            filter = smartFilter,
+            userCity = inputs.userCity,
+            userAddress = inputs.userAddress,
+        )
+        val matchesQuery = trimmedQuery.isEmpty() ||
+            item.title.lowercase().contains(trimmedQuery) ||
+            item.description.lowercase().contains(trimmedQuery) ||
+            item.category.lowercase().contains(trimmedQuery) ||
+            item.city.lowercase().contains(trimmedQuery) ||
+            item.role.lowercase().contains(trimmedQuery) ||
+            item.price.lowercase().contains(trimmedQuery) ||
+            item.tags.any { it.lowercase().contains(trimmedQuery) }
+        return matchesCategory && matchesSmartFilter && matchesQuery
+    }
+
+    val vipProfiles: StateFlow<List<GalleryImage>> = combine(
+        galleryState,
+        filterInputsFlow,
+    ) { state, inputs ->
+        val items = (state as? UiState.Success)?.data ?: return@combine emptyList()
+        val allVips = items.filter { it.tier == ProfileTier.VIP_16_9 }
+        val filteredVips = allVips.filter { matchesProfileFilters(it, inputs) }
+        val result = if (
+            filteredVips.isEmpty() &&
+            inputs.query.isBlank() &&
+            inputs.smartFilter == FILTER_ALL &&
+            inputs.category == CATEGORY_ALL
+        ) {
+            allVips
+        } else {
+            filteredVips
+        }
+        result.sortedWith(
+            compareByDescending<GalleryImage> {
+                nearbyMatchScore(it, inputs.userCity, inputs.userAddress)
+            }.thenByDescending {
+                it.createdAt?.seconds ?: 0L
+            }
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = emptyList(),
+    )
+
     val filteredGridProfiles: StateFlow<UiState<List<GalleryImage>>> = combine(
         galleryState,
         filterInputsFlow,
@@ -399,39 +443,8 @@ class GalleryViewModel(
             is UiState.Loading -> UiState.Loading
             is UiState.Error -> state
             is UiState.Success -> {
-                val category = inputs.category
-                val smartFilter = inputs.smartFilter
-                val trimmedQuery = inputs.query.trim().lowercase()
                 val nonVipOnly = state.data.filter { it.tier != ProfileTier.VIP_16_9 }
-                val baseList = if (category == CATEGORY_ALL && smartFilter == FILTER_ALL && trimmedQuery.isEmpty()) {
-                    if (nonVipOnly.size >= 4) nonVipOnly else state.data
-                } else {
-                    state.data
-                }
-                val filtered = baseList.filter { item ->
-                    val matchesCategory = when {
-                        category == CATEGORY_ALL -> true
-                        category.equals("GF", true) || category.equals("BF", true) ->
-                            item.role.equals(category, ignoreCase = true)
-                        else -> item.category.equals(category, ignoreCase = true) ||
-                            item.tags.any { it.equals(category, ignoreCase = true) }
-                    }
-                    val matchesSmartFilter = matchesSmartFilter(
-                        item = item,
-                        filter = smartFilter,
-                        userCity = inputs.userCity,
-                        userAddress = inputs.userAddress,
-                    )
-                    val matchesQuery = trimmedQuery.isEmpty() ||
-                        item.title.lowercase().contains(trimmedQuery) ||
-                        item.description.lowercase().contains(trimmedQuery) ||
-                        item.category.lowercase().contains(trimmedQuery) ||
-                        item.city.lowercase().contains(trimmedQuery) ||
-                        item.role.lowercase().contains(trimmedQuery) ||
-                        item.price.lowercase().contains(trimmedQuery) ||
-                        item.tags.any { it.lowercase().contains(trimmedQuery) }
-                    matchesCategory && matchesSmartFilter && matchesQuery
-                }
+                val filtered = nonVipOnly.filter { matchesProfileFilters(it, inputs) }
 
                 // Nearby profiles matching user's city/address ALWAYS appear first
                 val prioritized = filtered.sortedWith(

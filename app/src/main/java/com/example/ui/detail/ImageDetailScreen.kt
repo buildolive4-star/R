@@ -87,6 +87,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.GalleryImage
+import com.example.data.model.ProfileTier
+import com.example.ui.components.Animated3DMascotOrb
+import com.example.ui.components.CupidLikeSuccessOverlay
+import com.example.ui.components.DateMate3DGlowingButton
+import com.example.ui.components.DateMate3DGlowingIconButton
+import com.example.ui.components.DateMateMascot
+import com.example.ui.components.GlowButtonStyle
 import com.example.ui.components.PixoraBlurredImage
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
@@ -121,6 +128,14 @@ fun ImageDetailScreen(
         pageCount = { photoUrls.size.coerceAtLeast(1) }
     )
     val isBookmarked = bookmarkedIds.contains(profile.id)
+    var cupidCelebrationName by remember { mutableStateOf<String?>(null) }
+    val handleLikeToggle: () -> Unit = {
+        val wasBookmarked = bookmarkedIds.contains(profile.id)
+        onToggleBookmark(profile)
+        if (!wasBookmarked) {
+            cupidCelebrationName = profile.title
+        }
+    }
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -240,57 +255,34 @@ fun ImageDetailScreen(
                                         val nextIdx = profile.unopenedPhotoIndices(nowMs).firstOrNull()
                                         if (nextIdx != null) {
                                             Spacer(modifier = Modifier.height(14.dp))
-                                            Button(
+                                            DateMate3DGlowingButton(
+                                                text = "Go to Photo ${nextIdx + 1} ($unopenedCount Left)",
                                                 onClick = { scope.launch { pagerState.animateScrollToPage(nextIdx) } },
-                                                shape = RoundedCornerShape(14.dp),
+                                                style = GlowButtonStyle.ROYAL_GOLD,
+                                                leadingIcon = Icons.Rounded.Swipe,
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .height(48.dp)
-                                                    .minimumInteractiveComponentSize()
                                                     .testTag("detail_open_next_photo_button")
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.Swipe,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text("Go to Photo ${nextIdx + 1} ($unopenedCount Left)")
-                                            }
+                                            )
                                         }
                                     }
                                     Spacer(modifier = Modifier.height(12.dp))
-                                    Button(
+                                    DateMate3DGlowingButton(
+                                        text = "Chat",
                                         onClick = { onChatClick(profile) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63)),
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(48.dp)
-                                            .minimumInteractiveComponentSize()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Rounded.Chat,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Chat", color = Color.White, fontWeight = FontWeight.Bold)
-                                    }
+                                        style = GlowButtonStyle.ROSE_PINK,
+                                        leadingIcon = Icons.AutoMirrored.Rounded.Chat,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    OutlinedButton(
+                                    DateMate3DGlowingButton(
+                                        text = stringResource(R.string.back),
                                         onClick = onBack,
-                                        shape = RoundedCornerShape(14.dp),
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                                        style = GlowButtonStyle.GLASS_SOFT,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(46.dp)
-                                            .minimumInteractiveComponentSize()
                                             .testTag("detail_expired_back_button")
-                                    ) {
-                                        Text(text = stringResource(R.string.back), color = Color.White)
-                                    }
+                                    )
                                 }
                             }
                         }
@@ -357,30 +349,19 @@ fun ImageDetailScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
                                 PriceBadgePill(price = profile.displayPrice)
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Button(
+                                DateMate3DGlowingButton(
+                                    text = if (photoUrls.size > 1) {
+                                        "Reveal Photo ${page + 1} (40s)"
+                                    } else {
+                                        "${stringResource(R.string.reveal_photo_button)} (40s)"
+                                    },
                                     onClick = { onRevealHiddenImage(profile, page) },
-                                    shape = RoundedCornerShape(16.dp),
+                                    style = GlowButtonStyle.ROYAL_GOLD,
+                                    leadingIcon = Icons.Rounded.Visibility,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(52.dp)
-                                        .minimumInteractiveComponentSize()
                                         .testTag("detail_reveal_hidden_button_$page")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Visibility,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = if (photoUrls.size > 1) {
-                                            "Reveal Photo ${page + 1} (40s)"
-                                        } else {
-                                            "${stringResource(R.string.reveal_photo_button)} (40s)"
-                                        },
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                )
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = if (photoUrls.size > 1) {
@@ -567,24 +548,17 @@ fun ImageDetailScreen(
                     }
 
                     if (!currentExpired) {
-                        IconButton(
-                            onClick = { onToggleBookmark(profile) },
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .clip(CircleShape)
-                                .background(
-                                    if (isBookmarked) Color(0xFFE91E63) else Color(0xAA1D1220)
-                                )
-                                .testTag("detail_bookmark_button")
-                        ) {
-                            Icon(
-                                imageVector = if (isBookmarked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
-                                contentDescription = stringResource(
-                                    if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
-                                ),
-                                tint = Color.White
-                            )
-                        }
+                        DateMate3DGlowingIconButton(
+                            icon = if (isBookmarked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = stringResource(
+                                if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
+                            ),
+                            onClick = handleLikeToggle,
+                            style = if (isBookmarked) GlowButtonStyle.ROSE_PINK else GlowButtonStyle.GLASS_SOFT,
+                            size = 44.dp,
+                            iconSize = 20.dp,
+                            modifier = Modifier.testTag("detail_bookmark_button")
+                        )
                     } else {
                         Spacer(modifier = Modifier.size(48.dp))
                     }
@@ -719,6 +693,14 @@ fun ImageDetailScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.weight(1f)
                             ) {
+                                if (profile.tier == ProfileTier.VIP_16_9) {
+                                    Animated3DMascotOrb(
+                                        mascot = DateMateMascot.ROYAL_MATE,
+                                        size = 34.dp,
+                                        showOrbitSparkles = false,
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                }
                                 Text(
                                     text = "${profile.title}, ${profile.age}",
                                     style = MaterialTheme.typography.headlineSmall,
@@ -859,65 +841,36 @@ fun ImageDetailScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Surface(
-                                onClick = { onToggleBookmark(profile) },
-                                shape = RoundedCornerShape(16.dp),
-                                color = if (isBookmarked) Color(0xFFE91E63) else Color(0x33FFFFFF),
-                                border = BorderStroke(1.dp, Color(0x66FF6F9C)),
-                                modifier = Modifier
-                                    .height(50.dp)
-                                    .minimumInteractiveComponentSize()
-                                    .testTag("detail_bottom_like_button")
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (isBookmarked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
-                                        contentDescription = "Like",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = if (isBookmarked) "Liked" else "Like",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                }
-                            }
+                            DateMate3DGlowingButton(
+                                text = if (isBookmarked) "Liked" else "Like",
+                                onClick = handleLikeToggle,
+                                style = if (isBookmarked) GlowButtonStyle.ROSE_PINK else GlowButtonStyle.GLASS_SOFT,
+                                leadingIcon = if (isBookmarked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
+                                compact = true,
+                                cornerRadius = 16.dp,
+                                modifier = Modifier.testTag("detail_bottom_like_button")
+                            )
 
-                            Button(
+                            DateMate3DGlowingButton(
+                                text = "Chat",
                                 onClick = { onChatClick(profile) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE91E63)),
-                                shape = RoundedCornerShape(16.dp),
+                                style = GlowButtonStyle.ROSE_PINK,
+                                leadingIcon = Icons.AutoMirrored.Rounded.Chat,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(50.dp)
-                                    .minimumInteractiveComponentSize()
                                     .testTag("detail_whatsapp_chat_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.Chat,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Chat",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
+                            )
                         }
                     }
                 }
             }
         }
+
+        // Animated 3D Cupid Like Success Celebration Overlay
+        CupidLikeSuccessOverlay(
+            likedProfileName = cupidCelebrationName,
+            onFinished = { cupidCelebrationName = null },
+            modifier = Modifier.align(Alignment.Center)
+        )
     }
 }

@@ -516,43 +516,19 @@ fun WhatsAppChatPillButton(
     compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
+    DateMate3DGlowingButton(
+        text = "Chat",
         onClick = onClick,
-        shape = CircleShape,
-        color = Color(0xFFE91E63),
-        contentColor = Color.White,
-        shadowElevation = 6.dp,
-        border = BorderStroke(1.dp, Color(0x66FFFFFF)),
-        modifier = modifier.minimumInteractiveComponentSize()
-    ) {
-        Row(
-            modifier = Modifier
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(Color(0xFFE91E63), Color(0xFFFF6F9C))
-                    )
-                )
-                .padding(
-                    horizontal = if (compact) 11.dp else 14.dp,
-                    vertical = if (compact) 6.dp else 9.dp
-                ),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.Chat,
-                contentDescription = "Chat",
-                tint = Color.White,
-                modifier = Modifier.size(if (compact) 14.dp else 17.dp)
-            )
-            Spacer(modifier = Modifier.width(5.dp))
-            Text(
-                text = "Chat",
-                style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-        }
-    }
+        style = GlowButtonStyle.ROSE_PINK,
+        leadingIcon = Icons.AutoMirrored.Rounded.Chat,
+        compact = compact,
+        cornerRadius = 999.dp,
+        contentPadding = PaddingValues(
+            horizontal = if (compact) 11.dp else 15.dp,
+            vertical = if (compact) 6.dp else 9.dp
+        ),
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -1111,34 +1087,26 @@ fun EmptyGalleryState(
     subtitle: String,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
+    mascot: DateMateMascot = DateMateMascot.LOVE_MATE,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
+            .padding(horizontal = 24.dp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)),
-            shadowElevation = 6.dp,
-            modifier = Modifier.size(width = 180.dp, height = 135.dp)
-        ) {
-            Image(
-                painter = painterResource(R.drawable.img_empty_moments),
-                contentDescription = title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-        Spacer(modifier = Modifier.height(20.dp))
+        Animated3DMascotOrb(
+            mascot = mascot,
+            size = 112.dp,
+            showOrbitSparkles = true,
+        )
+        Spacer(modifier = Modifier.height(14.dp))
         Text(
             text = title,
             style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.ExtraBold,
             color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center
         )
@@ -1152,13 +1120,13 @@ fun EmptyGalleryState(
         )
         if (actionLabel != null && onAction != null) {
             Spacer(modifier = Modifier.height(18.dp))
-            OutlinedButton(
+            DateMate3DGlowingButton(
+                text = actionLabel,
                 onClick = onAction,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.minimumInteractiveComponentSize()
-            ) {
-                Text(text = actionLabel)
-            }
+                style = GlowButtonStyle.ROSE_PINK,
+                compact = true,
+                modifier = Modifier.widthIn(min = 160.dp)
+            )
         }
     }
 }
@@ -1170,7 +1138,7 @@ fun ErrorStateCard(
     modifier: Modifier = Modifier,
 ) {
     Card(
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
         ),
@@ -1198,13 +1166,12 @@ fun ErrorStateCard(
             )
             if (onRetry != null) {
                 Spacer(modifier = Modifier.height(14.dp))
-                Button(
+                DateMate3DGlowingButton(
+                    text = stringResource(R.string.error_retry),
                     onClick = onRetry,
-                    colors = ButtonDefaults.buttonColors(containerColor = WhatsAppDarkGreen),
-                    modifier = Modifier.minimumInteractiveComponentSize()
-                ) {
-                    Text(text = stringResource(R.string.error_retry))
-                }
+                    style = GlowButtonStyle.EMERALD_CHAT,
+                    compact = true,
+                )
             }
         }
     }

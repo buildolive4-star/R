@@ -53,6 +53,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.UserAccount
+import com.example.ui.components.Animated3DMascotOrb
+import com.example.ui.components.Animated3DPageBackdrop
+import com.example.ui.components.DateMate3DGlowingButton
+import com.example.ui.components.DateMateMascot
+import com.example.ui.components.GlowButtonStyle
 import com.google.firebase.auth.FirebaseUser
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -93,7 +98,7 @@ fun SettingsScreen(
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(
@@ -105,10 +110,15 @@ fun SettingsScreen(
                     )
                 )
             )
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Animated3DPageBackdrop()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -184,26 +194,16 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = (if (hasNotificationPermission) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary)
-                                .copy(alpha = 0.16f),
-                            modifier = Modifier.size(42.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.NotificationsActive,
-                                    contentDescription = null,
-                                    tint = if (hasNotificationPermission) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(21.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Animated3DMascotOrb(
+                            mascot = DateMateMascot.SAFETY_MATE,
+                            size = 48.dp,
+                            showOrbitSparkles = true,
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = if (hasNotificationPermission) {
-                                    "Push Alerts Active (Sound + Vibration)"
+                                    "SafetyMate & Push Alerts Active"
                                 } else {
                                     stringResource(R.string.enable_alerts_title)
                                 },
@@ -231,16 +231,15 @@ fun SettingsScreen(
                     }
                     if (!hasNotificationPermission) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        Button(
+                        DateMate3DGlowingButton(
+                            text = stringResource(R.string.enable_alerts_button),
                             onClick = onRequestNotificationPermission,
-                            shape = RoundedCornerShape(14.dp),
+                            style = GlowButtonStyle.ROSE_PINK,
+                            leadingIcon = Icons.Rounded.NotificationsActive,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .minimumInteractiveComponentSize()
                                 .testTag("settings_enable_alerts_button")
-                        ) {
-                            Text(text = stringResource(R.string.enable_alerts_button))
-                        }
+                        )
                     }
                 }
             }
@@ -248,30 +247,15 @@ fun SettingsScreen(
             if (savedCount > 0) {
                 Spacer(modifier = Modifier.height(18.dp))
 
-                OutlinedButton(
+                DateMate3DGlowingButton(
+                    text = stringResource(R.string.clear_saved_button),
                     onClick = { showClearDialog = true },
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.55f)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
+                    style = GlowButtonStyle.DANGER_RED,
+                    leadingIcon = Icons.Rounded.DeleteSweep,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
-                        .minimumInteractiveComponentSize()
                         .testTag("clear_saved_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.DeleteSweep,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.clear_saved_button),
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
+                )
             }
 
             Spacer(modifier = Modifier.height(22.dp))
@@ -297,7 +281,8 @@ fun SettingsScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(96.dp))
+        }
         }
     }
 

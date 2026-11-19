@@ -75,6 +75,10 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.StaffStatus
 import com.example.data.model.UserAccount
+import com.example.ui.components.Animated3DMascotOrb
+import com.example.ui.components.DateMate3DGlowingButton
+import com.example.ui.components.DateMateMascot
+import com.example.ui.components.GlowButtonStyle
 import com.example.ui.components.PixoraNetworkImage
 import com.example.util.LocationAddressFetcher
 import com.example.util.ProfileCompletionCalculator
@@ -233,54 +237,38 @@ fun ProfileEditorSection(
         Column(modifier = Modifier.padding(16.dp)) {
             if (firebaseUser == null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                        modifier = Modifier.size(52.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Rounded.Person,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Animated3DMascotOrb(
+                        mascot = DateMateMascot.WELCOME_GIRL,
+                        size = 66.dp,
+                        showOrbitSparkles = true,
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Sign in to JustUs",
+                            text = "Welcome to DateMate",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Save your profile, share photos, open chats & apply as Staff.",
+                            text = "Sign in to save your profile, set GF/BF preference, open chats & apply as verified Staff.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
                 Spacer(modifier = Modifier.height(14.dp))
-                Button(
+                DateMate3DGlowingButton(
+                    text = "Continue with Google",
                     onClick = onSignInGoogle,
+                    style = GlowButtonStyle.ROSE_PINK,
+                    leadingIcon = Icons.AutoMirrored.Rounded.Login,
                     enabled = !isBusy,
-                    shape = RoundedCornerShape(14.dp),
+                    isLoading = isBusy,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
-                        .minimumInteractiveComponentSize()
                         .testTag("profile_google_signin_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.Login,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Continue with Google")
-                }
+                )
                 val diagInfo = remember(context) { GoogleAuthHelper.getAuthDiagnosticInfo(context) }
                 if (!diagInfo.isSha1Matched || !diagInfo.hasWebClientId) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -441,44 +429,36 @@ fun ProfileEditorSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    OutlinedButton(
+                    DateMate3DGlowingButton(
+                        text = "Avatar",
                         onClick = {
                             avatarPicker.launch(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
                         },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .minimumInteractiveComponentSize()
-                    ) {
-                        Icon(Icons.Rounded.AddAPhoto, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Avatar", maxLines = 1)
-                    }
-                    FilledTonalButton(
+                        style = GlowButtonStyle.GLASS_SOFT,
+                        leadingIcon = Icons.Rounded.AddAPhoto,
+                        compact = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    DateMate3DGlowingButton(
+                        text = if (selectedGalleryUris.isNotEmpty()) {
+                            "Photos (${selectedGalleryUris.size})"
+                        } else {
+                            "Share Photos"
+                        },
                         onClick = {
                             multiPhotoPicker.launch(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
                         },
-                        shape = RoundedCornerShape(12.dp),
+                        style = GlowButtonStyle.ROSE_PINK,
+                        leadingIcon = Icons.Rounded.Collections,
+                        compact = true,
                         modifier = Modifier
                             .weight(1.3f)
-                            .minimumInteractiveComponentSize()
                             .testTag("profile_gallery_picker")
-                    ) {
-                        Icon(Icons.Rounded.Collections, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (selectedGalleryUris.isNotEmpty()) {
-                                "Photos (${selectedGalleryUris.size})"
-                            } else {
-                                "Share Photos"
-                            },
-                            maxLines = 1
-                        )
-                    }
+                    )
                 }
 
                 val savedPhotos = userAccount?.galleryUrls.orEmpty()
@@ -564,31 +544,16 @@ fun ProfileEditorSection(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    FilledTonalButton(
+                    DateMate3DGlowingButton(
+                        text = if (isFetchingLocation) "Fetching…" else "Auto-Fetch Address",
                         onClick = { triggerAutoFetchAddress() },
+                        style = GlowButtonStyle.GLASS_SOFT,
+                        leadingIcon = Icons.Rounded.MyLocation,
                         enabled = !isFetchingLocation,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("profile_autofetch_address_button")
-                    ) {
-                        if (isFetchingLocation) {
-                            CircularProgressIndicator(
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Fetching…", style = MaterialTheme.typography.labelMedium)
-                        } else {
-                            Icon(
-                                imageVector = Icons.Rounded.MyLocation,
-                                contentDescription = "Auto-fetch current address",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Auto-Fetch Address", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
+                        isLoading = isFetchingLocation,
+                        compact = true,
+                        modifier = Modifier.testTag("profile_autofetch_address_button")
+                    )
                 }
                 if (!locationStatusHint.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -686,7 +651,8 @@ fun ProfileEditorSection(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                Button(
+                DateMate3DGlowingButton(
+                    text = if (isBusy) "Saving…" else "Save Profile",
                     onClick = {
                         onSaveProfile(
                             name,
@@ -703,28 +669,14 @@ fun ProfileEditorSection(
                         selectedAvatarUri = null
                         selectedGalleryUris = emptyList()
                     },
+                    style = GlowButtonStyle.ROSE_PINK,
+                    leadingIcon = Icons.Rounded.Save,
                     enabled = !isBusy,
-                    shape = RoundedCornerShape(14.dp),
+                    isLoading = isBusy,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
-                        .minimumInteractiveComponentSize()
                         .testTag("profile_save_button")
-                ) {
-                    if (isBusy) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Saving…")
-                    } else {
-                        Icon(Icons.Rounded.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Save Profile")
-                    }
-                }
+                )
             }
         }
     }
@@ -757,25 +709,12 @@ fun ProfileEditorSection(
                     .fillMaxWidth()
                     .clickable { showJoinDateMateForm = !showJoinDateMateForm }
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                    modifier = Modifier.size(46.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = when (status) {
-                                StaffStatus.APPROVED -> Icons.Rounded.Verified
-                                StaffStatus.PENDING -> Icons.Rounded.HourglassTop
-                                else -> Icons.Rounded.AutoAwesome
-                            },
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(12.dp))
+                Animated3DMascotOrb(
+                    mascot = DateMateMascot.SAFETY_MATE,
+                    size = 54.dp,
+                    showOrbitSparkles = true,
+                )
+                Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Join DateMate",
@@ -842,7 +781,8 @@ fun ProfileEditorSection(
                 else -> {
                     Spacer(modifier = Modifier.height(12.dp))
                     if (!showJoinDateMateForm) {
-                        Button(
+                        DateMate3DGlowingButton(
+                            text = if (firebaseUser == null) "Sign In to Join DateMate" else "Join DateMate · Apply as Verified Staff",
                             onClick = {
                                 if (firebaseUser == null) {
                                     onSignInGoogle()
@@ -850,24 +790,12 @@ fun ProfileEditorSection(
                                     showJoinDateMateForm = true
                                 }
                             },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            ),
+                            style = GlowButtonStyle.ROYAL_GOLD,
+                            leadingIcon = Icons.Rounded.AutoAwesome,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp)
-                                .minimumInteractiveComponentSize()
                                 .testTag("join_datemate_open_button")
-                        ) {
-                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (firebaseUser == null) "Sign In to Join DateMate" else "Join DateMate · Apply as Verified Staff",
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        )
                     } else {
                         Surface(
                             shape = RoundedCornerShape(16.dp),
@@ -922,32 +850,17 @@ fun ProfileEditorSection(
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))
-                                FilledTonalButton(
+                                DateMate3DGlowingButton(
+                                    text = if (isFetchingLocation) "Detecting Current Address…" else "Auto-Fetch City & Address",
                                     onClick = { triggerAutoFetchAddress() },
+                                    style = GlowButtonStyle.GLASS_SOFT,
+                                    leadingIcon = Icons.Rounded.MyLocation,
                                     enabled = !isFetchingLocation,
-                                    shape = RoundedCornerShape(12.dp),
+                                    isLoading = isFetchingLocation,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .minimumInteractiveComponentSize()
                                         .testTag("join_autofetch_address_button")
-                                ) {
-                                    if (isFetchingLocation) {
-                                        CircularProgressIndicator(
-                                            strokeWidth = 2.dp,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Detecting Current Address…")
-                                    } else {
-                                        Icon(
-                                            imageVector = Icons.Rounded.MyLocation,
-                                            contentDescription = "Auto-fetch current address",
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Auto-Fetch City & Address")
-                                    }
-                                }
+                                )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1043,7 +956,8 @@ fun ProfileEditorSection(
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                Button(
+                                DateMate3DGlowingButton(
+                                    text = "Submit Info for Admin Verification & Chat Approval",
                                     onClick = {
                                         if (firebaseUser == null) {
                                             onSignInGoogle()
@@ -1063,25 +977,14 @@ fun ProfileEditorSection(
                                             onApplyForStaff(staffRole, staffPrice)
                                         }
                                     },
+                                    style = GlowButtonStyle.EMERALD_CHAT,
+                                    leadingIcon = Icons.Rounded.Verified,
                                     enabled = !isBusy,
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                    ),
-                                    shape = RoundedCornerShape(14.dp),
+                                    isLoading = isBusy,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(50.dp)
-                                        .minimumInteractiveComponentSize()
                                         .testTag("apply_become_staff_button")
-                                ) {
-                                    Icon(Icons.Rounded.Verified, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "Submit Info for Admin Verification & Chat Approval",
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                )
                             }
                         }
                     }

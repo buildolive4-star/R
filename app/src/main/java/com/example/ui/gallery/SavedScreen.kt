@@ -39,9 +39,15 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.width
 import com.example.R
 import com.example.data.model.SavedBookmark
+import com.example.ui.components.Animated3DMascotOrb
+import com.example.ui.components.Animated3DPageBackdrop
+import com.example.ui.components.DateMate3DGlowingIconButton
+import com.example.ui.components.DateMateMascot
 import com.example.ui.components.EmptyGalleryState
+import com.example.ui.components.GlowButtonStyle
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
 
@@ -52,7 +58,7 @@ fun SavedScreen(
     onRemoveBookmark: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(
@@ -65,49 +71,65 @@ fun SavedScreen(
                 )
             )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.nav_saved),
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Text(
-                text = "${bookmarks.size} · ${stringResource(R.string.saved_count_label)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        if (bookmarks.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                EmptyGalleryState(
-                    title = stringResource(R.string.empty_saved_title),
-                    subtitle = stringResource(R.string.empty_saved_subtitle),
-                )
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 160.dp),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+        Animated3DPageBackdrop(
+            primaryOrbColor = Color(0xFFFFB300),
+            secondaryOrbColor = Color(0xFFFF4081),
+        )
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .testTag("saved_bookmarks_grid")
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
-                items(bookmarks, key = { it.imageId }) { bookmark ->
-                    BookmarkTile(
-                        bookmark = bookmark,
-                        onClick = { onOpenImageId(bookmark.imageId) },
-                        onRemove = { onRemoveBookmark(bookmark.imageId) }
+                Animated3DMascotOrb(
+                    mascot = DateMateMascot.ROYAL_MATE,
+                    size = 46.dp,
+                    showOrbitSparkles = true,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = stringResource(R.string.nav_saved),
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
+                    Text(
+                        text = "${bookmarks.size} · ${stringResource(R.string.saved_count_label)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (bookmarks.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    EmptyGalleryState(
+                        title = stringResource(R.string.empty_saved_title),
+                        subtitle = stringResource(R.string.empty_saved_subtitle),
+                        mascot = DateMateMascot.CUPID,
+                    )
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 160.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 104.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("saved_bookmarks_grid")
+                ) {
+                    items(bookmarks, key = { it.imageId }) { bookmark ->
+                        BookmarkTile(
+                            bookmark = bookmark,
+                            onClick = { onOpenImageId(bookmark.imageId) },
+                            onRemove = { onRemoveBookmark(bookmark.imageId) }
+                        )
+                    }
                 }
             }
         }
@@ -154,24 +176,18 @@ private fun BookmarkTile(
                     )
             )
 
-            IconButton(
+            DateMate3DGlowingIconButton(
+                icon = Icons.Rounded.Favorite,
+                contentDescription = stringResource(R.string.bookmark_remove),
                 onClick = onRemove,
+                style = GlowButtonStyle.ROSE_PINK,
+                size = 38.dp,
+                iconSize = 18.dp,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(6.dp)
-                    .minimumInteractiveComponentSize()
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFE91E63))
                     .testTag("remove_saved_${bookmark.imageId}")
-            ) {
-                Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Rounded.Favorite,
-                    contentDescription = stringResource(R.string.bookmark_remove),
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+            )
 
             Column(
                 modifier = Modifier

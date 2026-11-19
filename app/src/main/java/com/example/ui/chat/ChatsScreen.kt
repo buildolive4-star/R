@@ -69,7 +69,12 @@ import com.example.data.model.PresenceStatus
 import com.example.data.model.StaffStatus
 import com.example.data.model.UserAccount
 import com.example.data.repository.UserCrmRepository
+import com.example.ui.components.Animated3DMascotOrb
+import com.example.ui.components.Animated3DPageBackdrop
+import com.example.ui.components.DateMate3DGlowingButton
+import com.example.ui.components.DateMateMascot
 import com.example.ui.components.EmptyGalleryState
+import com.example.ui.components.GlowButtonStyle
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
 import com.example.ui.theme.OnlineEmeraldDot
@@ -95,7 +100,7 @@ fun ChatsScreen(
     var selectedTab by remember { mutableStateOf(ChatsSubTab.MY_INQUIRIES) }
     var pendingDeleteTarget by remember { mutableStateOf<Pair<String, String>?>(null) }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(
@@ -108,28 +113,41 @@ fun ChatsScreen(
                 )
             )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        Animated3DPageBackdrop()
+        Column(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.chats_title),
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text(
-                        text = stringResource(R.string.chats_subtitle),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Animated3DMascotOrb(
+                            mascot = DateMateMascot.CHAT_MATE,
+                            size = 44.dp,
+                            showOrbitSparkles = true,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.chats_title),
+                                style = MaterialTheme.typography.headlineLarge,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = stringResource(R.string.chats_subtitle),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 if (isApprovedStaff) {
                     Surface(
                         shape = RoundedCornerShape(50),
@@ -226,6 +244,7 @@ fun ChatsScreen(
                         EmptyGalleryState(
                             title = stringResource(R.string.chats_empty_title),
                             subtitle = stringResource(R.string.chats_empty_subtitle),
+                            mascot = DateMateMascot.CHAT_MATE,
                         )
                     }
                 } else {
@@ -330,7 +349,8 @@ fun ChatsScreen(
                             item(key = "staff_empty") {
                                 EmptyGalleryState(
                                     title = "No Client Messages Yet",
-                                    subtitle = "When users message your verified profile, their inquiries will appear right here."
+                                    subtitle = "When users message your verified profile, their inquiries will appear right here.",
+                                    mascot = DateMateMascot.CHAT_MATE,
                                 )
                             }
                         } else {
@@ -352,6 +372,7 @@ fun ChatsScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -536,25 +557,12 @@ private fun StaffInboxLockedCard(
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                    modifier = Modifier.size(64.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (staffStatus == StaffStatus.PENDING) {
-                                Icons.Rounded.NotificationsActive
-                            } else {
-                                Icons.Rounded.Lock
-                            },
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(30.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(14.dp))
+                Animated3DMascotOrb(
+                    mascot = DateMateMascot.SAFETY_MATE,
+                    size = 82.dp,
+                    showOrbitSparkles = true,
+                )
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = if (staffStatus == StaffStatus.PENDING) {
                         "Join DateMate Verification Pending"
@@ -578,23 +586,19 @@ private fun StaffInboxLockedCard(
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(18.dp))
-                Button(
+                DateMate3DGlowingButton(
+                    text = if (staffStatus == StaffStatus.PENDING) {
+                        "View Join DateMate Status"
+                    } else {
+                        "Join DateMate in Profile"
+                    },
                     onClick = onGoToProfile,
-                    shape = RoundedCornerShape(14.dp),
+                    style = GlowButtonStyle.ROSE_PINK,
+                    leadingIcon = if (staffStatus == StaffStatus.PENDING) Icons.Rounded.NotificationsActive else Icons.Rounded.Shield,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
-                        .minimumInteractiveComponentSize()
                         .testTag("staff_locked_go_profile_button")
-                ) {
-                    Text(
-                        text = if (staffStatus == StaffStatus.PENDING) {
-                            "View Join DateMate Status"
-                        } else {
-                            "Join DateMate in Profile"
-                        }
-                    )
-                }
+                )
             }
         }
     }

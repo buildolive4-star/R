@@ -61,6 +61,10 @@ import com.example.R
 import com.example.data.firebase.GoogleAuthHelper
 import com.example.data.model.GalleryImage
 import com.example.data.model.UserAccount
+import com.example.ui.components.Animated3DMascotOrb
+import com.example.ui.components.DateMate3DGlowingButton
+import com.example.ui.components.DateMateMascot
+import com.example.ui.components.GlowButtonStyle
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
 import com.example.ui.theme.WhatsAppGreen
@@ -194,17 +198,28 @@ fun ChatOnboardingSheet(
             Spacer(modifier = Modifier.height(10.dp))
 
             Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = stringResource(R.string.chat_onboarding_subtitle, targetProfile.title),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(12.dp)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Animated3DMascotOrb(
+                        mascot = DateMateMascot.WELCOME_GIRL,
+                        size = 54.dp,
+                        showOrbitSparkles = true,
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = stringResource(R.string.chat_onboarding_subtitle, targetProfile.title),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -268,31 +283,16 @@ fun ChatOnboardingSheet(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                FilledTonalButton(
+                DateMate3DGlowingButton(
+                    text = if (isFetchingAddress) "Fetching…" else "Auto-Fetch Address",
                     onClick = { triggerAutoFetchAddress() },
+                    style = GlowButtonStyle.GLASS_SOFT,
+                    leadingIcon = Icons.Rounded.MyLocation,
                     enabled = !isFetchingAddress,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .testTag("onboarding_autofetch_address_button")
-                ) {
-                    if (isFetchingAddress) {
-                        CircularProgressIndicator(
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Fetching…", style = MaterialTheme.typography.labelMedium)
-                    } else {
-                        Icon(
-                            imageVector = Icons.Rounded.MyLocation,
-                            contentDescription = "Auto-fetch current address",
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Auto-Fetch Address", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
+                    isLoading = isFetchingAddress,
+                    compact = true,
+                    modifier = Modifier.testTag("onboarding_autofetch_address_button")
+                )
             }
             if (!locationHint.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
@@ -342,45 +342,23 @@ fun ChatOnboardingSheet(
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
-            Button(
+            DateMate3DGlowingButton(
+                text = if (isBusy) {
+                    "Connecting…"
+                } else if (isSignedIn) {
+                    "Save & Open Chat"
+                } else {
+                    "Sign in with Google & Chat"
+                },
                 onClick = { onSubmit(name, phone, ageText, address) },
+                style = GlowButtonStyle.EMERALD_CHAT,
+                leadingIcon = Icons.AutoMirrored.Rounded.Chat,
                 enabled = !isBusy,
-                colors = ButtonDefaults.buttonColors(containerColor = WhatsAppGreen),
-                shape = RoundedCornerShape(16.dp),
+                isLoading = isBusy,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(54.dp)
-                    .minimumInteractiveComponentSize()
                     .testTag("onboarding_submit_button")
-            ) {
-                if (isBusy) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(text = "Connecting…", color = Color.White)
-                } else {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.Chat,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isSignedIn) {
-                            "Save & Open Chat"
-                        } else {
-                            "Sign in with Google & Chat"
-                        },
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-            }
+            )
 
             if (!isSignedIn) {
                 val diagInfo = remember(context) { GoogleAuthHelper.getAuthDiagnosticInfo(context) }

@@ -62,6 +62,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -82,9 +83,15 @@ import androidx.core.content.ContextCompat
 import com.example.R
 import com.example.data.model.GalleryImage
 import com.example.data.model.UiState
+import com.example.ui.components.Animated3DMascotOrb
+import com.example.ui.components.Animated3DPageBackdrop
+import com.example.ui.components.CupidLikeSuccessOverlay
+import com.example.ui.components.DateMate3DGlowingIconButton
+import com.example.ui.components.DateMateMascot
 import com.example.ui.components.EmptyGalleryState
 import com.example.ui.components.ErrorStateCard
 import com.example.ui.components.GalleryGridCard
+import com.example.ui.components.GlowButtonStyle
 import com.example.ui.components.ShimmerBox
 import com.example.ui.components.VipShowcaseCarousel
 import com.example.ui.datemate.Floating3DHeartsBackground
@@ -127,6 +134,15 @@ fun ExploreScreen(
     val allProfiles = (galleryState as? UiState.Success)?.data.orEmpty()
     val totalCount = allProfiles.size
     val context = LocalContext.current
+    var cupidCelebrationName by remember { mutableStateOf<String?>(null) }
+
+    val handleLikeToggle: (GalleryImage) -> Unit = { img ->
+        val wasBookmarked = bookmarkedIds.contains(img.id)
+        onToggleBookmark(img)
+        if (!wasBookmarked) {
+            cupidCelebrationName = img.title
+        }
+    }
 
     val pushPermLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -157,7 +173,8 @@ fun ExploreScreen(
                 )
             )
     ) {
-        // Subtle 3D floating glowing hearts in background
+        // Animated 3D aurora orbs + floating glowing hearts backdrop
+        Animated3DPageBackdrop()
         Floating3DHeartsBackground(heartCount = 8)
 
         when (filteredGridState) {
@@ -186,6 +203,28 @@ fun ExploreScreen(
                             userCity = userCity,
                             userGenderPreference = userGenderPreference,
                         )
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "loading_lovemate") {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Animated3DMascotOrb(
+                                mascot = DateMateMascot.LOVE_MATE,
+                                size = 56.dp,
+                                showOrbitSparkles = true,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "LoveMate is loading nearby 3D matches…",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = DateMatePrimaryPink
+                            )
+                        }
                     }
                     items(4) {
                         ShimmerBox(
@@ -227,11 +266,8 @@ fun ExploreScreen(
 
             is UiState.Success -> {
                 val gridProfiles = filteredGridState.data
-                // VIP 16:9 Spotlight ONLY shows when Admin Panel uploads VIP profiles
-                val showVipCarousel = vipProfiles.isNotEmpty() &&
-                    selectedCategory == GalleryViewModel.CATEGORY_ALL &&
-                    selectedSmartFilter == GalleryViewModel.FILTER_ALL &&
-                    searchQuery.isBlank()
+                // VIP 16:9 Spotlight shows whenever Admin Panel has uploaded matching VIP 16:9 profiles
+                val showVipCarousel = vipProfiles.isNotEmpty()
 
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
@@ -278,21 +314,12 @@ fun ExploreScreen(
                                     .padding(top = 2.dp, bottom = 2.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = DateMateSoftBlush,
-                                        modifier = Modifier.size(30.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.AutoAwesome,
-                                                contentDescription = null,
-                                                tint = DateMatePrimaryPink,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Animated3DMascotOrb(
+                                        mascot = DateMateMascot.ROYAL_MATE,
+                                        size = 40.dp,
+                                        showOrbitSparkles = true,
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Column {
                                         Text(
                                             text = stringResource(R.string.vip_showcase_title),
@@ -301,7 +328,7 @@ fun ExploreScreen(
                                             color = DateMateDarkText
                                         )
                                         Text(
-                                            text = "16:9 Exclusive Admin Spotlights",
+                                            text = "RoyalMate · 16:9 Exclusive Spotlights",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = DateMateSecondaryText
                                         )
@@ -313,7 +340,7 @@ fun ExploreScreen(
                                     border = BorderStroke(1.dp, DateMatePrimaryPink.copy(alpha = 0.4f)),
                                 ) {
                                     Text(
-                                        text = "${vipProfiles.size} VIP",
+                                        text = "👑 ${vipProfiles.size} VIP",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = DateMatePrimaryPink,
@@ -328,7 +355,7 @@ fun ExploreScreen(
                                 bookmarkedIds = bookmarkedIds,
                                 onProfileClick = onProfileClick,
                                 onChatClick = onChatClick,
-                                onToggleBookmark = onToggleBookmark,
+                                onToggleBookmark = handleLikeToggle,
                                 modifier = Modifier.padding(bottom = 4.dp)
                             )
                         }
@@ -341,14 +368,16 @@ fun ExploreScreen(
                                     title = stringResource(R.string.empty_gallery_title),
                                     subtitle = stringResource(R.string.empty_gallery_subtitle),
                                     actionLabel = stringResource(R.string.check_now_button),
-                                    onAction = onCheckNow
+                                    onAction = onCheckNow,
+                                    mascot = DateMateMascot.LOVE_MATE,
                                 )
                             } else {
                                 EmptyGalleryState(
                                     title = stringResource(R.string.empty_search_title),
                                     subtitle = stringResource(R.string.empty_search_subtitle),
                                     actionLabel = stringResource(R.string.reset_filters),
-                                    onAction = onResetFilters
+                                    onAction = onResetFilters,
+                                    mascot = DateMateMascot.CUPID,
                                 )
                             }
                         }
@@ -361,23 +390,35 @@ fun ExploreScreen(
                                     .fillMaxWidth()
                                     .padding(top = 2.dp)
                             ) {
-                                Column {
-                                    Text(
-                                        text = "${stringResource(R.string.grid_companions_title)} (${gridProfiles.size})",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = DateMateDarkText
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Animated3DMascotOrb(
+                                        mascot = DateMateMascot.CUPID,
+                                        size = 38.dp,
+                                        showOrbitSparkles = true,
                                     )
-                                    Text(
-                                        text = if (userCity.isNotBlank()) {
-                                            "Showing nearby $userCity matches first · 3D Glow"
-                                        } else {
-                                            "Set city & GF/BF preference in Profile for nearby matches"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = DateMateSecondaryText
-                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Column {
+                                        Text(
+                                            text = "${stringResource(R.string.grid_companions_title)} (${gridProfiles.size})",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = DateMateDarkText
+                                        )
+                                        Text(
+                                            text = if (userCity.isNotBlank()) {
+                                                "Cupid picks near $userCity · 3D Glow"
+                                            } else {
+                                                "Set city & GF/BF preference in Profile for nearby matches"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = DateMateSecondaryText
+                                        )
+                                    }
                                 }
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Surface(
                                     shape = RoundedCornerShape(999.dp),
                                     color = DateMateSoftBlush,
@@ -403,13 +444,20 @@ fun ExploreScreen(
                                 isNearby = isNearby,
                                 onClick = { onProfileClick(profile) },
                                 onChatClick = { onChatClick(profile) },
-                                onToggleBookmark = { onToggleBookmark(profile) }
+                                onToggleBookmark = { handleLikeToggle(profile) }
                             )
                         }
                     }
                 }
             }
         }
+
+        // Animated 3D Cupid Match / Like Success Celebration Overlay
+        CupidLikeSuccessOverlay(
+            likedProfileName = cupidCelebrationName,
+            onFinished = { cupidCelebrationName = null },
+            modifier = Modifier.align(Alignment.Center)
+        )
     }
 }
 
@@ -485,56 +533,14 @@ private fun DateMateScrollableHomeHeader(
                     )
                     .testTag("explore_brand_header")
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = DateMateWhite,
-                    shadowElevation = 12.dp,
-                    modifier = Modifier
-                        .size(46.dp)
-                        .shadow(
-                            elevation = 12.dp,
-                            shape = RoundedCornerShape(16.dp),
-                            ambientColor = DateMatePrimaryPink.copy(alpha = 0.45f),
-                            spotColor = DateMateSecondaryPink.copy(alpha = 0.55f)
-                        )
-                        .graphicsLayer {
-                            scaleX = pulseScale
-                            scaleY = pulseScale
-                        }
-                        .border(
-                            1.5.dp,
-                            Brush.linearGradient(listOf(DateMatePrimaryPink, DateMateSecondaryPink)),
-                            RoundedCornerShape(16.dp)
-                        )
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.radialGradient(
-                                    listOf(DateMateWhite, DateMateSoftBlush)
-                                )
-                            )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Favorite,
-                            contentDescription = "DateMate 3D Heart",
-                            tint = DateMatePrimaryPink,
-                            modifier = Modifier.size(26.dp)
-                        )
-                        Text(
-                            text = "DM",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = DateMateWhite,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 8.sp
-                            )
-                        )
-                    }
-                }
+                // LoveMate 3D Animated Brand Mascot in Home Header
+                Animated3DMascotOrb(
+                    mascot = DateMateMascot.LOVE_MATE,
+                    size = 48.dp,
+                    showOrbitSparkles = true,
+                )
 
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(6.dp))
 
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -593,34 +599,26 @@ private fun DateMateScrollableHomeHeader(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    onClick = onPushBellClick,
-                    shape = CircleShape,
-                    color = DateMateSoftBlush,
-                    shadowElevation = 8.dp,
-                    border = BorderStroke(1.2.dp, DateMatePrimaryPink.copy(alpha = 0.55f)),
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .size(40.dp)
-                        .testTag("home_push_bell_button")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.NotificationsActive,
-                            contentDescription = "Instant Push Notifications",
-                            tint = DateMatePrimaryPink,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(7.dp)
-                                .size(7.dp)
-                                .alpha(pulseAlpha)
-                                .clip(CircleShape)
-                                .background(DateMateSuccessGreen)
-                        )
-                    }
+                Box(contentAlignment = Alignment.Center) {
+                    DateMate3DGlowingIconButton(
+                        icon = Icons.Rounded.NotificationsActive,
+                        contentDescription = "Instant Push Notifications",
+                        onClick = onPushBellClick,
+                        style = GlowButtonStyle.ROSE_PINK,
+                        size = 42.dp,
+                        iconSize = 20.dp,
+                        modifier = Modifier.testTag("home_push_bell_button")
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 4.dp, end = 4.dp)
+                            .size(8.dp)
+                            .alpha(pulseAlpha)
+                            .clip(CircleShape)
+                            .background(DateMateSuccessGreen)
+                            .border(1.dp, Color.White, CircleShape)
+                    )
                 }
 
                 Surface(

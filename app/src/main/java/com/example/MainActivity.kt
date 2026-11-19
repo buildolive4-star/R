@@ -13,6 +13,18 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -69,7 +81,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -431,7 +446,6 @@ fun JustUsAppRoot(
 
     var showAdminPasscodeSheet by remember { mutableStateOf(false) }
     var activeBannerEvent by remember { mutableStateOf<InAppBannerEvent?>(null) }
-    var launchBannerDismissed by rememberSaveable { mutableStateOf(false) }
 
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -471,14 +485,14 @@ fun JustUsAppRoot(
 
     var hasFiredHomeWelcomePush by rememberSaveable { mutableStateOf(false) }
 
-    // 0. Request Android OS Notification Permission (if still needed) & Fire Welcome System Push Notification once 3D Welcome Screen is dismissed
-    LaunchedEffect(launchBannerDismissed) {
-        if (launchBannerDismissed && !hasFiredHomeWelcomePush) {
+    // 0. Request Android OS Notification Permission (if still needed) & Check Updates right away on launch (no blocking logo splash!)
+    LaunchedEffect(Unit) {
+        if (!hasFiredHomeWelcomePush) {
             hasFiredHomeWelcomePush = true
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !PixoraNotificationManager.hasNotificationPermission(context)) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
-            delay(650)
+            delay(850)
             viewModel.triggerBackgroundCheckNow(context)
         }
     }
@@ -710,7 +724,34 @@ fun JustUsAppRoot(
                     Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                         NavHost(
                             navController = navController,
-                            startDestination = ROUTE_EXPLORE
+                            startDestination = ROUTE_EXPLORE,
+                            enterTransition = {
+                                fadeIn(animationSpec = tween(260, easing = FastOutSlowInEasing)) +
+                                    scaleIn(initialScale = 0.96f, animationSpec = tween(280, easing = FastOutSlowInEasing)) +
+                                    slideInHorizontally(
+                                        initialOffsetX = { fullWidth -> fullWidth / 14 },
+                                        animationSpec = tween(280, easing = FastOutSlowInEasing)
+                                    )
+                            },
+                            exitTransition = {
+                                fadeOut(animationSpec = tween(200)) +
+                                    scaleOut(targetScale = 0.97f, animationSpec = tween(220))
+                            },
+                            popEnterTransition = {
+                                fadeIn(animationSpec = tween(240, easing = FastOutSlowInEasing)) +
+                                    scaleIn(initialScale = 0.96f, animationSpec = tween(260, easing = FastOutSlowInEasing)) +
+                                    slideInHorizontally(
+                                        initialOffsetX = { fullWidth -> -fullWidth / 14 },
+                                        animationSpec = tween(260, easing = FastOutSlowInEasing)
+                                    )
+                            },
+                            popExitTransition = {
+                                fadeOut(animationSpec = tween(200)) +
+                                    slideOutHorizontally(
+                                        targetOffsetX = { fullWidth -> fullWidth / 12 },
+                                        animationSpec = tween(220)
+                                    )
+                            },
                         ) {
                             composable(ROUTE_EXPLORE) {
                                 ExploreScreen(
@@ -1084,14 +1125,7 @@ fun JustUsAppRoot(
                 modifier = Modifier.align(Alignment.TopCenter)
             )
 
-            // 3D Glassmorphic Welcome Screen & 3-Second Admin Launch Info Overlay
-            val currentLaunchBanner = launchBanner
-            if (!launchBannerDismissed) {
-                LaunchBannerOverlay(
-                    banner = currentLaunchBanner,
-                    onSkip = { launchBannerDismissed = true }
-                )
-            }
+            // Note: Startup logo/welcome overlay intentionally removed so app launches straight into animated Home Screen.
 
             // Full-Screen WebRTC Voice Call Overlay
             if (activeCallUi !is ActiveCallUi.Idle) {
@@ -1171,11 +1205,27 @@ private fun DateMateLuxuryFloatingNavBar(
         Surface(
             shape = RoundedCornerShape(30.dp),
             color = DateMateWhite,
-            shadowElevation = 18.dp,
+            shadowElevation = 20.dp,
             tonalElevation = 0.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, DateMateSoftBorder, RoundedCornerShape(30.dp))
+                .shadow(
+                    elevation = 18.dp,
+                    shape = RoundedCornerShape(30.dp),
+                    ambientColor = DateMatePrimaryPink.copy(alpha = 0.25f),
+                    spotColor = DateMatePrimaryPink.copy(alpha = 0.35f),
+                )
+                .border(
+                    width = 1.4.dp,
+                    brush = Brush.horizontalGradient(
+                        listOf(
+                            DateMatePrimaryPink.copy(alpha = 0.45f),
+                            DateMateSoftBorder,
+                            DateMatePrimaryPink.copy(alpha = 0.45f),
+                        )
+                    ),
+                    shape = RoundedCornerShape(30.dp)
+                )
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1192,14 +1242,48 @@ private fun DateMateLuxuryFloatingNavBar(
                         ROUTE_SAVED -> savedCount
                         else -> 0
                     }
+                    val tabScale by animateFloatAsState(
+                        targetValue = if (selected) 1.06f else 0.96f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        ),
+                        label = "nav_tab_scale_${tab.route}"
+                    )
+                    val indicatorWidth by animateDpAsState(
+                        targetValue = if (selected) 22.dp else 0.dp,
+                        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        label = "nav_tab_bar_${tab.route}"
+                    )
 
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 50.dp)
+                            .graphicsLayer {
+                                scaleX = tabScale
+                                scaleY = tabScale
+                            }
                             .clip(RoundedCornerShape(22.dp))
-                            .background(if (selected) DateMateSoftBlush else Color.Transparent)
+                            .background(
+                                if (selected) {
+                                    Brush.verticalGradient(
+                                        listOf(DateMateSoftBlush, DateMatePrimaryPink.copy(alpha = 0.16f))
+                                    )
+                                } else {
+                                    Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
+                                }
+                            )
+                            .then(
+                                if (selected) {
+                                    Modifier.border(
+                                        1.dp,
+                                        DateMatePrimaryPink.copy(alpha = 0.35f),
+                                        RoundedCornerShape(22.dp)
+                                    )
+                                } else Modifier
+                            )
                             .clickable { onNavigate(tab.route) }
                             .testTag(tab.testTag)
                             .padding(vertical = 6.dp)
@@ -1250,9 +1334,13 @@ private fun DateMateLuxuryFloatingNavBar(
                             Spacer(modifier = Modifier.height(2.dp))
                             Box(
                                 modifier = Modifier
-                                    .size(width = if (selected) 18.dp else 0.dp, height = 3.dp)
+                                    .size(width = indicatorWidth, height = 3.dp)
                                     .clip(RoundedCornerShape(99.dp))
-                                    .background(DateMatePrimaryPink)
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(DateMatePrimaryPink, Color(0xFFFF80AB))
+                                        )
+                                    )
                             )
                         }
                     }
