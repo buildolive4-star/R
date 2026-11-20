@@ -10,6 +10,7 @@ import com.example.data.model.AppShareConfig
 import com.example.data.model.AppUpdateConfig
 import com.example.data.model.CallSession
 import com.example.data.model.CallStatus
+import com.example.data.model.CallType
 import com.example.data.model.ChatMessage
 import com.example.data.model.ChatThread
 import com.example.data.model.GalleryImage
@@ -50,7 +51,9 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.webrtc.EglBase
 import org.webrtc.PeerConnection
+import org.webrtc.VideoTrack
 import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
@@ -89,11 +92,19 @@ class SessionAndChatViewModel(
     private val _incomingCallAlert = MutableSharedFlow<CallSession>(extraBufferCapacity = 4)
     val incomingCallAlert: SharedFlow<CallSession> = _incomingCallAlert.asSharedFlow()
 
+    private val _localVideoTrack = MutableStateFlow<VideoTrack?>(null)
+    val localVideoTrack: StateFlow<VideoTrack?> = _localVideoTrack.asStateFlow()
+
+    private val _remoteVideoTrack = MutableStateFlow<VideoTrack?>(null)
+    val remoteVideoTrack: StateFlow<VideoTrack?> = _remoteVideoTrack.asStateFlow()
+
     private val ringtonePlayer: CallRingtonePlayer? = appContext?.applicationContext?.let {
         CallRingtonePlayer(it)
     }
 
     private var webRtcClient: WebRtcAudioCallClient? = null
+    private var localVideoCollectJob: Job? = null
+    private var remoteVideoCollectJob: Job? = null
     private var activeCallSessionJob: Job? = null
     private var activeIceJob: Job? = null
     private var ringTimeoutJob: Job? = null
@@ -102,6 +113,10 @@ class SessionAndChatViewModel(
     private var appliedRemoteAnswerForCallId: String? = null
     private var isMutedState = false
     private var isSpeakerState = false
+    private var isCameraOffState = false
+    private var isFrontCameraState = true
+
+    fun getActiveCallEglContext(): EglBase.Context? = webRtcClient?.eglBaseContext
 
     fun clearAuthError() {
         _authErrorMessage.value = null
@@ -194,6 +209,7 @@ class SessionAndChatViewModel(
                 ringTimeoutJob?.cancel()
                 when (ui) {
                     is ActiveCallUi.IncomingRinging -> {
+                        PixoraNotificationManager.stopBackgroundCallRinging()
                         ringtonePlayer?.startIncomingRingtone()
                         ringTimeoutJob = viewModelScope.launch {
                             delay(45_000L)
@@ -216,7 +232,10 @@ class SessionAndChatViewModel(
                             }
                         }
                     }
-                    else -> ringtonePlayer?.stopAll()
+                    else -> {
+                        PixoraNotificationManager.stopBackgroundCallRinging()
+                        ringtonePlayer?.stopAll()
+                    }
                 }
             }
         }
@@ -588,17 +607,37 @@ class SessionAndChatViewModel(
     }
 
     // =========================================================================
-    // WebRTC Voice Calling (Admin <-> User & Staff/Companion)
+    // WebRTC 1-on-1 Voice & Private HD Video Calling (Admin <-> User & Staff)
     // =========================================================================
 
-    fun startVoiceCallFromChat(context: Context, chat: ChatThread, callerRole: String) {
+    fun startVoiceCallFromChat(
+        context: Context,
+        chat: ChatThread,
+        callerRole: String,
+        isVideoCall: Boolean = false,
+        ratePerMinInr: Int = 0,
+        profileVideoCallEnabled: Boolean = true,
+    ) {
         val myUid = _firebaseUser.value?.uid
         if (myUid.isNullOrBlank()) {
-            _events.tryEmit("Please sign in with Google to place a voice call.")
+            _events.tryEmit("Please sign in with Google to place a call.")
             return
         }
         val repo = callRepository ?: return
         val account = userAccount.value
+        val isAdminCaller = callerRole == "admin" || _isVerifiedAdminForCalls.value
+
+        if (isVideoCall && !isAdminCaller) {
+            if (account?.videoCallEnabled == false) {
+                _events.tryEmit("Video Call is turned OFF for your account by Admin.")
+                return
+            }
+            if (!profileVideoCallEnabled) {
+                _events.tryEmit("Video Call is turned OFF for this profile by Admin.")
+                return
+            }
+        }
+
         val isFromAdminOrStaff = callerRole == "admin" || callerRole == "staff"
         val calleeUid = if (isFromAdminOrStaff) {
             chat.clientUid
@@ -615,17 +654,68 @@ class SessionAndChatViewModel(
             "staff" -> account?.name?.ifBlank { chat.profileName } ?: chat.profileName
             else -> account?.name?.ifBlank { _firebaseUser.value?.displayName ?: "Client" } ?: "Client"
         }
+        val resolvedCallerRole = when {
+            callerRole == "admin" -> "admin"
+            callerRole == "staff" && account?.isApprovedStaff == true -> "staff"
+            else -> "client"
+        }
 
         launchOutgoingCall(
             context = context,
             repo = repo,
             callerName = callerName,
-            callerRole = if (callerRole == "admin") "admin" else "client",
+            callerRole = resolvedCallerRole,
             calleeUid = calleeUid,
             calleeName = calleeName,
             chatId = chat.id,
             profileId = chat.profileId,
             profileName = chat.profileName,
+            isVideoCall = isVideoCall,
+            ratePerMinInr = ratePerMinInr,
+        )
+    }
+
+    fun startCallFromProfile(
+        context: Context,
+        profile: GalleryImage,
+        isVideoCall: Boolean,
+    ) {
+        val myUid = _firebaseUser.value?.uid
+        if (myUid.isNullOrBlank()) {
+            _events.tryEmit("Please sign in with Google first to call ${profile.title}.")
+            _pendingChatProfile.value = profile
+            return
+        }
+        val account = userAccount.value
+        val isAdminCaller = _isVerifiedAdminForCalls.value
+        if (isVideoCall && !isAdminCaller) {
+            if (account?.videoCallEnabled == false) {
+                _events.tryEmit("Video Call is turned OFF for your account by Admin.")
+                return
+            }
+            if (!profile.videoCallEnabled) {
+                _events.tryEmit("Video Call is turned OFF for ${profile.title} by Admin.")
+                return
+            }
+        }
+        val repo = callRepository ?: return
+        val callerName = account?.name?.ifBlank { _firebaseUser.value?.displayName ?: "Client" } ?: "Client"
+        val calleeUid = profile.ownerUid.ifBlank { CallStatus.ADMIN_CALLEE_UID }
+        val rateInr = if (isVideoCall) profile.videoCallPricePerMin else profile.voiceCallPricePerMin
+        val derivedChatId = "${myUid}_${profile.id}"
+
+        launchOutgoingCall(
+            context = context,
+            repo = repo,
+            callerName = callerName,
+            callerRole = if (isAdminCaller) "admin" else "client",
+            calleeUid = calleeUid,
+            calleeName = profile.title.ifBlank { "Companion" },
+            chatId = derivedChatId,
+            profileId = profile.id,
+            profileName = profile.title,
+            isVideoCall = isVideoCall,
+            ratePerMinInr = rateInr,
         )
     }
 
@@ -633,6 +723,7 @@ class SessionAndChatViewModel(
         context: Context,
         targetUser: UserAccount,
         relatedChat: ChatThread? = null,
+        isVideoCall: Boolean = false,
     ) {
         val repo = callRepository ?: return
         if (_firebaseUser.value == null) {
@@ -650,7 +741,24 @@ class SessionAndChatViewModel(
             chatId = relatedChat?.id.orEmpty(),
             profileId = relatedChat?.profileId.orEmpty(),
             profileName = relatedChat?.profileName ?: "Concierge Call",
+            isVideoCall = isVideoCall,
+            ratePerMinInr = 0,
         )
+    }
+
+    private fun attachVideoTrackObservers(client: WebRtcAudioCallClient) {
+        localVideoCollectJob?.cancel()
+        remoteVideoCollectJob?.cancel()
+        localVideoCollectJob = viewModelScope.launch {
+            client.localVideoTrackFlow.collect { track ->
+                _localVideoTrack.value = track
+            }
+        }
+        remoteVideoCollectJob = viewModelScope.launch {
+            client.remoteVideoTrackFlow.collect { track ->
+                _remoteVideoTrack.value = track
+            }
+        }
     }
 
     private fun launchOutgoingCall(
@@ -663,6 +771,8 @@ class SessionAndChatViewModel(
         chatId: String,
         profileId: String,
         profileName: String,
+        isVideoCall: Boolean = false,
+        ratePerMinInr: Int = 0,
     ) {
         if (_activeCallUi.value !is ActiveCallUi.Idle) {
             _events.tryEmit("Another call is already active.")
@@ -673,11 +783,14 @@ class SessionAndChatViewModel(
         handledIncomingCallIds.add(callId)
         appliedRemoteAnswerForCallId = null
         isMutedState = false
-        isSpeakerState = false
+        isSpeakerState = isVideoCall
+        isCameraOffState = false
+        isFrontCameraState = true
 
         viewModelScope.launch {
             val client = WebRtcAudioCallClient(
                 context = context,
+                isVideoCall = isVideoCall,
                 onLocalIceCandidate = { candidate ->
                     viewModelScope.launch {
                         repo.addIceCandidate(
@@ -704,6 +817,8 @@ class SessionAndChatViewModel(
                                 connectedAtEpochMs = System.currentTimeMillis(),
                                 isMuted = isMutedState,
                                 isSpeakerOn = isSpeakerState,
+                                isCameraOff = isCameraOffState,
+                                isFrontCamera = isFrontCameraState,
                             )
                         }
                     } else if (
@@ -715,11 +830,15 @@ class SessionAndChatViewModel(
                 }
             )
             webRtcClient = client
+            attachVideoTrackObservers(client)
 
             val offerResult = runCatching { client.createOfferSdp() }
             val offerSdp = offerResult.getOrElse { err ->
                 teardownCallResources()
-                _events.tryEmit("Unable to start microphone: ${err.localizedMessage ?: "Permission or audio error"}")
+                _events.tryEmit(
+                    if (isVideoCall) "Unable to start camera/mic: ${err.localizedMessage ?: "Permission error"}"
+                    else "Unable to start microphone: ${err.localizedMessage ?: "Permission or audio error"}"
+                )
                 return@launch
             }
 
@@ -733,10 +852,17 @@ class SessionAndChatViewModel(
                 profileId = profileId,
                 profileName = profileName,
                 offerSdp = offerSdp,
+                callType = if (isVideoCall) CallType.VIDEO else CallType.AUDIO,
+                ratePerMinInr = ratePerMinInr,
             )
             val session = createdRes.getOrElse { err ->
                 teardownCallResources()
-                _events.tryEmit("Call failed: ${err.localizedMessage ?: "Permission denied"}")
+                val msg = err.localizedMessage.orEmpty()
+                if (isVideoCall && msg.contains("PERMISSION_DENIED", ignoreCase = true)) {
+                    _events.tryEmit("Video Call is restricted by Admin for this user or companion.")
+                } else {
+                    _events.tryEmit("Call failed: ${msg.ifBlank { "Permission denied" }}")
+                }
                 return@launch
             }
 
@@ -748,6 +874,7 @@ class SessionAndChatViewModel(
                 calleeUid = calleeUid,
                 chatId = chatId,
                 profileName = profileName,
+                isVideoCall = isVideoCall,
             )
 
             activeCallSessionJob = viewModelScope.launch {
@@ -766,6 +893,8 @@ class SessionAndChatViewModel(
                                                 connectedAtEpochMs = System.currentTimeMillis(),
                                                 isMuted = isMutedState,
                                                 isSpeakerOn = isSpeakerState,
+                                                isCameraOff = isCameraOffState,
+                                                isFrontCamera = isFrontCameraState,
                                             )
                                         }
                                     }
@@ -802,12 +931,15 @@ class SessionAndChatViewModel(
         PixoraNotificationManager.cancelCallNotification(context, session.id)
         teardownCallResources()
         isMutedState = false
-        isSpeakerState = false
+        isSpeakerState = session.isVideoCall
+        isCameraOffState = false
+        isFrontCameraState = true
         _activeCallUi.value = ActiveCallUi.Connecting(session, isCaller = false)
 
         viewModelScope.launch {
             val client = WebRtcAudioCallClient(
                 context = context,
+                isVideoCall = session.isVideoCall,
                 onLocalIceCandidate = { candidate ->
                     viewModelScope.launch {
                         repo.addIceCandidate(
@@ -828,6 +960,8 @@ class SessionAndChatViewModel(
                                 connectedAtEpochMs = System.currentTimeMillis(),
                                 isMuted = isMutedState,
                                 isSpeakerOn = isSpeakerState,
+                                isCameraOff = isCameraOffState,
+                                isFrontCamera = isFrontCameraState,
                             )
                         }
                     } else if (state == PeerConnection.PeerConnectionState.FAILED) {
@@ -836,13 +970,14 @@ class SessionAndChatViewModel(
                 }
             )
             webRtcClient = client
+            attachVideoTrackObservers(client)
 
             val answerRes = runCatching {
                 client.acceptOfferAndCreateAnswerSdp(session.offerSdp)
             }
             val answerSdp = answerRes.getOrElse { err ->
                 declineIncomingCall(context, session)
-                _events.tryEmit("Audio call error: ${err.localizedMessage ?: "Unable to connect"}")
+                _events.tryEmit("Call error: ${err.localizedMessage ?: "Unable to connect"}")
                 return@launch
             }
 
@@ -859,6 +994,8 @@ class SessionAndChatViewModel(
                 connectedAtEpochMs = System.currentTimeMillis(),
                 isMuted = isMutedState,
                 isSpeakerOn = isSpeakerState,
+                isCameraOff = isCameraOffState,
+                isFrontCamera = isFrontCameraState,
             )
 
             activeCallSessionJob = viewModelScope.launch {
@@ -929,10 +1066,56 @@ class SessionAndChatViewModel(
         }
     }
 
+    fun toggleCallCamera() {
+        isCameraOffState = !isCameraOffState
+        webRtcClient?.setCameraEnabled(!isCameraOffState)
+        val current = _activeCallUi.value
+        if (current is ActiveCallUi.Connected) {
+            _activeCallUi.value = current.copy(isCameraOff = isCameraOffState)
+        }
+    }
+
+    fun switchCallCamera() {
+        webRtcClient?.switchCamera { isFront ->
+            isFrontCameraState = isFront
+            val current = _activeCallUi.value
+            if (current is ActiveCallUi.Connected) {
+                _activeCallUi.value = current.copy(isFrontCamera = isFront)
+            }
+        }
+    }
+
+    fun sendInCallGift(giftName: String, emoji: String, costCoins: Int) {
+        val session = (_activeCallUi.value as? ActiveCallUi.Connected)?.session ?: return
+        _events.tryEmit("Sent $emoji $giftName ($costCoins Coins) live!")
+        val relatedChat = findChatById(session.chatId)
+        if (relatedChat != null) {
+            val senderRole = when {
+                _isVerifiedAdminForCalls.value -> "admin"
+                userAccount.value?.isApprovedStaff == true -> "staff"
+                else -> "client"
+            }
+            sendChatMessage(
+                chat = relatedChat,
+                senderRole = senderRole,
+                text = "🎁 Sent $emoji $giftName ($costCoins DateCoins) during Live Call!",
+                onBlockedOrError = {},
+                onSent = {},
+            )
+        }
+    }
+
     private fun teardownCallResources() {
         ringTimeoutJob?.cancel()
         ringTimeoutJob = null
+        PixoraNotificationManager.stopBackgroundCallRinging()
         ringtonePlayer?.stopAll()
+        localVideoCollectJob?.cancel()
+        remoteVideoCollectJob?.cancel()
+        localVideoCollectJob = null
+        remoteVideoCollectJob = null
+        _localVideoTrack.value = null
+        _remoteVideoTrack.value = null
         activeCallSessionJob?.cancel()
         activeIceJob?.cancel()
         activeCallSessionJob = null

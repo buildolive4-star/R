@@ -37,6 +37,8 @@ import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Verified
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.VideocamOff
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -103,6 +105,8 @@ fun AdminStaffTab(
     onApproveStaff: (UserAccount, tier: String, directChatEnabled: Boolean) -> Unit,
     onRejectStaff: (userId: String) -> Unit,
     onSetStaffDirectChatAccess: (userId: String, enabled: Boolean) -> Unit = { _, _ -> },
+    onSetUserVideoCallAccess: (userId: String, enabled: Boolean) -> Unit = { _, _ -> },
+    onSetProfileVideoCallAccess: (profileId: String, enabled: Boolean) -> Unit = { _, _ -> },
     onLoadPrivateContact: (profileId: String) -> Unit,
     onUpdateProfile: (
         profileId: String,
@@ -119,7 +123,11 @@ fun AdminStaffTab(
         filterTags: List<String>,
         advanceBookingAmount: Int,
         bookingPlans: List<String>,
-    ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
+        videoCallEnabled: Boolean,
+        voiceCallPricePerMin: Int,
+        videoCallPricePerMin: Int,
+        chatPricePerMin: Int,
+    ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onRefreshProfile: (profileId: String) -> Unit,
     onDeleteProfile: (profileId: String) -> Unit,
     onOpenChatAsAdmin: (chatId: String) -> Unit,
@@ -459,7 +467,13 @@ fun AdminStaffTab(
             allChats = allChats,
             filterTaxonomy = filterTaxonomy,
             onSetStaffDirectChatAccess = onSetStaffDirectChatAccess,
-            onSaveEdits = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, filterTags, advanceAmt, bookingPlans ->
+            onSetProfileVideoCallAccess = { enabled ->
+                onSetProfileVideoCallAccess(activeProfile.id, enabled)
+                if (linkedStaffUser != null) {
+                    onSetUserVideoCallAccess(linkedStaffUser.uid, enabled)
+                }
+            },
+            onSaveEdits = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, filterTags, advanceAmt, bookingPlans, videoEnabled, voicePerMin, videoPerMin, chatPerMin ->
                 onUpdateProfile(
                     activeProfile.id,
                     name,
@@ -475,6 +489,10 @@ fun AdminStaffTab(
                     filterTags,
                     advanceAmt,
                     bookingPlans,
+                    videoEnabled,
+                    voicePerMin,
+                    videoPerMin,
+                    chatPerMin,
                 )
             },
             onRefresh = { onRefreshProfile(activeProfile.id) },
@@ -671,6 +689,7 @@ private fun StaffProfileInspectorSheet(
     allChats: List<ChatThread>,
     filterTaxonomy: List<FilterCategoryGroup>,
     onSetStaffDirectChatAccess: (userId: String, enabled: Boolean) -> Unit,
+    onSetProfileVideoCallAccess: (enabled: Boolean) -> Unit,
     onSaveEdits: (
         name: String,
         ageText: String,
@@ -685,6 +704,10 @@ private fun StaffProfileInspectorSheet(
         filterTags: List<String>,
         advanceBookingAmount: Int,
         bookingPlans: List<String>,
+        videoCallEnabled: Boolean,
+        voiceCallPricePerMin: Int,
+        videoCallPricePerMin: Int,
+        chatPricePerMin: Int,
     ) -> Unit,
     onRefresh: () -> Unit,
     onDelete: () -> Unit,
@@ -944,6 +967,61 @@ private fun StaffProfileInspectorSheet(
                     }
                 }
 
+                if (isSuperAdmin) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val videoOn = profile.videoCallEnabled && (linkedStaffUser?.videoCallEnabled != false)
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        border = BorderStroke(
+                            1.dp,
+                            if (videoOn) Color(0xFF16A34A).copy(alpha = 0.45f)
+                            else Color(0xFFDC2626).copy(alpha = 0.45f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(
+                                    imageVector = if (videoOn) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff,
+                                    contentDescription = null,
+                                    tint = if (videoOn) Color(0xFF16A34A) else Color(0xFFDC2626),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "1-on-1 Video Call Permission",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = if (videoOn) {
+                                            "ON · Audio ₹${profile.voiceCallPricePerMin}/m · Video ₹${profile.videoCallPricePerMin}/m · Chat ₹${profile.chatPricePerMin}/m"
+                                        } else {
+                                            "OFF · Video calls disabled for ${profile.title}"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (videoOn) Color(0xFF16A34A) else Color(0xFFDC2626)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Switch(
+                                checked = videoOn,
+                                onCheckedChange = onSetProfileVideoCallAccess,
+                                modifier = Modifier.testTag("inspector_video_call_switch_${profile.id}")
+                            )
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(14.dp))
 
                 if (isSuperAdmin) {
@@ -1016,9 +1094,9 @@ private fun StaffProfileInspectorSheet(
             profile = profile,
             privateContact = privateContact,
             filterTaxonomy = filterTaxonomy,
-            onSave = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, filterTags, advanceAmt, bookingPlans ->
+            onSave = { name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, filterTags, advanceAmt, bookingPlans, videoEnabled, voicePerMin, videoPerMin, chatPerMin ->
                 showEditDialog = false
-                onSaveEdits(name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, filterTags, advanceAmt, bookingPlans)
+                onSaveEdits(name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, filterTags, advanceAmt, bookingPlans, videoEnabled, voicePerMin, videoPerMin, chatPerMin)
             },
             onDismiss = { showEditDialog = false }
         )
@@ -1045,6 +1123,10 @@ private fun EditProfilePriceDialog(
         filterTags: List<String>,
         advanceBookingAmount: Int,
         bookingPlans: List<String>,
+        videoCallEnabled: Boolean,
+        voiceCallPricePerMin: Int,
+        videoCallPricePerMin: Int,
+        chatPricePerMin: Int,
     ) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1054,6 +1136,10 @@ private fun EditProfilePriceDialog(
     var advanceText by remember(profile.id) {
         mutableStateOf(if (profile.advanceBookingAmount > 0) profile.advanceBookingAmount.toString() else "299")
     }
+    var voiceRateText by remember(profile.id) { mutableStateOf(profile.voiceCallPricePerMin.toString()) }
+    var videoRateText by remember(profile.id) { mutableStateOf(profile.videoCallPricePerMin.toString()) }
+    var chatRateText by remember(profile.id) { mutableStateOf(profile.chatPricePerMin.toString()) }
+    var videoCallEnabled by remember(profile.id) { mutableStateOf(profile.videoCallEnabled) }
     var bookingPlans by remember(profile.id) {
         mutableStateOf(
             profile.bookingPlans.mapNotNull { BookingRatePlan.parse(it) }
@@ -1278,6 +1364,58 @@ private fun EditProfilePriceDialog(
                     }
                 }
 
+                Text(
+                    text = "Private Per-Minute Rates (₹/min)",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = voiceRateText,
+                        onValueChange = { voiceRateText = it.filter { c -> c.isDigit() }.take(5) },
+                        singleLine = true,
+                        label = { Text("Voice ₹/m") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = videoRateText,
+                        onValueChange = { videoRateText = it.filter { c -> c.isDigit() }.take(5) },
+                        singleLine = true,
+                        label = { Text("Video ₹/m") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = chatRateText,
+                        onValueChange = { chatRateText = it.filter { c -> c.isDigit() }.take(5) },
+                        singleLine = true,
+                        label = { Text("Chat ₹/m") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (videoCallEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Allow 1-on-1 Video Calls", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = videoCallEnabled, onCheckedChange = { videoCallEnabled = it })
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1310,6 +1448,10 @@ private fun EditProfilePriceDialog(
                         selectedFilterTags,
                         safeAdvance,
                         bookingPlans.map { it.encode() },
+                        videoCallEnabled,
+                        (voiceRateText.toIntOrNull() ?: 0).coerceIn(0, 50_000),
+                        (videoRateText.toIntOrNull() ?: 0).coerceIn(0, 50_000),
+                        (chatRateText.toIntOrNull() ?: 0).coerceIn(0, 50_000),
                     )
                 },
                 modifier = Modifier.testTag("save_profile_edits_button")

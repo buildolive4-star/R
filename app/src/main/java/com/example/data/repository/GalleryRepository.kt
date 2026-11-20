@@ -106,6 +106,10 @@ class GalleryRepository(
         filterTags: List<String> = emptyList(),
         advanceBookingAmount: Int = 299,
         bookingPlans: List<String> = emptyList(),
+        videoCallEnabled: Boolean = true,
+        voiceCallPricePerMin: Int = 0,
+        videoCallPricePerMin: Int = 0,
+        chatPricePerMin: Int = 0,
     ): Result<String> {
         var docPath = COLLECTION_COMPANION_PROFILES
         return try {
@@ -174,6 +178,10 @@ class GalleryRepository(
                 "filterTags" to safeFilterTags,
                 "advanceBookingAmount" to safeAdvance,
                 "bookingPlans" to safePlans,
+                "videoCallEnabled" to videoCallEnabled,
+                "voiceCallPricePerMin" to voiceCallPricePerMin.coerceIn(0, 100_000),
+                "videoCallPricePerMin" to videoCallPricePerMin.coerceIn(0, 100_000),
+                "chatPricePerMin" to chatPricePerMin.coerceIn(0, 100_000),
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
             )
@@ -228,6 +236,10 @@ class GalleryRepository(
         filterTags: List<String>? = null,
         advanceBookingAmount: Int? = null,
         bookingPlans: List<String>? = null,
+        videoCallEnabled: Boolean? = null,
+        voiceCallPricePerMin: Int? = null,
+        videoCallPricePerMin: Int? = null,
+        chatPricePerMin: Int? = null,
     ): Result<Unit> {
         val docPath = "$COLLECTION_COMPANION_PROFILES/$profileId"
         return try {
@@ -268,6 +280,18 @@ class GalleryRepository(
                     .distinct()
                     .take(12)
             }
+            if (videoCallEnabled != null) {
+                updates["videoCallEnabled"] = videoCallEnabled
+            }
+            if (voiceCallPricePerMin != null) {
+                updates["voiceCallPricePerMin"] = voiceCallPricePerMin.coerceIn(0, 100_000)
+            }
+            if (videoCallPricePerMin != null) {
+                updates["videoCallPricePerMin"] = videoCallPricePerMin.coerceIn(0, 100_000)
+            }
+            if (chatPricePerMin != null) {
+                updates["chatPricePerMin"] = chatPricePerMin.coerceIn(0, 100_000)
+            }
             db.document(docPath).update(updates).await()
 
             if (phone != null || address != null) {
@@ -283,6 +307,26 @@ class GalleryRepository(
                     )
                 ).await()
             }
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docPath)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setProfileVideoCallAccess(profileId: String, enabled: Boolean): Result<Unit> {
+        val docPath = "$COLLECTION_COMPANION_PROFILES/$profileId"
+        return try {
+            requireSignedInUid()
+            require(profileId.isNotBlank()) { "Profile ID required" }
+            db.document(docPath).update(
+                mapOf(
+                    "videoCallEnabled" to enabled,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e

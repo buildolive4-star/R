@@ -48,6 +48,8 @@ import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.VideocamOff
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -186,6 +188,10 @@ fun AdminStudioScreen(
         filterTags: List<String>,
         advanceBookingAmount: Int,
         bookingPlans: List<String>,
+        videoCallEnabled: Boolean,
+        voiceCallPricePerMin: Int,
+        videoCallPricePerMin: Int,
+        chatPricePerMin: Int,
     ) -> Unit,
     onResetPublishState: () -> Unit,
     onRefreshAllBlurred: () -> Unit,
@@ -205,13 +211,20 @@ fun AdminStudioScreen(
         filterTags: List<String>,
         advanceBookingAmount: Int,
         bookingPlans: List<String>,
-    ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
+        videoCallEnabled: Boolean,
+        voiceCallPricePerMin: Int,
+        videoCallPricePerMin: Int,
+        chatPricePerMin: Int,
+    ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onDeleteProfile: (String) -> Unit,
     onSelectUserFilter: (AdminUserFilter) -> Unit,
     onLoadNextUsersPage: () -> Unit,
     onSetUserLeadTag: (String, String) -> Unit,
     onSetUserModeration: (String, String) -> Unit,
+    onSetUserVideoCallAccess: (String, Boolean) -> Unit = { _, _ -> },
+    onSetProfileVideoCallAccess: (String, Boolean) -> Unit = { _, _ -> },
     onCallUser: (UserAccount, ChatThread?) -> Unit = { _, _ -> },
+    onVideoCallUser: (UserAccount, ChatThread?) -> Unit = { _, _ -> },
     onApproveStaff: (UserAccount, String, Boolean) -> Unit,
     onRejectStaff: (String) -> Unit,
     onSetStaffDirectChatAccess: (String, Boolean) -> Unit = { _, _ -> },
@@ -754,8 +767,10 @@ fun AdminStudioScreen(
                         onLoadNextPage = onLoadNextUsersPage,
                         onSetLeadTag = onSetUserLeadTag,
                         onSetModeration = onSetUserModeration,
+                        onSetUserVideoCallAccess = onSetUserVideoCallAccess,
                         onOpenChatAsAdmin = onOpenChatAsAdmin,
                         onCallUser = onCallUser,
+                        onVideoCallUser = onVideoCallUser,
                         onRequestChangeToMainAdmin = { reqType, targetId, targetTitle, details ->
                             quickRequestDraft = QuickRequestDraft(reqType, targetId, targetTitle, details)
                         },
@@ -773,6 +788,8 @@ fun AdminStudioScreen(
                         onApproveStaff = onApproveStaff,
                         onRejectStaff = onRejectStaff,
                         onSetStaffDirectChatAccess = onSetStaffDirectChatAccess,
+                        onSetUserVideoCallAccess = onSetUserVideoCallAccess,
+                        onSetProfileVideoCallAccess = onSetProfileVideoCallAccess,
                         onLoadPrivateContact = onLoadPrivateContact,
                         onUpdateProfile = onUpdateProfile,
                         onRefreshProfile = onRefreshProfile,
@@ -1519,6 +1536,10 @@ private fun AdminCreateProfileTab(
         filterTags: List<String>,
         advanceBookingAmount: Int,
         bookingPlans: List<String>,
+        videoCallEnabled: Boolean,
+        voiceCallPricePerMin: Int,
+        videoCallPricePerMin: Int,
+        chatPricePerMin: Int,
     ) -> Unit,
     onResetPublishState: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1531,6 +1552,10 @@ private fun AdminCreateProfileTab(
     var ageText by remember { mutableStateOf("22") }
     var price by remember { mutableStateOf("₹499") }
     var advancePriceText by remember(defaultAdvanceInr) { mutableStateOf(defaultAdvanceInr.toString()) }
+    var voiceRateText by remember { mutableStateOf("10") }
+    var videoRateText by remember { mutableStateOf("25") }
+    var chatRateText by remember { mutableStateOf("5") }
+    var videoCallEnabled by remember { mutableStateOf(true) }
     var bookingPlans by remember {
         mutableStateOf(
             listOf(
@@ -1960,6 +1985,92 @@ private fun AdminCreateProfileTab(
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
+                    // Private Per-Minute Call & Chat Pricing + Video Call Permission
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Private Call & Chat Pricing (₹/min)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                OutlinedTextField(
+                                    value = voiceRateText,
+                                    onValueChange = { voiceRateText = it.filter { c -> c.isDigit() }.take(5) },
+                                    singleLine = true,
+                                    label = { Text("Audio ₹/m") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("admin_create_voice_rate_input")
+                                )
+                                OutlinedTextField(
+                                    value = videoRateText,
+                                    onValueChange = { videoRateText = it.filter { c -> c.isDigit() }.take(5) },
+                                    singleLine = true,
+                                    label = { Text("Video ₹/m") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("admin_create_video_rate_input")
+                                )
+                                OutlinedTextField(
+                                    value = chatRateText,
+                                    onValueChange = { chatRateText = it.filter { c -> c.isDigit() }.take(5) },
+                                    singleLine = true,
+                                    label = { Text("Chat ₹/m") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("admin_create_chat_rate_input")
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(
+                                        if (videoCallEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff,
+                                        contentDescription = null,
+                                        tint = if (videoCallEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text("Allow 1-on-1 HD Video Calls", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            if (videoCallEnabled) "Users can video call this profile" else "Video call disabled for this profile",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Switch(
+                                    checked = videoCallEnabled,
+                                    onCheckedChange = { videoCallEnabled = it },
+                                    modifier = Modifier.testTag("admin_create_video_switch")
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -2042,6 +2153,10 @@ private fun AdminCreateProfileTab(
                                 selectedFilterTags,
                                 safeAdvance,
                                 bookingPlans.map { it.encode() },
+                                videoCallEnabled,
+                                (voiceRateText.toIntOrNull() ?: 0).coerceIn(0, 50_000),
+                                (videoRateText.toIntOrNull() ?: 0).coerceIn(0, 50_000),
+                                (chatRateText.toIntOrNull() ?: 0).coerceIn(0, 50_000),
                             )
                         },
                         enabled = !busy,

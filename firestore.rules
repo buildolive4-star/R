@@ -93,6 +93,19 @@ service cloud.firestore {
               userDoc(request.auth.uid).directChatEnabled == true);
     }
 
+    function isVideoCallAllowedForUid(uid) {
+      return !userDocExists(uid) ||
+             !('videoCallEnabled' in userDoc(uid)) ||
+             userDoc(uid).videoCallEnabled == true;
+    }
+
+    function isVideoCallAllowedForProfile(profileId) {
+      return profileId == '' ||
+             !exists(/databases/$(database)/documents/companion_profiles/$(profileId)) ||
+             !('videoCallEnabled' in get(/databases/$(database)/documents/companion_profiles/$(profileId)).data) ||
+             get(/databases/$(database)/documents/companion_profiles/$(profileId)).data.videoCallEnabled == true;
+    }
+
     function hasValidHttpsUrl(url) {
       return url is string && url.size() >= 8 && url.size() <= 1000 && url.matches('^https://.*');
     }
@@ -119,6 +132,10 @@ service cloud.firestore {
              (!('filterTags' in data) || (data.filterTags is list && data.filterTags.size() <= 24)) &&
              (!('advanceBookingAmount' in data) || (data.advanceBookingAmount is int && data.advanceBookingAmount >= 1 && data.advanceBookingAmount <= 500000)) &&
              (!('bookingPlans' in data) || (data.bookingPlans is list && data.bookingPlans.size() <= 12)) &&
+             (!('videoCallEnabled' in data) || data.videoCallEnabled is bool) &&
+             (!('voiceCallPricePerMin' in data) || (data.voiceCallPricePerMin is int && data.voiceCallPricePerMin >= 0 && data.voiceCallPricePerMin <= 100000)) &&
+             (!('videoCallPricePerMin' in data) || (data.videoCallPricePerMin is int && data.videoCallPricePerMin >= 0 && data.videoCallPricePerMin <= 100000)) &&
+             (!('chatPricePerMin' in data) || (data.chatPricePerMin is int && data.chatPricePerMin >= 0 && data.chatPricePerMin <= 100000)) &&
              data.createdByUid is string && data.createdByUid.size() >= 1 && data.createdByUid.size() <= 128 &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
@@ -155,6 +172,7 @@ service cloud.firestore {
              (!('staffProfileId' in data) || (data.staffProfileId is string && data.staffProfileId.size() <= 128)) &&
              (!('directChatEnabled' in data) || data.directChatEnabled is bool) &&
              (!('staffOnline' in data) || data.staffOnline is bool) &&
+             (!('videoCallEnabled' in data) || data.videoCallEnabled is bool) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
@@ -279,6 +297,7 @@ service cloud.firestore {
                          'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
                          'refreshEpochMs', 'status', 'ownerUid', 'staffVerified', 'staffOnline',
                          'filterTags', 'advanceBookingAmount', 'bookingPlans',
+                         'videoCallEnabled', 'voiceCallPricePerMin', 'videoCallPricePerMin', 'chatPricePerMin',
                          'createdByUid', 'createdAt', 'updatedAt'
                        ]);
 
@@ -293,7 +312,9 @@ service cloud.firestore {
                             'name', 'age', 'price', 'role', 'category', 'tier', 'bio', 'city',
                             'photoUrls', 'coverUrl', 'aspectRatio', 'hiddenTimed',
                             'refreshEpochMs', 'status', 'ownerUid', 'staffVerified', 'staffOnline',
-                            'filterTags', 'advanceBookingAmount', 'bookingPlans', 'updatedAt'
+                            'filterTags', 'advanceBookingAmount', 'bookingPlans',
+                            'videoCallEnabled', 'voiceCallPricePerMin', 'videoCallPricePerMin', 'chatPricePerMin',
+                            'updatedAt'
                           ])) ||
                          (isApprovedStaffUser() &&
                           existing().ownerUid != '' &&
@@ -326,6 +347,7 @@ service cloud.firestore {
                        (!('staffProfileId' in incoming()) || incoming().staffProfileId == '') &&
                        (!('directChatEnabled' in incoming()) || incoming().directChatEnabled == false) &&
                        (!('staffOnline' in incoming()) || incoming().staffOnline == false) &&
+                       (!('videoCallEnabled' in incoming()) || incoming().videoCallEnabled == true) &&
                        incoming().keys().hasAll([
                          'name', 'email', 'photoUrl', 'phone', 'age', 'address',
                          'completionPercent', 'online', 'lastActiveEpochMs',
@@ -338,7 +360,7 @@ service cloud.firestore {
                          'online', 'lastActiveEpochMs', 'hasInquiryNotification',
                          'leadTag', 'moderationStatus', 'staffStatus', 'staffRole',
                          'staffPrice', 'staffTier', 'staffProfileId', 'directChatEnabled', 'staffOnline',
-                         'createdAt', 'updatedAt'
+                         'videoCallEnabled', 'createdAt', 'updatedAt'
                        ]);
 
       allow update: if isSignedIn() &&
@@ -355,6 +377,8 @@ service cloud.firestore {
                             ('staffProfileId' in existing() && 'staffProfileId' in incoming() && incoming().staffProfileId == existing().staffProfileId)) &&
                            ((!('directChatEnabled' in existing()) && !('directChatEnabled' in incoming())) ||
                             ('directChatEnabled' in existing() && 'directChatEnabled' in incoming() && incoming().directChatEnabled == existing().directChatEnabled)) &&
+                           ((!('videoCallEnabled' in existing()) && !('videoCallEnabled' in incoming())) ||
+                            ('videoCallEnabled' in existing() && 'videoCallEnabled' in incoming() && incoming().videoCallEnabled == existing().videoCallEnabled)) &&
                            (!('staffOnline' in incoming()) || incoming().staffOnline == false || (existing().staffStatus == 'approved' && existing().moderationStatus == 'active')) &&
                            (
                              incoming().staffStatus == existing().staffStatus ||
@@ -802,12 +826,14 @@ service cloud.firestore {
     function isValidCallSession(data) {
       return data.callerUid is string && data.callerUid.size() >= 1 && data.callerUid.size() <= 128 &&
              data.callerName is string && data.callerName.size() >= 1 && data.callerName.size() <= 80 &&
-             data.callerRole is string && data.callerRole in ['client', 'admin'] &&
+             data.callerRole is string && data.callerRole in ['client', 'staff', 'admin'] &&
              data.calleeUid is string && data.calleeUid.size() >= 1 && data.calleeUid.size() <= 128 &&
              data.calleeName is string && data.calleeName.size() >= 1 && data.calleeName.size() <= 80 &&
              data.chatId is string && data.chatId.size() <= 128 &&
              data.profileId is string && data.profileId.size() <= 128 &&
              data.profileName is string && data.profileName.size() <= 80 &&
+             (!('callType' in data) || (data.callType is string && data.callType in ['audio', 'video'])) &&
+             (!('ratePerMinInr' in data) || (data.ratePerMinInr is int && data.ratePerMinInr >= 0 && data.ratePerMinInr <= 100000)) &&
              data.status is string && data.status in ['ringing', 'accepted', 'ended', 'declined', 'missed'] &&
              data.offerSdp is string && data.offerSdp.size() <= 20000 &&
              data.answerSdp is string && data.answerSdp.size() <= 20000 &&
@@ -835,7 +861,21 @@ service cloud.firestore {
                        incoming().callerUid == request.auth.uid &&
                        incoming().status == 'ringing' &&
                        !isUserBlockedOrSuspended() &&
-                       (incoming().callerRole == 'client' || isAdmin()) &&
+                       (
+                         incoming().callerRole == 'client' ||
+                         (incoming().callerRole == 'staff' && isApprovedStaffUser()) ||
+                         isAdmin()
+                       ) &&
+                       (
+                         !('callType' in incoming()) ||
+                         incoming().callType == 'audio' ||
+                         isAdmin() ||
+                         (
+                           isVideoCallAllowedForUid(request.auth.uid) &&
+                           (incoming().calleeUid == '__ADMIN__' || isVideoCallAllowedForUid(incoming().calleeUid)) &&
+                           isVideoCallAllowedForProfile(incoming().profileId)
+                         )
+                       ) &&
                        incoming().keys().hasAll([
                          'callerUid', 'callerName', 'callerRole', 'calleeUid', 'calleeName',
                          'chatId', 'profileId', 'profileName', 'status',
@@ -843,7 +883,7 @@ service cloud.firestore {
                        ]) &&
                        incoming().keys().hasOnly([
                          'callerUid', 'callerName', 'callerRole', 'calleeUid', 'calleeName',
-                         'chatId', 'profileId', 'profileName', 'status',
+                         'chatId', 'profileId', 'profileName', 'callType', 'ratePerMinInr', 'status',
                          'offerSdp', 'answerSdp', 'answeredByUid', 'createdAt', 'updatedAt'
                        ]);
 

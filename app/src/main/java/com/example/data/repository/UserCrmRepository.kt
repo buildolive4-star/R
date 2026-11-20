@@ -158,6 +158,7 @@ class UserCrmRepository(
                     "staffProfileId" to "",
                     "directChatEnabled" to false,
                     "staffOnline" to false,
+                    "videoCallEnabled" to true,
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp(),
                 )
@@ -685,6 +686,46 @@ class UserCrmRepository(
                     "updatedAt" to FieldValue.serverTimestamp(),
                 )
             ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docPath)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setUserVideoCallAccess(userId: String, enabled: Boolean): Result<Unit> {
+        val docPath = "$COLLECTION_USERS/$userId"
+        return try {
+            val currentEmail = Firebase.auth.currentUser?.email?.trim()?.lowercase()
+                ?: error("Sign in as Main Admin first")
+            require(currentEmail == SUPER_ADMIN_EMAIL) {
+                "Only Main Admin can toggle Video Call access."
+            }
+            require(userId.isNotBlank()) { "Invalid user ID" }
+            val userSnap = db.document(docPath).get().await()
+            db.document(docPath).update(
+                mapOf(
+                    "videoCallEnabled" to enabled,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+            // If this user is also an approved Staff with a linked companion_profiles doc, sync it too!
+            val linkedProfileId = userSnap.getString("staffProfileId")?.trim().orEmpty()
+            if (linkedProfileId.isNotBlank()) {
+                runCatching {
+                    val profRef = db.collection(GalleryRepository.COLLECTION_COMPANION_PROFILES).document(linkedProfileId)
+                    if (profRef.get().await().exists()) {
+                        profRef.update(
+                            mapOf(
+                                "videoCallEnabled" to enabled,
+                                "updatedAt" to FieldValue.serverTimestamp(),
+                            )
+                        ).await()
+                    }
+                }
+            }
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e

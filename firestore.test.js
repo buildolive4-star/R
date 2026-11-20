@@ -84,8 +84,8 @@ test("Multi-admin email whitelist managed in-app by Super Admin grants co-admin 
     })
   );
 
-  // Co-admin can now publish a VIP 16:9 companion profile + private contact
-  await assertSucceeds(
+  // Co-admin CANNOT directly publish companion profiles (Main Admin only)
+  await assertFails(
     coAdminDb.collection("companion_profiles").doc("vip_01").set({
       name: "Meera",
       age: 23,
@@ -108,8 +108,32 @@ test("Multi-admin email whitelist managed in-app by Super Admin grants co-admin 
     })
   );
 
+  // Super Admin publishes VIP 16:9 companion profile + private contact
   await assertSucceeds(
-    coAdminDb
+    superDb.collection("companion_profiles").doc("vip_01").set({
+      name: "Meera",
+      age: 23,
+      price: "₹999",
+      role: "GF",
+      category: "VIP",
+      tier: "vip_16_9",
+      bio: "Evening coffee & conversation",
+      photoUrls: ["https://i.ibb.co/vip/meera.jpg"],
+      coverUrl: "https://i.ibb.co/vip/meera.jpg",
+      aspectRatio: 16 / 9,
+      hiddenTimed: true,
+      refreshEpochMs: 0,
+      status: "published",
+      ownerUid: "",
+      staffVerified: true,
+      createdByUid: SUPER_ADMIN_UID,
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+
+  await assertSucceeds(
+    superDb
       .collection("companion_profiles")
       .doc("vip_01")
       .collection("private")
@@ -119,6 +143,16 @@ test("Multi-admin email whitelist managed in-app by Super Admin grants co-admin 
         address: "Bandra West, Mumbai",
         updatedAt: past,
       })
+  );
+
+  // Co-admin CAN read private contact for admin support
+  await assertSucceeds(
+    coAdminDb
+      .collection("companion_profiles")
+      .doc("vip_01")
+      .collection("private")
+      .doc("contact")
+      .get()
   );
 
   // Public & normal users can read companion profile, but NEVER private phone/address
@@ -967,6 +1001,232 @@ test("App Update and Promo Ticker rules allow public read and restrict writes to
   // Public / any user CAN read both configs
   await assertSucceeds(publicDb.collection("app_config").doc("app_update").get());
   await assertSucceeds(publicDb.collection("app_config").doc("promo_ticker").get());
+});
+
+test("Admin per-minute pricing, per-user/profile video call kill-switch, and staff calling", async () => {
+  const superDb = testEnv
+    .authenticatedContext(SUPER_ADMIN_UID, {
+      email: SUPER_ADMIN_EMAIL,
+      email_verified: true,
+    })
+    .firestore();
+  const aliceDb = testEnv
+    .authenticatedContext(ALICE_UID, {
+      email: "alice@example.com",
+      email_verified: true,
+    })
+    .firestore();
+  const staffUid = "staff_video_1";
+  const staffDb = testEnv
+    .authenticatedContext(staffUid, {
+      email: "staffvideo@example.com",
+      email_verified: true,
+    })
+    .firestore();
+  const past = new Date(Date.now() - 5000);
+
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await db.collection("users").doc(ALICE_UID).set({
+      name: "Alice",
+      email: "alice@example.com",
+      photoUrl: "",
+      phone: "9999999991",
+      age: 23,
+      address: "Mumbai",
+      completionPercent: 100,
+      online: true,
+      lastActiveEpochMs: Date.now(),
+      hasInquiryNotification: false,
+      leadTag: "none",
+      moderationStatus: "active",
+      staffStatus: "none",
+      videoCallEnabled: true,
+      createdAt: past,
+      updatedAt: past,
+    });
+    await db.collection("users").doc(staffUid).set({
+      name: "Priya Staff",
+      email: "staffvideo@example.com",
+      photoUrl: "",
+      phone: "9999999992",
+      age: 24,
+      address: "Delhi",
+      completionPercent: 100,
+      online: true,
+      lastActiveEpochMs: Date.now(),
+      hasInquiryNotification: false,
+      leadTag: "none",
+      moderationStatus: "active",
+      staffStatus: "approved",
+      staffProfileId: "prof_video_1",
+      directChatEnabled: true,
+      staffOnline: true,
+      videoCallEnabled: true,
+      createdAt: past,
+      updatedAt: past,
+    });
+  });
+
+  await assertSucceeds(
+    superDb.collection("companion_profiles").doc("prof_video_1").set({
+      name: "Priya",
+      age: 24,
+      price: "₹499",
+      role: "GF",
+      category: "VIP",
+      tier: "grid_9_16",
+      bio: "Private companion",
+      city: "Delhi",
+      photoUrls: ["https://example.com/p1.jpg"],
+      coverUrl: "https://example.com/p1.jpg",
+      aspectRatio: 0.5625,
+      hiddenTimed: false,
+      refreshEpochMs: Date.now(),
+      status: "published",
+      ownerUid: staffUid,
+      staffVerified: true,
+      staffOnline: true,
+      videoCallEnabled: true,
+      voiceCallPricePerMin: 25,
+      videoCallPricePerMin: 60,
+      chatPricePerMin: 10,
+      createdByUid: SUPER_ADMIN_UID,
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+
+  await assertSucceeds(
+    aliceDb.collection("call_sessions").doc("call_vid_ok").set({
+      callerUid: ALICE_UID,
+      callerName: "Alice",
+      callerRole: "client",
+      calleeUid: staffUid,
+      calleeName: "Priya",
+      chatId: `${ALICE_UID}_prof_video_1`,
+      profileId: "prof_video_1",
+      profileName: "Priya",
+      callType: "video",
+      ratePerMinInr: 60,
+      status: "ringing",
+      offerSdp: "v=0",
+      answerSdp: "",
+      answeredByUid: "",
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+
+  await assertSucceeds(
+    staffDb.collection("call_sessions").doc("call_staff_ok").set({
+      callerUid: staffUid,
+      callerName: "Priya",
+      callerRole: "staff",
+      calleeUid: ALICE_UID,
+      calleeName: "Alice",
+      chatId: `${ALICE_UID}_prof_video_1`,
+      profileId: "prof_video_1",
+      profileName: "Priya",
+      callType: "video",
+      ratePerMinInr: 60,
+      status: "ringing",
+      offerSdp: "v=0",
+      answerSdp: "",
+      answeredByUid: "",
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+
+  await assertSucceeds(
+    superDb.collection("users").doc(ALICE_UID).update({
+      videoCallEnabled: false,
+      updatedAt: past,
+    })
+  );
+
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      videoCallEnabled: true,
+      updatedAt: past,
+    })
+  );
+
+  await assertFails(
+    aliceDb.collection("call_sessions").doc("call_vid_blocked_user").set({
+      callerUid: ALICE_UID,
+      callerName: "Alice",
+      callerRole: "client",
+      calleeUid: staffUid,
+      calleeName: "Priya",
+      chatId: `${ALICE_UID}_prof_video_1`,
+      profileId: "prof_video_1",
+      profileName: "Priya",
+      callType: "video",
+      ratePerMinInr: 60,
+      status: "ringing",
+      offerSdp: "v=0",
+      answerSdp: "",
+      answeredByUid: "",
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+
+  await assertSucceeds(
+    aliceDb.collection("call_sessions").doc("call_audio_still_ok").set({
+      callerUid: ALICE_UID,
+      callerName: "Alice",
+      callerRole: "client",
+      calleeUid: staffUid,
+      calleeName: "Priya",
+      chatId: `${ALICE_UID}_prof_video_1`,
+      profileId: "prof_video_1",
+      profileName: "Priya",
+      callType: "audio",
+      ratePerMinInr: 25,
+      status: "ringing",
+      offerSdp: "v=0",
+      answerSdp: "",
+      answeredByUid: "",
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
+
+  await assertSucceeds(
+    superDb.collection("users").doc(ALICE_UID).update({
+      videoCallEnabled: true,
+      updatedAt: past,
+    })
+  );
+  await assertSucceeds(
+    superDb.collection("companion_profiles").doc("prof_video_1").update({
+      videoCallEnabled: false,
+      updatedAt: past,
+    })
+  );
+  await assertFails(
+    aliceDb.collection("call_sessions").doc("call_vid_blocked_profile").set({
+      callerUid: ALICE_UID,
+      callerName: "Alice",
+      callerRole: "client",
+      calleeUid: staffUid,
+      calleeName: "Priya",
+      chatId: `${ALICE_UID}_prof_video_1`,
+      profileId: "prof_video_1",
+      profileName: "Priya",
+      callType: "video",
+      ratePerMinInr: 60,
+      status: "ringing",
+      offerSdp: "v=0",
+      answerSdp: "",
+      answeredByUid: "",
+      createdAt: past,
+      updatedAt: past,
+    })
+  );
 });
 
 

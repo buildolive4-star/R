@@ -38,18 +38,30 @@ class CallRepository(
     suspend fun createCallSession(
         callId: String,
         callerName: String,
-        callerRole: String, // "client" or "admin"
+        callerRole: String, // "client", "staff", or "admin"
         calleeUid: String,
         calleeName: String,
         chatId: String,
         profileId: String,
         profileName: String,
         offerSdp: String,
+        callType: String = com.example.data.model.CallType.AUDIO,
+        ratePerMinInr: Int = 0,
     ): Result<CallSession> {
         val path = "$COLLECTION_CALLS/$callId"
         return try {
             val uid = requireSignedInUid()
-            val cleanRole = if (callerRole == "admin") "admin" else "client"
+            val cleanRole = when (callerRole) {
+                "admin" -> "admin"
+                "staff" -> "staff"
+                else -> "client"
+            }
+            val cleanCallType = if (callType.equals(com.example.data.model.CallType.VIDEO, ignoreCase = true)) {
+                com.example.data.model.CallType.VIDEO
+            } else {
+                com.example.data.model.CallType.AUDIO
+            }
+            val safeRate = ratePerMinInr.coerceIn(0, 100_000)
             val payload = hashMapOf<String, Any>(
                 "callerUid" to uid,
                 "callerName" to callerName.trim().ifBlank { "JustUs User" }.take(80),
@@ -59,6 +71,8 @@ class CallRepository(
                 "chatId" to chatId.trim().take(128),
                 "profileId" to profileId.trim().take(128),
                 "profileName" to profileName.trim().take(80),
+                "callType" to cleanCallType,
+                "ratePerMinInr" to safeRate,
                 "status" to CallStatus.RINGING,
                 "offerSdp" to offerSdp.take(19500),
                 "answerSdp" to "",
@@ -80,6 +94,8 @@ class CallRepository(
                 chatId = chatId,
                 profileId = profileId,
                 profileName = profileName,
+                callType = cleanCallType,
+                ratePerMinInr = safeRate,
                 status = CallStatus.RINGING,
                 offerSdp = offerSdp,
             )

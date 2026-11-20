@@ -44,6 +44,9 @@ import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.VideocamOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -60,9 +63,11 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -122,6 +127,11 @@ fun ChatRoomScreen(
     senderRole: String, // "client", "staff", "admin"
     onSendMessage: (text: String, onError: (String) -> Unit, onSuccess: () -> Unit) -> Unit,
     onStartVoiceCall: () -> Unit = {},
+    onStartVideoCall: () -> Unit = {},
+    isVideoCallAllowed: Boolean = true,
+    chatPricePerMin: Int = 0,
+    voiceCallPricePerMin: Int = 0,
+    videoCallPricePerMin: Int = 0,
     onBack: () -> Unit,
     peerPresence: PresenceStatus? = null,
     dateCoinsBalance: Int = 50,
@@ -365,12 +375,77 @@ fun ChatRoomScreen(
 
                             DateMate3DGlowingIconButton(
                                 icon = Icons.Rounded.Call,
-                                contentDescription = "Voice Call",
+                                contentDescription = if (voiceCallPricePerMin > 0) "Voice Call (₹$voiceCallPricePerMin/min)" else "Voice Call",
                                 onClick = onStartVoiceCall,
                                 style = GlowButtonStyle.EMERALD_CHAT,
-                                size = 42.dp,
-                                iconSize = 19.dp,
+                                size = 40.dp,
+                                iconSize = 18.dp,
                                 modifier = Modifier.testTag("chat_room_call_button")
+                            )
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            DateMate3DGlowingIconButton(
+                                icon = if (isVideoCallAllowed) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff,
+                                contentDescription = if (videoCallPricePerMin > 0) "Video Call (₹$videoCallPricePerMin/min)" else "Video Call",
+                                onClick = onStartVideoCall,
+                                style = if (isVideoCallAllowed) GlowButtonStyle.ROSE_PINK else GlowButtonStyle.GLASS_SOFT,
+                                size = 40.dp,
+                                iconSize = 18.dp,
+                                modifier = Modifier.testTag("chat_room_video_call_button")
+                            )
+                        }
+                    }
+                }
+
+                // Live Per-Minute Private Chat Rate & Running Timer Pill (when configured by Admin)
+                if (chatPricePerMin > 0 || voiceCallPricePerMin > 0 || videoCallPricePerMin > 0) {
+                    var chatSessionSeconds by remember(chat.id) { mutableLongStateOf(0L) }
+                    if (chatPricePerMin > 0) {
+                        LaunchedEffect(chat.id) {
+                            while (true) {
+                                delay(1000L)
+                                chatSessionSeconds += 1L
+                            }
+                        }
+                    }
+                    val mins = chatSessionSeconds / 60L
+                    val secs = chatSessionSeconds % 60L
+                    val billedMins = if (chatSessionSeconds <= 0L) 1L else ((chatSessionSeconds + 59L) / 60L)
+                    val estChatCost = (billedMins * chatPricePerMin).toInt()
+                    val rateSummary = buildList {
+                        if (chatPricePerMin > 0) add("Chat ₹$chatPricePerMin/m (${String.format("%02d:%02d", mins, secs)} · ₹$estChatCost)")
+                        if (voiceCallPricePerMin > 0) add("Audio ₹$voiceCallPricePerMin/m")
+                        if (videoCallPricePerMin > 0) add("Video ₹$videoCallPricePerMin/m")
+                    }.joinToString("  •  ")
+
+                    Surface(
+                        color = Color(0xFFFFF8E1),
+                        border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .testTag("chat_live_rate_banner")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Timer,
+                                contentDescription = null,
+                                tint = Color(0xFFB45309),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = rateSummary,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF92400E),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }

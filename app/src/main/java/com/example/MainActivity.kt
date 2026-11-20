@@ -280,6 +280,16 @@ class MainActivity : ComponentActivity() {
                     onConsumeDeepLinkChat = { pendingDeepLinkChat.value = null },
                     onConsumePaymentResultUri = { pendingPaymentResultUri.value = null },
                     onConsumeOpenBookingsTab = { pendingOpenBookingsTab.value = false },
+                    onScreenshotAllowedChanged = { allowed ->
+                        if (allowed) {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        } else {
+                            window.setFlags(
+                                WindowManager.LayoutParams.FLAG_SECURE,
+                                WindowManager.LayoutParams.FLAG_SECURE
+                            )
+                        }
+                    },
                 )
             }
         }
@@ -325,6 +335,7 @@ fun JustUsAppRoot(
     onConsumeDeepLinkChat: () -> Unit,
     onConsumePaymentResultUri: () -> Unit,
     onConsumeOpenBookingsTab: () -> Unit,
+    onScreenshotAllowedChanged: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -380,32 +391,46 @@ fun JustUsAppRoot(
     }
 
     val snackbarHostState = remember { SnackbarHostState() }
-    var pendingMicAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    val audioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { granted ->
-            val action = pendingMicAction
-            pendingMicAction = null
-            if (granted) {
-                action?.invoke()
-            } else {
-                scope.launch {
-                    snackbarHostState.showSnackbar("Microphone permission is required for WebRTC voice calls.")
+    var pendingCallAction by remember { mutableStateOf<Pair<Boolean, () -> Unit>?>(null) }
+    val callPermissionsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+        onResult = { results ->
+            val pending = pendingCallAction
+            pendingCallAction = null
+            if (pending != null) {
+                val (needsCamera, action) = pending
+                val micOk = results[Manifest.permission.RECORD_AUDIO] == true ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                val camOk = !needsCamera || results[Manifest.permission.CAMERA] == true ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                if (micOk && camOk) {
+                    action()
+                } else {
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            if (needsCamera) "Camera & Microphone permissions are required for HD Video Calls."
+                            else "Microphone permission is required for WebRTC voice calls."
+                        )
+                    }
                 }
             }
         }
     )
 
-    fun runWithMicPermission(action: () -> Unit) {
-        val granted = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-        if (granted) {
+    fun runWithCallPermissions(isVideoCall: Boolean, action: () -> Unit) {
+        val needed = buildList {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                add(Manifest.permission.RECORD_AUDIO)
+            }
+            if (isVideoCall && ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                add(Manifest.permission.CAMERA)
+            }
+        }
+        if (needed.isEmpty()) {
             action()
         } else {
-            pendingMicAction = action
-            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            pendingCallAction = isVideoCall to action
+            callPermissionsLauncher.launch(needed.toTypedArray())
         }
     }
 
@@ -492,9 +517,19 @@ fun JustUsAppRoot(
     var adminBypassFromUpdateLock by rememberSaveable { mutableStateOf(false) }
     val authErrorMessage by sessionViewModel.authErrorMessage.collectAsStateWithLifecycle()
     val activeCallUi by sessionViewModel.activeCallUi.collectAsStateWithLifecycle()
+    val localVideoTrack by sessionViewModel.localVideoTrack.collectAsStateWithLifecycle()
+    val remoteVideoTrack by sessionViewModel.remoteVideoTrack.collectAsStateWithLifecycle()
     val isVerifiedAdminForCalls by sessionViewModel.isVerifiedAdminForCalls.collectAsStateWithLifecycle()
     val launchBanner by sessionViewModel.launchBanner.collectAsStateWithLifecycle()
     val appShareConfig by sessionViewModel.appShareConfig.collectAsStateWithLifecycle()
+
+    // Screenshot Security Rule: ONLY Verified Admin / Main Admin can take screenshots.
+    // All regular users and staff remain protected with WindowManager.LayoutParams.FLAG_SECURE!
+    val isAdminScreenshotAllowed = isVerifiedAdminForCalls ||
+        firebaseUser?.email?.equals(UserCrmRepository.SUPER_ADMIN_EMAIL, ignoreCase = true) == true
+    LaunchedEffect(isAdminScreenshotAllowed) {
+        onScreenshotAllowedChanged(isAdminScreenshotAllowed)
+    }
 
     // Sync user's GF/BF preference & city/address into Home Page ranking & auto-filtering
     LaunchedEffect(userAccount?.genderPreference, userAccount?.city, userAccount?.address) {
@@ -746,7 +781,7 @@ fun JustUsAppRoot(
         }
     }
 
-    // 3. Incoming WebRTC Call Notification
+    // 3. Incoming WebRTC Call Notification (Voice & HD Video with Ringtone + Vibration)
     LaunchedEffect(sessionViewModel) {
         sessionViewModel.incomingCallAlert.collect { incoming ->
             PixoraNotificationManager.notifyIncomingCall(
@@ -754,6 +789,7 @@ fun JustUsAppRoot(
                 callId = incoming.id,
                 callerName = incoming.callerName,
                 profileName = incoming.profileName,
+                isVideoCall = incoming.isVideoCall,
             )
         }
     }
@@ -1126,6 +1162,17 @@ fun JustUsAppRoot(
                                         viewModel.revealHiddenImage(img, photoIdx)
                                     },
                                     onChatClick = sessionViewModel::requestChatWithProfile,
+                                    onVoiceCallClick = { selected ->
+                                        runWithCallPermissions(isVideoCall = false) {
+                                            sessionViewModel.startCallFromProfile(context, selected, isVideoCall = false)
+                                        }
+                                    },
+                                    onVideoCallClick = { selected ->
+                                        runWithCallPermissions(isVideoCall = true) {
+                                            sessionViewModel.startCallFromProfile(context, selected, isVideoCall = true)
+                                        }
+                                    },
+                                    isCurrentUserVideoAllowed = (userAccount?.videoCallEnabled != false) || isVerifiedAdminForCalls,
                                     onBookClick = { selected -> bookingTargetProfile = selected },
                                     defaultAdvanceInr = paymentServerConfig.defaultAdvanceInr,
                                     appShareConfig = appShareConfig,
@@ -1155,6 +1202,19 @@ fun JustUsAppRoot(
                                     sessionViewModel.observePeerPresence(chatThread, senderRole)
                                 }.collectAsStateWithLifecycle(initialValue = null)
 
+                                val linkedProfile = remember(galleryState, chatThread?.profileId, chatThread?.profileName) {
+                                    val items = (galleryState as? UiState.Success)?.data.orEmpty()
+                                    val pid = chatThread?.profileId.orEmpty()
+                                    items.firstOrNull { it.id == pid }
+                                        ?: items.firstOrNull {
+                                            chatThread?.profileName?.isNotBlank() == true &&
+                                                it.title.equals(chatThread?.profileName, ignoreCase = true)
+                                        }
+                                }
+                                val profileVideoAllowed = linkedProfile?.videoCallEnabled != false
+                                val chatVideoAllowed = isVerifiedAdminForCalls ||
+                                    ((userAccount?.videoCallEnabled != false) && profileVideoAllowed)
+
                                 LaunchedEffect(chatId, senderRole, messages.size) {
                                     sessionViewModel.markChatRead(chatId, senderRole)
                                 }
@@ -1175,10 +1235,34 @@ fun JustUsAppRoot(
                                     },
                                     onStartVoiceCall = {
                                         val active = chatThread ?: return@ChatRoomScreen
-                                        runWithMicPermission {
-                                            sessionViewModel.startVoiceCallFromChat(context, active, senderRole)
+                                        runWithCallPermissions(isVideoCall = false) {
+                                            sessionViewModel.startVoiceCallFromChat(
+                                                context = context,
+                                                chat = active,
+                                                callerRole = senderRole,
+                                                isVideoCall = false,
+                                                ratePerMinInr = linkedProfile?.voiceCallPricePerMin ?: 0,
+                                                profileVideoCallEnabled = profileVideoAllowed,
+                                            )
                                         }
                                     },
+                                    onStartVideoCall = {
+                                        val active = chatThread ?: return@ChatRoomScreen
+                                        runWithCallPermissions(isVideoCall = true) {
+                                            sessionViewModel.startVoiceCallFromChat(
+                                                context = context,
+                                                chat = active,
+                                                callerRole = senderRole,
+                                                isVideoCall = true,
+                                                ratePerMinInr = linkedProfile?.videoCallPricePerMin ?: 0,
+                                                profileVideoCallEnabled = profileVideoAllowed,
+                                            )
+                                        }
+                                    },
+                                    isVideoCallAllowed = chatVideoAllowed,
+                                    chatPricePerMin = linkedProfile?.chatPricePerMin ?: 0,
+                                    voiceCallPricePerMin = linkedProfile?.voiceCallPricePerMin ?: 0,
+                                    videoCallPricePerMin = linkedProfile?.videoCallPricePerMin ?: 0,
                                     onBack = { navController.popBackStack() },
                                     peerPresence = peerPresence,
                                     dateCoinsBalance = engagementPrefs.dateCoins,
@@ -1292,7 +1376,7 @@ fun JustUsAppRoot(
                                     onRedeemAccessCode = adminViewModel::redeemAdminAccessCode,
                                     onAddAdminEmail = adminViewModel::addAdminEmail,
                                     onRemoveAdminEmail = adminViewModel::removeAdminEmail,
-                                    onPublishCompanionProfile = { uris, manualUrl, name, phone, ageText, price, address, role, tier, category, bio, hiddenTimed, tags, advInr, plans ->
+                                    onPublishCompanionProfile = { uris, manualUrl, name, phone, ageText, price, address, role, tier, category, bio, hiddenTimed, tags, advInr, plans, videoEnabled, voicePerMin, videoPerMin, chatPerMin ->
                                         adminViewModel.publishCompanionProfile(
                                             context = context,
                                             selectedUris = uris,
@@ -1310,12 +1394,16 @@ fun JustUsAppRoot(
                                             filterTags = tags,
                                             advanceBookingAmount = advInr,
                                             bookingPlans = plans,
+                                            videoCallEnabled = videoEnabled,
+                                            voiceCallPricePerMin = voicePerMin,
+                                            videoCallPricePerMin = videoPerMin,
+                                            chatPricePerMin = chatPerMin,
                                         )
                                     },
                                     onResetPublishState = adminViewModel::resetPublishState,
                                     onRefreshAllBlurred = adminViewModel::refreshAllBlurredUploads,
                                     onRefreshProfile = adminViewModel::refreshBlurredUpload,
-                                    onUpdateProfile = { profileId, name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, tags, advInr, plans ->
+                                    onUpdateProfile = { profileId, name, ageText, price, role, category, tier, bio, hiddenTimed, phone, address, tags, advInr, plans, videoEnabled, voicePerMin, videoPerMin, chatPerMin ->
                                         adminViewModel.updateCompanionProfileDetails(
                                             profileId = profileId,
                                             name = name,
@@ -1331,6 +1419,10 @@ fun JustUsAppRoot(
                                             filterTags = tags,
                                             advanceBookingAmount = advInr,
                                             bookingPlans = plans,
+                                            videoCallEnabled = videoEnabled,
+                                            voiceCallPricePerMin = voicePerMin,
+                                            videoCallPricePerMin = videoPerMin,
+                                            chatPricePerMin = chatPerMin,
                                         )
                                     },
                                     onDeleteProfile = adminViewModel::deleteProfile,
@@ -1338,9 +1430,26 @@ fun JustUsAppRoot(
                                     onLoadNextUsersPage = adminViewModel::loadNextUsersPage,
                                     onSetUserLeadTag = adminViewModel::setUserLeadTag,
                                     onSetUserModeration = adminViewModel::setUserModerationStatus,
+                                    onSetUserVideoCallAccess = adminViewModel::setUserVideoCallAccess,
+                                    onSetProfileVideoCallAccess = adminViewModel::setProfileVideoCallAccess,
                                     onCallUser = { targetUser, relatedChat ->
-                                        runWithMicPermission {
-                                            sessionViewModel.startDirectAdminVoiceCallToUser(context, targetUser, relatedChat)
+                                        runWithCallPermissions(isVideoCall = false) {
+                                            sessionViewModel.startDirectAdminVoiceCallToUser(
+                                                context = context,
+                                                targetUser = targetUser,
+                                                relatedChat = relatedChat,
+                                                isVideoCall = false,
+                                            )
+                                        }
+                                    },
+                                    onVideoCallUser = { targetUser, relatedChat ->
+                                        runWithCallPermissions(isVideoCall = true) {
+                                            sessionViewModel.startDirectAdminVoiceCallToUser(
+                                                context = context,
+                                                targetUser = targetUser,
+                                                relatedChat = relatedChat,
+                                                isVideoCall = true,
+                                            )
                                         }
                                     },
                                     onApproveStaff = adminViewModel::approveStaffUser,
@@ -1416,13 +1525,13 @@ fun JustUsAppRoot(
 
             // Note: Startup logo/welcome overlay intentionally removed so app launches straight into animated Home Screen.
 
-            // Full-Screen WebRTC Voice Call Overlay
+            // Full-Screen WebRTC Private Voice & HD Video Call Overlay
             if (activeCallUi !is ActiveCallUi.Idle) {
                 AudioCallOverlay(
                     callUi = activeCallUi,
                     currentUid = firebaseUser?.uid.orEmpty(),
                     onAccept = { session ->
-                        runWithMicPermission {
+                        runWithCallPermissions(isVideoCall = session.isVideoCall) {
                             sessionViewModel.acceptIncomingCall(context, session)
                         }
                     },
@@ -1432,6 +1541,19 @@ fun JustUsAppRoot(
                     onHangUp = { sessionViewModel.hangUpCall(context) },
                     onToggleMute = sessionViewModel::toggleCallMute,
                     onToggleSpeaker = sessionViewModel::toggleCallSpeaker,
+                    localVideoTrack = localVideoTrack,
+                    remoteVideoTrack = remoteVideoTrack,
+                    eglBaseContext = sessionViewModel.getActiveCallEglContext(),
+                    dateCoinsBalance = engagementPrefs.dateCoins,
+                    onToggleCamera = sessionViewModel::toggleCallCamera,
+                    onSwitchCamera = sessionViewModel::switchCallCamera,
+                    onSendGift = { giftName, emoji, cost ->
+                        viewModel.spendDateCoinsForGift(cost) { ok ->
+                            if (ok) {
+                                sessionViewModel.sendInCallGift(giftName, emoji, cost)
+                            }
+                        }
+                    },
                 )
             }
         }

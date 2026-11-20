@@ -36,30 +36,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Chat
-import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.BlurOn
-import androidx.compose.material.icons.rounded.Bookmark
-import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material.icons.rounded.Shield
-import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Swipe
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Verified
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.VideocamOff
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -67,7 +61,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,6 +73,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -91,20 +85,15 @@ import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.model.AppShareConfig
 import com.example.data.model.GalleryImage
-import com.example.data.model.ProfileTier
-import com.example.ui.components.Animated3DMascotOrb
 import com.example.ui.components.CupidLikeSuccessOverlay
-import com.example.ui.components.DateBudgetEstimatorDialog
 import com.example.ui.components.DateMate3DGlowingButton
 import com.example.ui.components.DateMate3DGlowingIconButton
-import com.example.ui.components.DateMateMascot
-import com.example.ui.components.DateSafetyToolkitDialog
 import com.example.ui.components.GlowButtonStyle
-import com.example.ui.components.LiveOnlineStatusBadge
 import com.example.ui.components.LuxuryDateInviteCardDialog
 import com.example.ui.components.PixoraBlurredImage
 import com.example.ui.components.PixoraNetworkImage
 import com.example.ui.components.PriceBadgePill
+import com.example.ui.theme.OnlineEmeraldDot
 import com.example.ui.theme.WhatsAppGreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -116,6 +105,9 @@ fun ImageDetailScreen(
     onToggleBookmark: (GalleryImage) -> Unit,
     onRevealHiddenImage: (GalleryImage, Int) -> Unit,
     onChatClick: (GalleryImage) -> Unit,
+    onVoiceCallClick: (GalleryImage) -> Unit = {},
+    onVideoCallClick: (GalleryImage) -> Unit = {},
+    isCurrentUserVideoAllowed: Boolean = true,
     onBookClick: (GalleryImage) -> Unit = {},
     defaultAdvanceInr: Int = 299,
     appShareConfig: AppShareConfig = AppShareConfig(),
@@ -154,9 +146,8 @@ fun ImageDetailScreen(
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var showChrome by remember { mutableStateOf(true) }
+    var bioExpanded by remember(profile.id) { mutableStateOf(false) }
     var showInviteCardDialog by remember { mutableStateOf(false) }
-    var showBudgetEstimatorDialog by remember { mutableStateOf(false) }
-    var showSafetySosDialog by remember { mutableStateOf(false) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(profile.id, profile.photoRevealStates, profile.refreshEpochMs) {
@@ -176,13 +167,17 @@ fun ImageDetailScreen(
     val currentRevealStarted = profile.isPhotoRevealStarted(currentPage, nowMs)
     val currentRemainingSec = profile.remainingSecondsForPhoto(currentPage, nowMs)
     val unopenedCount = profile.unopenedPhotoCount(nowMs)
+    val videoAllowedHere = profile.videoCallEnabled && isCurrentUserVideoAllowed
+    val advanceInr = remember(profile.id, profile.advanceBookingAmount, defaultAdvanceInr) {
+        profile.resolvedAdvanceAmountInr(defaultAdvanceInr)
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0D080E))
+            .background(Color(0xFF0A070D))
     ) {
-        // HorizontalPager is ALWAYS mounted across all uploaded photos so single-finger horizontal swiping works seamlessly!
+        // Full-bleed swipeable gallery with 40s VIP reveal & pinch zoom
         HorizontalPager(
             state = pagerState,
             userScrollEnabled = scale <= 1.05f,
@@ -214,17 +209,17 @@ fun ImageDetailScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color(0x40120912))
+                                .background(Color(0x45120912))
                                 .padding(horizontal = 24.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Surface(
-                                shape = MaterialTheme.shapes.extraLarge,
-                                color = Color(0xDC1B111E),
+                                shape = RoundedCornerShape(26.dp),
+                                color = Color(0xE018101C),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .widthIn(max = 400.dp)
+                                    .widthIn(max = 380.dp)
                                     .testTag("detail_expired_blurred_card_$page")
                             ) {
                                 Column(
@@ -234,14 +229,14 @@ fun ImageDetailScreen(
                                     Surface(
                                         shape = CircleShape,
                                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                                        modifier = Modifier.size(58.dp)
+                                        modifier = Modifier.size(54.dp)
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
                                             Icon(
                                                 imageVector = Icons.Rounded.BlurOn,
                                                 contentDescription = null,
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(30.dp)
+                                                modifier = Modifier.size(28.dp)
                                             )
                                         }
                                     }
@@ -252,7 +247,7 @@ fun ImageDetailScreen(
                                         } else {
                                             stringResource(R.string.expired_detail_title)
                                         },
-                                        style = MaterialTheme.typography.titleLarge,
+                                        style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White,
                                         textAlign = TextAlign.Center
@@ -260,7 +255,7 @@ fun ImageDetailScreen(
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = if (unopenedCount > 0) {
-                                            "This photo faded into memory. Swipe left/right — $unopenedCount other photo(s) can still be opened!"
+                                            "Swipe to view $unopenedCount remaining photo(s)."
                                         } else {
                                             stringResource(R.string.expired_detail_subtitle)
                                         },
@@ -273,7 +268,7 @@ fun ImageDetailScreen(
                                         if (nextIdx != null) {
                                             Spacer(modifier = Modifier.height(14.dp))
                                             DateMate3DGlowingButton(
-                                                text = "Go to Photo ${nextIdx + 1} ($unopenedCount Left)",
+                                                text = "Open Photo ${nextIdx + 1}",
                                                 onClick = { scope.launch { pagerState.animateScrollToPage(nextIdx) } },
                                                 style = GlowButtonStyle.ROYAL_GOLD,
                                                 leadingIcon = Icons.Rounded.Swipe,
@@ -283,22 +278,13 @@ fun ImageDetailScreen(
                                             )
                                         }
                                     }
-                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Spacer(modifier = Modifier.height(10.dp))
                                     DateMate3DGlowingButton(
-                                        text = "Chat",
+                                        text = "Chat Now",
                                         onClick = { onChatClick(profile) },
                                         style = GlowButtonStyle.ROSE_PINK,
                                         leadingIcon = Icons.AutoMirrored.Rounded.Chat,
                                         modifier = Modifier.fillMaxWidth()
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    DateMate3DGlowingButton(
-                                        text = stringResource(R.string.back),
-                                        onClick = onBack,
-                                        style = GlowButtonStyle.GLASS_SOFT,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .testTag("detail_expired_back_button")
                                     )
                                 }
                             }
@@ -322,12 +308,12 @@ fun ImageDetailScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Surface(
-                            shape = MaterialTheme.shapes.extraLarge,
-                            color = Color(0xDE1D1220),
+                            shape = RoundedCornerShape(26.dp),
+                            color = Color(0xE01A1020),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .widthIn(max = 400.dp)
+                                .widthIn(max = 380.dp)
                         ) {
                             Column(
                                 modifier = Modifier.padding(24.dp),
@@ -336,14 +322,14 @@ fun ImageDetailScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                                    modifier = Modifier.size(60.dp)
+                                    modifier = Modifier.size(56.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             imageVector = Icons.Rounded.VisibilityOff,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(30.dp)
+                                            modifier = Modifier.size(28.dp)
                                         )
                                     }
                                 }
@@ -359,12 +345,10 @@ fun ImageDetailScreen(
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = "Private Photo ${page + 1} of ${photoUrls.size}",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.secondary
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Color(0xFFFFB2CE)
                                     )
                                 }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                PriceBadgePill(price = profile.displayPrice)
                                 Spacer(modifier = Modifier.height(16.dp))
                                 DateMate3DGlowingButton(
                                     text = if (photoUrls.size > 1) {
@@ -379,26 +363,12 @@ fun ImageDetailScreen(
                                         .fillMaxWidth()
                                         .testTag("detail_reveal_hidden_button_$page")
                                 )
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Text(
-                                    text = if (photoUrls.size > 1) {
-                                        "Each photo has its own 40s viewing timer. Swipe left or right anytime to open other photos."
-                                    } else {
-                                        stringResource(R.string.hidden_detail_subtitle)
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFFD6C4D4),
-                                    textAlign = TextAlign.Center
-                                )
                             }
                         }
                     }
                 }
 
                 else -> {
-                    // Visible clear photo (either standard OR actively revealed inside 40s window).
-                    // IMPORTANT: Only consume pointer events for 2-finger pinch OR when already zoomed (scale > 1.05f),
-                    // so single-finger horizontal swipes ALWAYS pass cleanly to HorizontalPager!
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -443,7 +413,7 @@ fun ImageDetailScreen(
                         PixoraNetworkImage(
                             imageUrl = photoUrl,
                             contentDescription = "${profile.title} photo ${page + 1}",
-                            contentScale = ContentScale.Fit,
+                            contentScale = ContentScale.Crop,
                             showSpinnerOnLoad = true,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -465,7 +435,7 @@ fun ImageDetailScreen(
             }
         }
 
-        // Top Floating Toolbar
+        // Minimal Floating Top Bar: Back | Countdown or Photo Count | Share + Favorite
         AnimatedVisibility(
             visible = showChrome || currentExpired,
             enter = fadeIn(),
@@ -476,12 +446,10 @@ fun ImageDetailScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        Brush.verticalGradient(
-                            listOf(Color(0xCC0E090E), Color.Transparent)
-                        )
+                        Brush.verticalGradient(listOf(Color(0xB80A070D), Color.Transparent))
                     )
                     .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -493,7 +461,7 @@ fun ImageDetailScreen(
                         modifier = Modifier
                             .minimumInteractiveComponentSize()
                             .clip(CircleShape)
-                            .background(Color(0xAA1D1220))
+                            .background(Color(0x99160E1A))
                             .testTag("detail_back_button")
                     ) {
                         Icon(
@@ -510,7 +478,7 @@ fun ImageDetailScreen(
                         if (currentRevealStarted && !currentExpired) {
                             Surface(
                                 shape = RoundedCornerShape(50),
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
                                 modifier = Modifier.testTag("detail_countdown_pill")
                             ) {
                                 Row(
@@ -521,9 +489,9 @@ fun ImageDetailScreen(
                                         imageVector = Icons.Rounded.Timer,
                                         contentDescription = null,
                                         tint = Color.White,
-                                        modifier = Modifier.size(15.dp)
+                                        modifier = Modifier.size(14.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text(
                                         text = stringResource(R.string.hidden_countdown_badge, currentRemainingSec),
                                         style = MaterialTheme.typography.labelMedium,
@@ -532,58 +500,64 @@ fun ImageDetailScreen(
                                     )
                                 }
                             }
-                        } else {
+                        } else if (photoUrls.size > 1) {
                             Surface(
                                 shape = RoundedCornerShape(50),
-                                color = Color(0xAA1D1220),
-                                border = BorderStroke(1.dp, Color(0x44FFFFFF))
-                            ) {
-                                Text(
-                                    text = "${profile.role} · ${profile.category}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-
-                        if (photoUrls.size > 1) {
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = Color(0xAA1D1220),
-                                border = BorderStroke(1.dp, Color(0x33FFFFFF))
+                                color = Color(0x99160E1A),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f))
                             ) {
                                 Text(
                                     text = "${pagerState.currentPage + 1} / ${photoUrls.size}",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFF3E6F1),
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                 )
                             }
                         }
                     }
 
                     if (!currentExpired) {
-                        DateMate3DGlowingIconButton(
-                            icon = if (isBookmarked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
-                            contentDescription = stringResource(
-                                if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
-                            ),
-                            onClick = handleLikeToggle,
-                            style = if (isBookmarked) GlowButtonStyle.ROSE_PINK else GlowButtonStyle.GLASS_SOFT,
-                            size = 44.dp,
-                            iconSize = 20.dp,
-                            modifier = Modifier.testTag("detail_bookmark_button")
-                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { showInviteCardDialog = true },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0x99160E1A))
+                                    .testTag("detail_share_card_pill")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Share,
+                                    contentDescription = "Share profile",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                            DateMate3DGlowingIconButton(
+                                icon = if (isBookmarked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = stringResource(
+                                    if (isBookmarked) R.string.bookmark_remove else R.string.bookmark_add
+                                ),
+                                onClick = handleLikeToggle,
+                                style = if (isBookmarked) GlowButtonStyle.ROSE_PINK else GlowButtonStyle.GLASS_SOFT,
+                                size = 42.dp,
+                                iconSize = 19.dp,
+                                modifier = Modifier.testTag("detail_bookmark_button")
+                            )
+                        }
                     } else {
-                        Spacer(modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.size(44.dp))
                     }
                 }
             }
         }
 
-        // Bottom Floating Profile Details + Interactive Photo Strip + WhatsApp Chat Action
+        // Clean, Simple Bottom Glass Sheet (OnlyFans + Tango Private Creator Layout)
         AnimatedVisibility(
             visible = showChrome && !currentExpired,
             enter = fadeIn(),
@@ -595,25 +569,26 @@ fun ImageDetailScreen(
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color(0xD90E090E), Color(0xFA0E090E))
+                            listOf(Color.Transparent, Color(0xCC0A070D), Color(0xFA0A070D))
                         )
                     )
                     .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Surface(
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = Color(0xDD1C111E),
-                    border = BorderStroke(1.dp, Color(0x33FFC0D5)),
+                    shape = RoundedCornerShape(28.dp),
+                    color = Color(0xDF170F1C),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .widthIn(max = 600.dp)
+                        .widthIn(max = 560.dp)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
+                        // Compact photo strip when multiple photos exist
                         if (photoUrls.size > 1) {
                             LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 12.dp)
@@ -626,12 +601,12 @@ fun ImageDetailScreen(
                                     val thumbLocked = profile.isHidden && !thumbExpired && !thumbRevealed
                                     Box(
                                         modifier = Modifier
-                                            .size(width = 48.dp, height = 62.dp)
-                                            .clip(RoundedCornerShape(10.dp))
+                                            .size(width = 40.dp, height = 52.dp)
+                                            .clip(RoundedCornerShape(9.dp))
                                             .border(
                                                 width = if (selected) 2.dp else 1.dp,
-                                                color = if (selected) MaterialTheme.colorScheme.primary else Color(0x44FFFFFF),
-                                                shape = RoundedCornerShape(10.dp)
+                                                color = if (selected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.25f),
+                                                shape = RoundedCornerShape(9.dp)
                                             )
                                             .clickable {
                                                 scope.launch { pagerState.animateScrollToPage(index) }
@@ -639,61 +614,28 @@ fun ImageDetailScreen(
                                             .testTag("detail_thumb_$index")
                                     ) {
                                         when {
-                                            thumbExpired -> {
-                                                PixoraBlurredImage(
-                                                    imageUrl = thumbUrl,
-                                                    contentDescription = "Blurred photo ${index + 1}",
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .background(Color(0x55120814)),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.BlurOn,
-                                                        contentDescription = null,
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-                                            }
-                                            thumbLocked -> {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .background(Color(0xFF28162C)),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.Lock,
-                                                        contentDescription = "Locked photo ${index + 1}",
-                                                        tint = MaterialTheme.colorScheme.primary,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-                                            }
-                                            else -> {
-                                                PixoraNetworkImage(
-                                                    imageUrl = thumbUrl,
-                                                    contentDescription = "Photo ${index + 1}",
-                                                    modifier = Modifier.fillMaxSize()
+                                            thumbExpired -> PixoraBlurredImage(
+                                                imageUrl = thumbUrl,
+                                                contentDescription = "Photo ${index + 1}",
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                            thumbLocked -> Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(Color(0xFF28162C)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Lock,
+                                                    contentDescription = "Locked",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(14.dp)
                                                 )
                                             }
-                                        }
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = Color(0xAA0D080E),
-                                            modifier = Modifier
-                                                .align(Alignment.BottomEnd)
-                                                .padding(2.dp)
-                                        ) {
-                                            Text(
-                                                text = "${index + 1}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = Color.White,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            else -> PixoraNetworkImage(
+                                                imageUrl = thumbUrl,
+                                                contentDescription = "Photo ${index + 1}",
+                                                modifier = Modifier.fillMaxSize()
                                             )
                                         }
                                     }
@@ -701,6 +643,7 @@ fun ImageDetailScreen(
                             }
                         }
 
+                        // Row 1: Name, Age, Verified, Online dot + Date Price
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -710,14 +653,6 @@ fun ImageDetailScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.weight(1f)
                             ) {
-                                if (profile.tier == ProfileTier.VIP_16_9) {
-                                    Animated3DMascotOrb(
-                                        mascot = DateMateMascot.ROYAL_MATE,
-                                        size = 34.dp,
-                                        showOrbitSparkles = false,
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                }
                                 Text(
                                     text = "${profile.title}, ${profile.age}",
                                     style = MaterialTheme.typography.headlineSmall,
@@ -729,149 +664,50 @@ fun ImageDetailScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Icon(
                                     imageVector = Icons.Rounded.Verified,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    contentDescription = "Verified",
+                                    tint = Color(0xFF38BDF8),
                                     modifier = Modifier.size(18.dp)
                                 )
+                                if (profile.staffOnline) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(9.dp)
+                                            .clip(CircleShape)
+                                            .background(OnlineEmeraldDot)
+                                            .testTag("detail_online_badge")
+                                    )
+                                }
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             PriceBadgePill(price = profile.displayPrice)
                         }
 
-                        // Trust & Safety Shield + Voice Bio Intro Bar
-                        var isPlayingVoiceBio by remember(profile.id) { mutableStateOf(false) }
-                        LaunchedEffect(isPlayingVoiceBio) {
-                            if (isPlayingVoiceBio) {
-                                kotlinx.coroutines.delay(5000L)
-                                isPlayingVoiceBio = false
+                        // Row 2: City · Role + Clean expandable 2-line bio
+                        val metaLine = buildString {
+                            if (profile.city.isNotBlank()) append(profile.city)
+                            if (profile.role.isNotBlank()) {
+                                if (isNotEmpty()) append(" · ")
+                                append(profile.role)
                             }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (profile.staffOnline || profile.ownerUid.isNotBlank()) {
-                                item(key = "detail_online_status") {
-                                    LiveOnlineStatusBadge(
-                                        isOnline = profile.staffOnline,
-                                        showOffline = profile.ownerUid.isNotBlank(),
-                                        modifier = Modifier.testTag("detail_online_badge")
-                                    )
-                                }
-                            }
-
-                            item(key = "detail_verified_shield") {
-                                Surface(
-                                    shape = RoundedCornerShape(50),
-                                    color = Color(0x2822C55E),
-                                    border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.5f))
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Shield,
-                                            contentDescription = null,
-                                            tint = Color(0xFF22C55E),
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "ID & Voice Verified",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFBBF7D0)
-                                        )
-                                    }
-                                }
-                            }
-
-                            item(key = "detail_voice_bio") {
-                                Surface(
-                                    onClick = { isPlayingVoiceBio = !isPlayingVoiceBio },
-                                    shape = RoundedCornerShape(50),
-                                    color = if (isPlayingVoiceBio) Color(0xFFE91E63) else Color(0x33FF6F9C),
-                                    border = BorderStroke(1.dp, Color(0xFFFF6F9C).copy(alpha = 0.65f))
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isPlayingVoiceBio) Icons.Rounded.Stop else Icons.Rounded.GraphicEq,
-                                            contentDescription = "Voice Intro",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = if (isPlayingVoiceBio) "Playing Voice Bio (0:05)…" else "Listen Voice Bio",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Color.White
-                                        )
-                                    }
-                                }
-                            }
-
-                            item(key = "detail_share_invite_card") {
-                                Surface(
-                                    onClick = { showInviteCardDialog = true },
-                                    shape = RoundedCornerShape(50),
-                                    color = Color(0x38FFD166),
-                                    border = BorderStroke(1.dp, Color(0xFFFFD166).copy(alpha = 0.7f)),
-                                    modifier = Modifier.testTag("detail_share_card_pill")
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Rounded.Share, contentDescription = null, tint = Color(0xFFFFE082), modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Share Card", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                                    }
-                                }
-                            }
-
-                            item(key = "detail_budget_split") {
-                                Surface(
-                                    onClick = { showBudgetEstimatorDialog = true },
-                                    shape = RoundedCornerShape(50),
-                                    color = Color(0x3338BDF8),
-                                    border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.65f)),
-                                    modifier = Modifier.testTag("detail_price_split_pill")
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Rounded.Calculate, contentDescription = null, tint = Color(0xFF7DD3FC), modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Price Split", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                                    }
-                                }
-                            }
-
-                            item(key = "detail_safety_sos") {
-                                Surface(
-                                    onClick = { showSafetySosDialog = true },
-                                    shape = RoundedCornerShape(50),
-                                    color = Color(0x3322C55E),
-                                    border = BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.65f)),
-                                    modifier = Modifier.testTag("detail_safety_sos_pill")
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Rounded.Shield, contentDescription = null, tint = Color(0xFF4ADE80), modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Safety SOS", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                                    }
-                                }
+                        if (metaLine.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Rounded.LocationOn,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF8BB5),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = metaLine,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color(0xFFD9C6D8),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
 
@@ -879,123 +715,69 @@ fun ImageDetailScreen(
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = profile.description,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFFF3E4F0),
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFEADCE8),
+                                maxLines = if (bioExpanded) 6 else 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.clickable { bioExpanded = !bioExpanded }
                             )
                         }
 
-                        if (profile.tags.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                itemsIndexed(profile.tags) { _, tag ->
-                                    Surface(
-                                        shape = RoundedCornerShape(50),
-                                        color = Color(0x33FFFFFF),
-                                        border = BorderStroke(0.8.dp, Color(0x55FF6F9C))
-                                    ) {
-                                        Text(
-                                            text = tag,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        Spacer(modifier = Modifier.height(14.dp))
 
-                        val ratePlans = remember(profile.id, profile.bookingPlans, profile.price) {
-                            profile.resolvedBookingPlans()
-                        }
-                        val advanceInr = remember(profile.id, profile.advanceBookingAmount, defaultAdvanceInr) {
-                            profile.resolvedAdvanceAmountInr(defaultAdvanceInr)
-                        }
-                        if (ratePlans.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                itemsIndexed(ratePlans) { _, plan ->
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = Color(0x38FFB300),
-                                        border = BorderStroke(0.9.dp, Color(0xAAFFD54F))
-                                    ) {
-                                        Text(
-                                            text = "${plan.label}: ${plan.priceText}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFFFF3C4),
-                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Pre-Booking Advance: ₹$advanceInr via Chrome Razorpay",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFFFD54F),
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-
-                        if (photoUrls.size > 1) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = if (profile.isHidden && unopenedCount > 0) {
-                                    "Swipe or tap thumbnails · $unopenedCount photo(s) ready to reveal"
-                                } else {
-                                    stringResource(R.string.swipe_hint)
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFBBA4B8)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
+                        // Row 3: Clean 3-Action Private Connect Bar (Chat / Audio / Video with ₹/min)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            DateMate3DGlowingButton(
-                                text = if (isBookmarked) "Liked" else "Like",
-                                onClick = handleLikeToggle,
-                                style = if (isBookmarked) GlowButtonStyle.ROSE_PINK else GlowButtonStyle.GLASS_SOFT,
-                                leadingIcon = if (isBookmarked) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder,
-                                compact = true,
-                                cornerRadius = 16.dp,
-                                modifier = Modifier.testTag("detail_bottom_like_button")
-                            )
-
-                            DateMate3DGlowingButton(
-                                text = "Chat",
+                            PrivateActionPill(
+                                icon = Icons.AutoMirrored.Rounded.Chat,
+                                title = "Chat",
+                                rateText = if (profile.chatPricePerMin > 0) "₹${profile.chatPricePerMin}/m" else "Private",
+                                accentColor = Color(0xFFE91E63),
+                                enabled = true,
                                 onClick = { onChatClick(profile) },
-                                style = GlowButtonStyle.ROSE_PINK,
-                                leadingIcon = Icons.AutoMirrored.Rounded.Chat,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("detail_whatsapp_chat_button")
+                                tag = "detail_whatsapp_chat_button",
+                                modifier = Modifier.weight(1f)
                             )
-
-                            DateMate3DGlowingButton(
-                                text = "Book",
-                                onClick = { onBookClick(profile) },
-                                style = GlowButtonStyle.ROYAL_GOLD,
-                                leadingIcon = Icons.Rounded.CalendarMonth,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("detail_book_now_button")
+                            PrivateActionPill(
+                                icon = Icons.Rounded.Call,
+                                title = "Audio",
+                                rateText = if (profile.voiceCallPricePerMin > 0) "₹${profile.voiceCallPricePerMin}/m" else "Voice",
+                                accentColor = WhatsAppGreen,
+                                enabled = true,
+                                onClick = { onVoiceCallClick(profile) },
+                                tag = "detail_voice_call_button",
+                                modifier = Modifier.weight(1f)
+                            )
+                            PrivateActionPill(
+                                icon = if (videoAllowedHere) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff,
+                                title = "Video",
+                                rateText = when {
+                                    !videoAllowedHere -> "Off"
+                                    profile.videoCallPricePerMin > 0 -> "₹${profile.videoCallPricePerMin}/m"
+                                    else -> "HD Live"
+                                },
+                                accentColor = if (videoAllowedHere) Color(0xFF9C27B0) else Color(0xFF6B6275),
+                                enabled = videoAllowedHere,
+                                onClick = { onVideoCallClick(profile) },
+                                tag = "detail_video_call_button",
+                                modifier = Modifier.weight(1f)
                             )
                         }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Row 4: Single Clean Bold CTA — Book Date
+                        DateMate3DGlowingButton(
+                            text = "Book Date · Advance ₹$advanceInr",
+                            onClick = { onBookClick(profile) },
+                            style = GlowButtonStyle.ROYAL_GOLD,
+                            leadingIcon = Icons.Rounded.CalendarMonth,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("detail_book_now_button")
+                        )
                     }
                 }
             }
@@ -1016,24 +798,53 @@ fun ImageDetailScreen(
             onDismiss = { showInviteCardDialog = false },
         )
     }
+}
 
-    if (showBudgetEstimatorDialog) {
-        DateBudgetEstimatorDialog(
-            profile = profile,
-            defaultAdvanceInr = defaultAdvanceInr,
-            onProceedToBook = { onBookClick(profile) },
-            onDismiss = { showBudgetEstimatorDialog = false },
-        )
-    }
-
-    if (showSafetySosDialog) {
-        DateSafetyToolkitDialog(
-            savedContactName = emergencyContactName,
-            savedContactPhone = emergencyContactPhone,
-            companionContextName = profile.title,
-            companionContextCity = profile.city,
-            onSaveContact = onSaveEmergencyContact,
-            onDismiss = { showSafetySosDialog = false },
-        )
+@Composable
+private fun PrivateActionPill(
+    icon: ImageVector,
+    title: String,
+    rateText: String,
+    accentColor: Color,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    tag: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = accentColor.copy(alpha = if (enabled) 0.20f else 0.12f),
+        border = BorderStroke(1.dp, accentColor.copy(alpha = if (enabled) 0.65f else 0.30f)),
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .testTag(tag)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = if (enabled) Color.White else Color.White.copy(alpha = 0.45f),
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (enabled) Color.White else Color.White.copy(alpha = 0.50f),
+                maxLines = 1
+            )
+            Text(
+                text = rateText,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (enabled) Color(0xFFFFE082) else Color.White.copy(alpha = 0.42f),
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
     }
 }

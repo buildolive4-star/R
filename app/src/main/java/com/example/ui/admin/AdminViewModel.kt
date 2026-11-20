@@ -478,6 +478,10 @@ class AdminViewModel(
         filterTags: List<String> = emptyList(),
         advanceBookingAmount: Int = 299,
         bookingPlans: List<String> = emptyList(),
+        videoCallEnabled: Boolean = true,
+        voiceCallPricePerMin: Int = 0,
+        videoCallPricePerMin: Int = 0,
+        chatPricePerMin: Int = 0,
     ) {
         if (!requireMainAdminAction("Create Profile")) {
             _publishState.value = AdminPublishState.Error("Co-Admin cannot create profiles directly. Submit a Change Request to Main Admin.")
@@ -542,6 +546,10 @@ class AdminViewModel(
                     filterTags = filterTags,
                     advanceBookingAmount = advanceBookingAmount,
                     bookingPlans = bookingPlans,
+                    videoCallEnabled = videoCallEnabled,
+                    voiceCallPricePerMin = voiceCallPricePerMin,
+                    videoCallPricePerMin = videoCallPricePerMin,
+                    chatPricePerMin = chatPricePerMin,
                 )
                 cloudRes.onSuccess { newId ->
                     val previewImg = GalleryImage(
@@ -560,6 +568,10 @@ class AdminViewModel(
                         filterTags = filterTags,
                         advanceBookingAmount = advanceBookingAmount,
                         bookingPlans = bookingPlans,
+                        videoCallEnabled = videoCallEnabled,
+                        voiceCallPricePerMin = voiceCallPricePerMin,
+                        videoCallPricePerMin = videoCallPricePerMin,
+                        chatPricePerMin = chatPricePerMin,
                         isHidden = hiddenTimed,
                     )
                     _uploadedPreviewAlert.tryEmit(previewImg)
@@ -602,6 +614,10 @@ class AdminViewModel(
                     filterTags = filterTags,
                     advanceBookingAmount = advanceBookingAmount,
                     bookingPlans = bookingPlans,
+                    videoCallEnabled = videoCallEnabled,
+                    voiceCallPricePerMin = voiceCallPricePerMin,
+                    videoCallPricePerMin = videoCallPricePerMin,
+                    chatPricePerMin = chatPricePerMin,
                     isHidden = hiddenTimed,
                     refreshEpochMs = System.currentTimeMillis(),
                 )
@@ -728,6 +744,52 @@ class AdminViewModel(
         }
     }
 
+    fun setUserVideoCallAccess(userId: String, enabled: Boolean) {
+        if (!requireMainAdminAction("Video Call Permission")) return
+        viewModelScope.launch {
+            userCrmRepository.setUserVideoCallAccess(userId, enabled)
+                .onSuccess {
+                    _events.tryEmit(
+                        if (enabled) "Video Call ENABLED ✓"
+                        else "Video Call TURNED OFF 🔒"
+                    )
+                }
+                .onFailure {
+                    _events.tryEmit(it.localizedMessage ?: "Could not update Video Call access")
+                }
+        }
+    }
+
+    fun setProfileVideoCallAccess(profileId: String, enabled: Boolean) {
+        if (!requireMainAdminAction("Profile Video Call Permission")) return
+        viewModelScope.launch {
+            val existingLocal = localDeviceUploads.value.firstOrNull { it.id == profileId }
+            if (existingLocal != null) {
+                uploadsRepository.updateUpload(
+                    imageId = profileId,
+                    title = existingLocal.title,
+                    description = existingLocal.description,
+                    category = existingLocal.category,
+                    price = existingLocal.price,
+                    tags = existingLocal.tags,
+                    videoCallEnabled = enabled,
+                )
+            }
+            val isRemote = cloudCompanionProfiles.value.any { it.id == profileId }
+            if (isRemote && _isVerifiedAdmin.value) {
+                galleryRepository.setProfileVideoCallAccess(profileId, enabled)
+                    .onSuccess {
+                        _events.tryEmit(if (enabled) "Profile Video Call ON ✓" else "Profile Video Call OFF 🔒")
+                    }
+                    .onFailure {
+                        _events.tryEmit(it.localizedMessage ?: "Could not update profile Video Call access")
+                    }
+            } else {
+                _events.tryEmit(if (enabled) "Profile Video Call ON ✓" else "Profile Video Call OFF 🔒")
+            }
+        }
+    }
+
     fun rejectStaffUser(userId: String) {
         if (!requireMainAdminAction("Reject Staff")) return
         viewModelScope.launch {
@@ -752,6 +814,10 @@ class AdminViewModel(
         filterTags: List<String>? = null,
         advanceBookingAmount: Int? = null,
         bookingPlans: List<String>? = null,
+        videoCallEnabled: Boolean? = null,
+        voiceCallPricePerMin: Int? = null,
+        videoCallPricePerMin: Int? = null,
+        chatPricePerMin: Int? = null,
     ) {
         if (!requireMainAdminAction("Edit Profile")) return
         val cleanName = name.trim().ifBlank { "Companion" }
@@ -774,6 +840,10 @@ class AdminViewModel(
                 filterTags = filterTags,
                 advanceBookingAmount = advanceBookingAmount,
                 bookingPlans = bookingPlans,
+                videoCallEnabled = videoCallEnabled,
+                voiceCallPricePerMin = voiceCallPricePerMin,
+                videoCallPricePerMin = videoCallPricePerMin,
+                chatPricePerMin = chatPricePerMin,
             )
             val isRemote = cloudCompanionProfiles.value.any { it.id == profileId }
             if (isRemote && _isVerifiedAdmin.value) {
@@ -792,6 +862,10 @@ class AdminViewModel(
                     filterTags = filterTags,
                     advanceBookingAmount = advanceBookingAmount,
                     bookingPlans = bookingPlans,
+                    videoCallEnabled = videoCallEnabled,
+                    voiceCallPricePerMin = voiceCallPricePerMin,
+                    videoCallPricePerMin = videoCallPricePerMin,
+                    chatPricePerMin = chatPricePerMin,
                 )
                 _isBusy.value = false
                 res.onSuccess {

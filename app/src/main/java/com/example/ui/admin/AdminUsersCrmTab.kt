@@ -38,6 +38,8 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.PauseCircle
 import androidx.compose.material.icons.rounded.Verified
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.rounded.VideocamOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -98,8 +101,10 @@ fun AdminUsersCrmTab(
     onLoadNextPage: () -> Unit,
     onSetLeadTag: (userId: String, leadTag: String) -> Unit,
     onSetModeration: (userId: String, status: String) -> Unit,
+    onSetUserVideoCallAccess: (userId: String, enabled: Boolean) -> Unit = { _, _ -> },
     onOpenChatAsAdmin: (chatId: String) -> Unit,
     onCallUser: (UserAccount, ChatThread?) -> Unit = { _, _ -> },
+    onVideoCallUser: (UserAccount, ChatThread?) -> Unit = { _, _ -> },
     onRequestChangeToMainAdmin: (requestType: String, targetId: String, targetTitle: String, initialDetails: String) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier,
 ) {
@@ -276,6 +281,7 @@ fun AdminUsersCrmTab(
             allChats = allChats,
             onSetLeadTag = { tag -> onSetLeadTag(activeUser.uid, tag) },
             onSetModeration = { status -> onSetModeration(activeUser.uid, status) },
+            onSetVideoCallAccess = { enabled -> onSetUserVideoCallAccess(activeUser.uid, enabled) },
             onRequestChange = {
                 inspectedUser = null
                 onRequestChangeToMainAdmin(
@@ -288,6 +294,10 @@ fun AdminUsersCrmTab(
             onCallUser = {
                 inspectedUser = null
                 onCallUser(activeUser, userInquiries.firstOrNull())
+            },
+            onVideoCallUser = {
+                inspectedUser = null
+                onVideoCallUser(activeUser, userInquiries.firstOrNull())
             },
             onOpenChat = { chatId ->
                 inspectedUser = null
@@ -425,8 +435,10 @@ private fun UserCrmInspectorSheet(
     allChats: List<ChatThread>,
     onSetLeadTag: (String) -> Unit,
     onSetModeration: (String) -> Unit,
+    onSetVideoCallAccess: (Boolean) -> Unit,
     onRequestChange: () -> Unit,
     onCallUser: () -> Unit,
+    onVideoCallUser: () -> Unit,
     onOpenChat: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -600,27 +612,107 @@ private fun UserCrmInspectorSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Button(
-                onClick = onCallUser,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = WhatsAppGreen,
-                    contentColor = Color.White,
-                ),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .minimumInteractiveComponentSize()
-                    .testTag("crm_voice_call_button")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Rounded.Call, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("WebRTC Voice Call ${user.name.ifBlank { "Member" }}", fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = onCallUser,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = WhatsAppGreen,
+                        contentColor = Color.White,
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .minimumInteractiveComponentSize()
+                        .testTag("crm_voice_call_button")
+                ) {
+                    Icon(Icons.Rounded.Call, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Voice Call", fontWeight = FontWeight.Bold, maxLines = 1)
+                }
+
+                Button(
+                    onClick = onVideoCallUser,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF9C27B0),
+                        contentColor = Color.White,
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .minimumInteractiveComponentSize()
+                        .testTag("crm_video_call_button")
+                ) {
+                    Icon(Icons.Rounded.Videocam, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Video Call", fontWeight = FontWeight.Bold, maxLines = 1)
+                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
             if (isSuperAdmin) {
+                // Main Admin Per-User Video Call Kill-Switch
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    border = BorderStroke(
+                        1.dp,
+                        if (user.videoCallEnabled) Color(0xFF16A34A).copy(alpha = 0.5f)
+                        else Color(0xFFDC2626).copy(alpha = 0.5f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = if (user.videoCallEnabled) Icons.Rounded.Videocam else Icons.Rounded.VideocamOff,
+                                contentDescription = null,
+                                tint = if (user.videoCallEnabled) Color(0xFF16A34A) else Color(0xFFDC2626),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Private Video Call Access",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (user.videoCallEnabled) {
+                                        "ON: User can make & receive 1-on-1 HD Video Calls."
+                                    } else {
+                                        "OFF: Video Call is blocked for this user."
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (user.videoCallEnabled) Color(0xFF16A34A) else Color(0xFFDC2626)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = user.videoCallEnabled,
+                            onCheckedChange = onSetVideoCallAccess,
+                            modifier = Modifier.testTag("admin_user_video_switch_${user.uid}")
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 Text(
                     text = "Lead Color Classification",
                     style = MaterialTheme.typography.labelLarge

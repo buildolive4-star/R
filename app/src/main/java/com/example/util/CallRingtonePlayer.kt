@@ -8,6 +8,7 @@ import android.media.Ringtone
 import android.media.RingtoneManager
 import android.media.ToneGenerator
 import android.os.Build
+import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -20,8 +21,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * WhatsApp-style audio ringing & vibration controller:
- * - Incoming call: continuous looping system ringtone + rhythmic vibration until answered/declined/ended.
+ * WhatsApp-style audio ringing & strong ringtone vibration controller:
+ * - Incoming call: continuous looping system ringtone + strong ringtone-attributed vibration until answered/declined/ended.
+ * - Uses VibrationAttributes.USAGE_RINGTONE on Android 13+ so background/lockscreen OEMs do NOT suppress vibration.
  * - Outgoing call: soft repeating dual-burst ringback ("trrr-trrr ... trrr-trrr") via voice-call stream.
  */
 class CallRingtonePlayer(
@@ -32,6 +34,7 @@ class CallRingtonePlayer(
     private var fallbackRingtone: Ringtone? = null
     private var toneGenerator: ToneGenerator? = null
     private var outgoingJob: Job? = null
+    private var vibrationBackupJob: Job? = null
     private var currentMode: Mode = Mode.IDLE
 
     private enum class Mode {
@@ -78,6 +81,10 @@ class CallRingtonePlayer(
                     RingtoneManager.getRingtone(appContext, uri)?.apply {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                             isLooping = true
+                            audioAttributes = AudioAttributes.Builder()
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                                .build()
                         }
                         play()
                         fallbackRingtone = this
@@ -123,6 +130,8 @@ class CallRingtonePlayer(
         currentMode = Mode.IDLE
         outgoingJob?.cancel()
         outgoingJob = null
+        vibrationBackupJob?.cancel()
+        vibrationBackupJob = null
 
         runCatching {
             mediaPlayer?.let { mp ->
@@ -147,16 +156,66 @@ class CallRingtonePlayer(
     }
 
     private fun startVibrationLoop() {
-        val pattern = longArrayOf(0L, 550L, 400L, 550L, 1200L)
+        val pattern = longArrayOf(0L, 650L, 350L, 650L, 1000L)
+        val amplitudes = intArrayOf(0, 255, 0, 255, 0)
         runCatching {
             val vibrator = getVibrator() ?: return
             if (!vibrator.hasVibrator()) return
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createWaveform(pattern, 0))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(pattern, 0)
+            vibrateWithRingtoneAttrs(vibrator, pattern, amplitudes, repeat = 0)
+        }
+        // Extra safety pulse loop for OEMs that cancel repeating waveforms when screen turns off
+        vibrationBackupJob?.cancel()
+        vibrationBackupJob = scope.launch {
+            delay(2800L)
+            while (isActive && currentMode == Mode.INCOMING) {
+                runCatching {
+                    val vibrator = getVibrator()
+                    if (vibrator != null && vibrator.hasVibrator()) {
+                        vibrateWithRingtoneAttrs(
+                            vibrator,
+                            longArrayOf(0L, 600L, 300L, 600L),
+                            intArrayOf(0, 255, 0, 255),
+                            repeat = -1,
+                        )
+                    }
+                }
+                delay(2600L)
             }
+        }
+    }
+
+    private fun vibrateWithRingtoneAttrs(
+        vibrator: Vibrator,
+        pattern: LongArray,
+        amplitudes: IntArray,
+        repeat: Int,
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val effect = if (vibrator.hasAmplitudeControl()) {
+                VibrationEffect.createWaveform(pattern, amplitudes, repeat)
+            } else {
+                VibrationEffect.createWaveform(pattern, repeat)
+            }
+            val attrs = VibrationAttributes.Builder()
+                .setUsage(VibrationAttributes.USAGE_RINGTONE)
+                .build()
+            vibrator.vibrate(effect, attrs)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val effect = if (vibrator.hasAmplitudeControl()) {
+                VibrationEffect.createWaveform(pattern, amplitudes, repeat)
+            } else {
+                VibrationEffect.createWaveform(pattern, repeat)
+            }
+            @Suppress("DEPRECATION")
+            val audioAttrs = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .build()
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(effect, audioAttrs)
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(pattern, repeat)
         }
     }
 

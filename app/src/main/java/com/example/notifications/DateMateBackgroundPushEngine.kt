@@ -2,13 +2,15 @@ package com.example.notifications
 
 import android.content.Context
 import com.example.R
+import com.example.data.model.CallSession
 import com.example.data.model.ChatThread
 import com.example.data.preferences.NotifiedImagesStore
+import com.example.data.repository.CallRepository
 import com.example.data.repository.ChatRepository
 import com.example.data.repository.UserCrmRepository
 import com.example.ui.components.InAppBannerEvent
 import com.google.firebase.Firebase
-import com.google.firebase. FirebaseApp
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -27,8 +29,9 @@ import kotlinx.coroutines.launch
  * Application-scoped real-time push notification engine that stays active even when
  * the user minimizes the app or goes to the Android Home Screen ("App ke bahar").
  *
- * Ensures that every new client message, companion reply, or admin reply immediately
- * triggers a real Android OS System Push Notification (Status Bar + Heads-Up Popup + Lockscreen).
+ * Monitors BOTH:
+ * 1. Real-time Chat messages (client, staff, admin) -> System Push Notification + Sound + Vibration
+ * 2. Real-time Incoming Voice & HD Video Calls (`call_sessions`) -> Full-Screen Call Push + Continuous Ringtone + Strong Vibration!
  */
 object DateMateBackgroundPushEngine {
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -43,6 +46,9 @@ object DateMateBackgroundPushEngine {
     private var activeViewingChatRole: String = ""
 
     private var activeAuthWatchJob: Job? = null
+    private var activeCallWatchJob: Job? = null
+    private val notifiedBackgroundCallIds = mutableSetOf<String>()
+    private val activeRingingCallIds = mutableSetOf<String>()
 
     private val _inAppBannerEvents = MutableSharedFlow<InAppBannerEvent>(extraBufferCapacity = 8)
     val inAppBannerEvents: SharedFlow<InAppBannerEvent> = _inAppBannerEvents.asSharedFlow()
@@ -65,6 +71,7 @@ object DateMateBackgroundPushEngine {
 
         val chatRepo = ChatRepository(db)
         val crmRepo = UserCrmRepository(db)
+        val callRepo = CallRepository(db)
         val notifiedStore = NotifiedImagesStore(appCtx)
 
         val authListener = FirebaseAuth.AuthStateListener { auth ->
@@ -74,18 +81,19 @@ object DateMateBackgroundPushEngine {
                 uid = uid,
                 chatRepo = chatRepo,
                 crmRepo = crmRepo,
+                callRepo = callRepo,
                 notifiedStore = notifiedStore,
             )
         }
         Firebase.auth.addAuthStateListener(authListener)
 
-        // Also trigger an immediate check for current user
         val initialUid = Firebase.auth.currentUser?.uid.orEmpty()
         restartUserPushStreams(
             appCtx = appCtx,
             uid = initialUid,
             chatRepo = chatRepo,
             crmRepo = crmRepo,
+            callRepo = callRepo,
             notifiedStore = notifiedStore,
         )
     }
@@ -103,6 +111,7 @@ object DateMateBackgroundPushEngine {
             uid = uid,
             chatRepo = ChatRepository(db),
             crmRepo = UserCrmRepository(db),
+            callRepo = CallRepository(db),
             notifiedStore = NotifiedImagesStore(appCtx),
         )
     }
@@ -112,13 +121,35 @@ object DateMateBackgroundPushEngine {
         uid: String,
         chatRepo: ChatRepository,
         crmRepo: UserCrmRepository,
+        callRepo: CallRepository,
         notifiedStore: NotifiedImagesStore,
     ) {
         activeAuthWatchJob?.cancel()
-        if (uid.isBlank()) return
+        activeCallWatchJob?.cancel()
+        if (uid.isBlank()) {
+            PixoraNotificationManager.stopBackgroundCallRinging()
+            return
+        }
 
         activeAuthWatchJob = engineScope.launch {
             val isVerifiedAdmin = runCatching { crmRepo.checkIsCurrentUserAdmin() }.getOrDefault(false)
+
+            // Launch dedicated real-time incoming Voice & Video Call observer (works in background too!)
+            activeCallWatchJob?.cancel()
+            activeCallWatchJob = engineScope.launch {
+                val userCallsFlow = callRepo.observeIncomingCallsForUser(uid)
+                val adminCallsFlow = if (isVerifiedAdmin) callRepo.observeIncomingCallsForAdmin() else flowOf(emptyList())
+                combine(userCallsFlow, adminCallsFlow) { directCalls, adminCalls ->
+                    (directCalls + adminCalls).distinctBy { it.id }
+                }.collect { ringingCalls ->
+                    processIncomingCallSnapshots(
+                        appCtx = appCtx,
+                        myUid = uid,
+                        ringingCalls = ringingCalls,
+                    )
+                }
+            }
+
             val clientFlow = chatRepo.observeClientChats(uid)
             val staffFlow = chatRepo.observeStaffInboxChats(uid)
             val adminFlow = if (isVerifiedAdmin) chatRepo.observeAllChatsForAdmin() else flowOf(emptyList())
@@ -134,6 +165,47 @@ object DateMateBackgroundPushEngine {
                     adminChats = adminChats,
                     isVerifiedAdmin = isVerifiedAdmin,
                 )
+            }
+        }
+    }
+
+    private fun processIncomingCallSnapshots(
+        appCtx: Context,
+        myUid: String,
+        ringingCalls: List<CallSession>,
+    ) {
+        val now = System.currentTimeMillis()
+        val freshIncoming = ringingCalls.filter { call ->
+            val createdMs = call.createdAt?.toDate()?.time ?: now
+            call.callerUid != myUid && (now - createdMs) <= 120_000L
+        }
+        val currentIds = freshIncoming.map { it.id }.toSet()
+
+        // Cancel notifications for calls that stopped ringing (answered / declined / missed / ended)
+        val endedIds = activeRingingCallIds.filterNot { it in currentIds }
+        endedIds.forEach { endedCallId ->
+            PixoraNotificationManager.cancelCallNotification(appCtx, endedCallId)
+            activeRingingCallIds.remove(endedCallId)
+        }
+        if (currentIds.isEmpty()) {
+            PixoraNotificationManager.stopBackgroundCallRinging()
+        }
+
+        // Fire full-screen high-priority notification + continuous ringtone + strong vibration for new calls
+        freshIncoming.forEach { call ->
+            if (!notifiedBackgroundCallIds.contains(call.id)) {
+                notifiedBackgroundCallIds.add(call.id)
+                activeRingingCallIds.add(call.id)
+                PixoraNotificationManager.notifyIncomingCall(
+                    context = appCtx,
+                    callId = call.id,
+                    callerName = call.callerName.ifBlank { "DateMate" },
+                    profileName = call.profileName,
+                    isVideoCall = call.isVideoCall,
+                )
+                if (!OneSignalPushManager.isAppInForeground) {
+                    PixoraNotificationManager.startBackgroundCallRinging(appCtx)
+                }
             }
         }
     }
@@ -224,7 +296,6 @@ object DateMateBackgroundPushEngine {
                         activeViewingChatRole == item.role
 
                 if (!isCurrentlyInsideSameChat) {
-                    // 1. Always post real Android OS System Push Notification (Status Bar + Heads-Up + Lockscreen)
                     PixoraNotificationManager.playAlertChime(appCtx)
                     PixoraNotificationManager.postChatPushAsync(
                         context = appCtx,
@@ -235,7 +306,6 @@ object DateMateBackgroundPushEngine {
                         avatarUrl = item.avatar,
                     )
 
-                    // 2. Also emit to in-app banner stream if app is open
                     _inAppBannerEvents.tryEmit(
                         InAppBannerEvent.ChatMessageArrival(
                             chatId = item.chatId,

@@ -445,9 +445,11 @@ object OneSignalPushManager {
         calleeUid: String,
         chatId: String,
         profileName: String,
+        isVideoCall: Boolean = false,
     ) {
         if (!isFullyConfigured() || calleeUid.isBlank()) return
         pushScope.launch {
+            val callTitle = if (isVideoCall) "Incoming HD Video Call" else "Incoming Voice Call"
             val payload = JSONObject().apply {
                 put("app_id", appId)
                 if (calleeUid == "__ADMIN__") {
@@ -469,12 +471,12 @@ object OneSignalPushManager {
                         JSONObject().put("external_id", JSONArray().put(calleeUid))
                     )
                 }
-                put("headings", JSONObject().put("en", "Incoming Voice Call · ${callerName.ifBlank { "JustUs" }}"))
+                put("headings", JSONObject().put("en", "$callTitle · ${callerName.ifBlank { "DateMate" }}"))
                 put(
                     "contents",
                     JSONObject().put(
                         "en",
-                        if (profileName.isNotBlank()) "Regarding $profileName · Tap to answer" else "Tap to answer"
+                        if (profileName.isNotBlank()) "Private ${if (isVideoCall) "Video" else "Voice"} Call · $profileName · Tap to answer" else "Tap to answer"
                     )
                 )
                 put(
@@ -482,6 +484,7 @@ object OneSignalPushManager {
                     JSONObject()
                         .put("type", "call")
                         .put("call_id", callId)
+                        .put("call_type", if (isVideoCall) "video" else "audio")
                         .put("chat_id", chatId)
                         .put("chat_role", if (callerRole == "admin") "client" else "admin")
                 )

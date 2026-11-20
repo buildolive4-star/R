@@ -42,7 +42,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 object PixoraNotificationManager {
     const val CHANNEL_ID = "datemate_system_push_profiles_v7"
     const val CHANNEL_MESSAGES_ID = "datemate_system_push_messages_v7"
-    const val CHANNEL_CALLS_ID = "datemate_system_push_calls_v6"
+    const val CHANNEL_CALLS_ID = "datemate_system_push_calls_v8"
     const val CHANNEL_BG_SYNC_ID = "datemate_live_push_monitor_v1"
 
     const val EXTRA_IMAGE_ID = "extra_justus_profile_id"
@@ -194,15 +194,16 @@ object PixoraNotificationManager {
                 manager.createNotificationChannel(
                     NotificationChannel(
                         CHANNEL_CALLS_ID,
-                        "DateMate Voice Calls",
+                        "DateMate Voice & Video Calls",
                         NotificationManager.IMPORTANCE_HIGH
                     ).apply {
-                        description = "Incoming WebRTC audio call alerts"
+                        description = "Incoming WebRTC voice & HD video call alerts with ringtone and vibration"
                         enableLights(true)
                         lightColor = Color.parseColor("#E91E63")
                         enableVibration(true)
                         vibrationPattern = CALL_VIBRATION
                         setSound(ringtoneSound, ringtoneAttrs)
+                        setBypassDnd(true)
                         lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                     }
                 )
@@ -467,49 +468,130 @@ object PixoraNotificationManager {
         }
     }
 
+    @Volatile
+    private var backgroundRingtonePlayer: com.example.util.CallRingtonePlayer? = null
+
+    fun startBackgroundCallRinging(context: Context) {
+        val appCtx = context.applicationContext
+        val player = backgroundRingtonePlayer ?: com.example.util.CallRingtonePlayer(appCtx).also {
+            backgroundRingtonePlayer = it
+        }
+        player.startIncomingRingtone()
+    }
+
+    fun stopBackgroundCallRinging() {
+        runCatching { backgroundRingtonePlayer?.stopAll() }
+    }
+
     fun notifyIncomingCall(
         context: Context,
         callId: String,
         callerName: String,
         profileName: String,
+        isVideoCall: Boolean = false,
     ) {
-        ensureChannel(context)
-        if (!hasNotificationPermission(context)) return
+        val appCtx = context.applicationContext
+        ensureChannel(appCtx)
+        // Always kick off hardware ringtone vibration immediately even if OEM suppresses channel vibration
+        triggerIncomingCallVibrationBurst(appCtx)
+        if (!hasNotificationPermission(appCtx)) return
 
-        val tapIntent = Intent(context, MainActivity::class.java).apply {
+        val tapIntent = Intent(appCtx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(EXTRA_CALL_ID, callId)
         }
         val notificationId = ("call_" + callId).hashCode()
         val pendingIntent = PendingIntent.getActivity(
-            context,
+            appCtx,
             notificationId,
             tapIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val ringtone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        val callLabel = if (isVideoCall) "Incoming HD Video Call" else "Incoming Voice Call"
+        val bodyText = if (profileName.isNotBlank()) {
+            "Private ${if (isVideoCall) "Video" else "Voice"} Call · $profileName · Tap to Answer"
+        } else {
+            "Tap to Answer"
+        }
 
-        val builder = NotificationCompat.Builder(context, CHANNEL_CALLS_ID)
+        val builder = NotificationCompat.Builder(appCtx, CHANNEL_CALLS_ID)
             .setSmallIcon(R.drawable.ic_notification_pixora)
             .setColor(Color.parseColor("#E91E63"))
-            .setContentTitle("Incoming Voice Call · $callerName")
-            .setContentText(if (profileName.isNotBlank()) "Regarding $profileName · Tap to Answer" else "Tap to Answer")
+            .setContentTitle("$callLabel · $callerName")
+            .setContentText(bodyText)
+            .setTicker("$callLabel from $callerName")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSound(ringtone)
             .setVibrate(CALL_VIBRATION)
+            .setDefaults(NotificationCompat.DEFAULT_LIGHTS)
             .setOngoing(true)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(false)
+            .setTimeoutAfter(45_000L)
             .setContentIntent(pendingIntent)
+            .setFullScreenIntent(pendingIntent, true)
+            .addAction(
+                R.drawable.ic_notification_pixora,
+                if (isVideoCall) "Answer Video" else "Answer Call",
+                pendingIntent
+            )
 
         try {
-            NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+            val notification = builder.build().apply {
+                // Keep ringing + vibrating continuously until user answers or call ends
+                flags = flags or Notification.FLAG_INSISTENT
+            }
+            val nm = NotificationManagerCompat.from(appCtx)
+            nm.cancel(notificationId)
+            nm.notify(notificationId, notification)
         } catch (_: SecurityException) {
         }
     }
 
+    private fun triggerIncomingCallVibrationBurst(context: Context) {
+        runCatching {
+            val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            if (vibrator != null && vibrator.hasVibrator()) {
+                val pattern = longArrayOf(0L, 650L, 350L, 650L)
+                val amplitudes = intArrayOf(0, 255, 0, 255)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val effect = if (vibrator.hasAmplitudeControl()) {
+                        VibrationEffect.createWaveform(pattern, amplitudes, -1)
+                    } else {
+                        VibrationEffect.createWaveform(pattern, -1)
+                    }
+                    val attrs = android.os.VibrationAttributes.Builder()
+                        .setUsage(android.os.VibrationAttributes.USAGE_RINGTONE)
+                        .build()
+                    vibrator.vibrate(effect, attrs)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val effect = VibrationEffect.createWaveform(pattern, -1)
+                    @Suppress("DEPRECATION")
+                    val audioAttrs = AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .build()
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(effect, audioAttrs)
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(pattern, -1)
+                }
+            }
+        }
+    }
+
     fun cancelCallNotification(context: Context, callId: String) {
+        stopBackgroundCallRinging()
         runCatching {
             NotificationManagerCompat.from(context).cancel(("call_" + callId).hashCode())
         }
